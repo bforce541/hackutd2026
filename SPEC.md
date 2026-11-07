@@ -61,15 +61,15 @@ A pnpm workspaces monorepo. Everything is TypeScript.
 
 ```bash
 pnpm install
-npx @dotenvx/dotenvx run -- node scripts/check-keys.mjs   # every key should pass
-pnpm dev          # = npx @dotenvx/dotenvx run -- pnpm -r --parallel --stream dev
+npx @dotenvx/dotenvx run --convention=nextjs -- node scripts/check-keys.mjs
+pnpm dev          # = npx @dotenvx/dotenvx run --convention=nextjs -- pnpm -r --parallel --stream dev
 pnpm test         # = pnpm -r test (vitest)
 pnpm typecheck
 pnpm demo:e2e     # scripted end-to-end run, no phones (section 11)
 pnpm arena -- --count 50 --concurrency 4
 ```
 
-Each app's own `dev` script: server `tsx watch src/index.ts`, voice `tsx src/agent.ts dev`, dashboard `next dev -p 3000`. Every script that needs secrets runs under `npx @dotenvx/dotenvx run -- …`.
+Each app's own `dev` script: server `tsx watch src/index.ts`, voice `tsx src/agent.ts dev`, dashboard `next dev -p 3000`. Every script that needs secrets runs under `npx @dotenvx/dotenvx run --convention=nextjs -- …`, which also loads a personal, gitignored `.env.local`.
 
 ---
 
@@ -931,7 +931,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 | Account | Where | Env vars | Owner | Notes |
 |---|---|---|---|---|
-| TrueFoundry | Ram's gateway | `TRUEFOUNDRY_API_KEY`, `TRUEFOUNDRY_BASE_URL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `ANTHROPIC_MODEL`, `EMBED_MODEL`, `IMAGE_MODEL`, `TTS_MODEL` | Ram | One key for every model except the call voice and Ultra. Model IDs are in section 5.4. |
+| TrueFoundry | Ram's gateway | `TRUEFOUNDRY_API_KEY`, `TRUEFOUNDRY_BASE_URL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `ANTHROPIC_MODEL`, `EMBED_MODEL`, `IMAGE_MODEL`, `TTS_MODEL` | Ram | One key for every model except the call voice and Ultra. The key stays on Ram's machine in `.env.local` (not in `.env`), so gateway calls run on Ram's laptop; teammates stub model calls or use their own keys. Model IDs are in section 5.4. |
 | NVIDIA (optional) | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Agent brain | Only for Nemotron 3 Ultra; without it the planner uses Super. Get the $60 Brev code from HackUTD staff. |
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. Fall back to `gpt-realtime` if the LiveKit plugin rejects `gpt-realtime-2`. |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |

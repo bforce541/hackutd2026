@@ -19,11 +19,13 @@ This repo is public, so every key lives in `.env` **encrypted** with [dotenvx](h
 2. Check that your keys work:
 
    ```bash
-   npx @dotenvx/dotenvx run -- node scripts/check-keys.mjs
+   npx @dotenvx/dotenvx run --convention=nextjs -- node scripts/check-keys.mjs
    ```
 
-3. Run anything with the keys loaded by putting `npx @dotenvx/dotenvx run --` in front of the command.
+3. Run anything with the keys loaded by putting `npx @dotenvx/dotenvx run --convention=nextjs --` in front of the command. That flag also loads a personal, gitignored `.env.local` if you have one.
 
-To add or change a secret, run `npx @dotenvx/dotenvx set NAME value` (it encrypts automatically), then commit `.env`. For non-secret settings like model names, add `--plain`. `.env.example` lists every setting and where to get it.
+The TrueFoundry gateway key is **not** in `.env`. It stays on Ram's machine in `.env.local`, so model calls through the gateway only work there.
+
+To add or change a setting, run `npx @dotenvx/dotenvx set NAME value` (it encrypts automatically), then commit `.env`. Keep every value encrypted, even model names: a plain-text value makes git refuse the commit on machines that ran `dotenvx protect`. `.env.example` lists every setting and where to get it.
 
 Before committing `.env`, run `npx @dotenvx/dotenvx protect`. It fails if any secret is in plain text. The key check above flags plain-text secrets too.

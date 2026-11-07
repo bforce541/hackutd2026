@@ -1,5 +1,5 @@
 // Checks that the shared keys decrypt and actually work. Prints names and status only, never values.
-// Run from the repo root:  npx @dotenvx/dotenvx run -- node scripts/check-keys.mjs
+// Run from the repo root:  npx @dotenvx/dotenvx run --convention=nextjs -- node scripts/check-keys.mjs
 
 import { readFileSync } from "node:fs";
 
@@ -19,7 +19,8 @@ async function http(url, init) {
 
 const checks = [
   ["TRUEFOUNDRY_API_KEY", () =>
-    http(`${env.TRUEFOUNDRY_BASE_URL}/models`, { headers: { Authorization: `Bearer ${env.TRUEFOUNDRY_API_KEY}` } })],
+    http(`${env.TRUEFOUNDRY_BASE_URL}/models`, { headers: { Authorization: `Bearer ${env.TRUEFOUNDRY_API_KEY}` } }),
+    { missingNote: "only on Ram's machine, in .env.local" }],
   ["TRUEFOUNDRY_BASE_URL"],
   ["NVIDIA_API_KEY", () =>
     http(`${env.NVIDIA_BASE_URL}/chat/completions`, {
@@ -59,7 +60,7 @@ const SECRETS = [
 let problems = 0;
 for (const [name, test, opts = {}] of checks) {
   let status;
-  if (!env[name]) status = test === "optional" || opts.optional ? "optional, not set" : "missing";
+  if (!env[name]) status = test === "optional" || opts.optional ? "optional, not set" : opts.missingNote ? `missing (${opts.missingNote})` : "missing";
   else if (test === "phone") status = E164.test(env[name]) ? "ok" : "not E.164 (+1...)";
   else if (typeof test === "function") status = await test();
   else status = "set";

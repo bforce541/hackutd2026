@@ -1,0 +1,10 @@
+{
+  "name": "pacepay-voice-test",
+  "private": true,
+  "description": "The Nov 7 test agent: answers or places one call and says one line. Run from the repo root with dotenvx (see SPEC §12).",
+  "dependencies": {
+    "@livekit/agents": "1.9.5",
+    "@livekit/agents-plugin-openai": "1.9.5",
+    "livekit-server-sdk": "2.19.2"
+  }
+}

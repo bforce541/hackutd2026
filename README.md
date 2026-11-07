@@ -4,7 +4,6 @@
 
 - Yoshua
 - Ram
-- Shravan
 
 ## Docs
 
@@ -25,7 +24,7 @@ This repo is public, so every key lives in `.env` **encrypted** with [dotenvx](h
 
 3. Run anything with the keys loaded by putting `npx @dotenvx/dotenvx run --convention=nextjs --` in front of the command. That flag also loads a personal, gitignored `.env.local` if you have one.
 
-Three keys are **not** in `.env`: the TrueFoundry gateway key, the NVIDIA key and the OpenAI key. They stay on Ram's machine in `.env.local`, so model calls and real phone calls only work there.
+Two keys are **not** in `.env`: the TrueFoundry gateway key and the OpenAI key. They stay on Ram's machine in `.env.local`. Without them, the server runs in NVIDIA mode, with every Nemotron role on the shared NVIDIA key ([SPEC.md › 5.4](SPEC.md#54-models-and-timeouts)). Real phone calls only work on Ram's machine. Who builds what is in [SPEC.md › 10](SPEC.md#10-workstreams-and-tasks).
 
 To add or change a setting, run `npx @dotenvx/dotenvx set NAME value` (it encrypts automatically), then commit `.env`. Keep every value encrypted, even model names: a plain-text value makes git refuse the commit on machines that ran `dotenvx protect`. `.env.example` lists every setting and where to get it.
 

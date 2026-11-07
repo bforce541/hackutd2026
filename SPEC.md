@@ -6,7 +6,7 @@
 
 1. **Code does all the math.** No model ever calculates a number. Models read numbers in (from a photo or a call), and the engine checks everything.
 2. **`v2.md` is the source of truth for the demo household and every number in it.** This doc never repeats those numbers; tests read them from the fixture, and the fixture comes from `v2.md`.
-3. **The contracts in `packages/shared` are frozen after the first 30 minutes.** Changing a type means telling the other two workstreams first.
+3. **The contracts in `packages/shared` are frozen after the first 30 minutes.** Changing a type means telling the other person first.
 4. **Every agent step emits an activity event.** If it isn't in the activity feed, judges can't see it.
 5. **Nothing is final without Yoshua's yes, and every offer goes through `check_offer`.** These checks live in code, not in prompts.
 
@@ -614,7 +614,7 @@ CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED 
 
 ### 5.4 Models and timeouts
 
-**One gateway for almost every model.** Chat, tools, vision, Claude, embeddings, images and text-to-speech all go through Ram's TrueFoundry gateway: the OpenAI SDK with `baseURL: TRUEFOUNDRY_BASE_URL` and `apiKey: TRUEFOUNDRY_API_KEY`, using chat completions with `tools`. Model IDs are the gateway's `group/model` names. Two things aren't on the gateway: GPT realtime (the voice worker uses `OPENAI_API_KEY` directly) and Nemotron 3 Ultra (optional, through build.nvidia.com with `NVIDIA_API_KEY`). Without an NVIDIA key, the planner uses Super.
+**One gateway for almost every model.** Chat, tools, vision, Claude, embeddings, images and text-to-speech all go through Ram's TrueFoundry gateway: the OpenAI SDK with `baseURL: TRUEFOUNDRY_BASE_URL` and `apiKey: TRUEFOUNDRY_API_KEY`, using chat completions with `tools`. Model IDs are the gateway's `group/model` names. Two things aren't on the gateway: GPT realtime (the voice worker uses `OPENAI_API_KEY` directly) and Nemotron 3 Ultra (through build.nvidia.com with `NVIDIA_API_KEY`, which is in the shared `.env`).
 
 Model IDs (they live in `.env`; the gateway ones were tested on Nov 7):
 
@@ -629,6 +629,17 @@ Model IDs (they live in `.env`; the gateway ones were tested on Nov 7):
 | `IMAGE_MODEL` | `openai-group/gpt-image-2` |
 | `TTS_MODEL` | `elevenlabs-primary/eleven_v3` (Devpost voiceover) |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` (spoke on a real test call on Nov 7), falling back to `gpt-realtime-2`, then `gpt-realtime` (OpenAI directly) |
+
+**Two providers, picked automatically.** `models/` chooses per machine. With `TRUEFOUNDRY_API_KEY` set (Ram's machine), roles use the table above. Without it (Yoshua's machine), it runs in **NVIDIA mode**: every Nemotron role runs on build.nvidia.com with the shared `NVIDIA_API_KEY`, using only models that worked with our key on Nov 7.
+
+| Role | NVIDIA mode model | Checked Nov 7 |
+|---|---|---|
+| Planner, `plan_call`, arena lenders | `NEMOTRON_ULTRA_MODEL` (`nvidia/nemotron-3-ultra-550b-a55b`) | Correct tool call in 1.0 s |
+| Orchestrator, `decide`, `read_bill` | `NEMOTRON_VL_MODEL` (`nvidia/nemotron-3.5-super-vl-120b-a12b`, which reads images too) | Correct tool call in 0.7 s |
+| `get_terms` | `NVIDIA_EMBED_MODEL` (`nvidia/nemotron-3.5-embed-1b`) | 2,048-dimension embeddings |
+| Claude steps (second opinion, bill cross-check, arena grading) | Skipped with a `warn` activity event, as the timeout table already allows | — |
+
+Nemotron 3 Super and Nano 3 return 404 on build.nvidia.com for our key, so NVIDIA mode doesn't use them. build.nvidia.com has a per-minute rate limit, so the arena and other bulk runs stay on Ram's machine. Images, text-to-speech and the call voice also need Ram's machine.
 
 Claude calls use the same gateway client. Don't send `temperature`, `top_p` or `top_k`, don't force `tool_choice`, and when you need JSON, ask for it and validate it with zod, retrying once on a parse failure.
 
@@ -749,7 +760,7 @@ await photon.projects.sendMessage({
 
 The bridge ignores messages from anyone but `CUSTOMER_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
 
-**Chart images** (`messaging/chart.ts`, owned by Messaging and voice): a 1200 × 800 PNG drawn like the dashboard mockup's chart card, rendered from `Forecast` with `@resvg/resvg-js`. It is built from engine data and never generated.
+**Chart images** (`messaging/chart.ts`, owned by Yoshua): a 1200 × 800 PNG drawn like the dashboard mockup's chart card, rendered from `Forecast` with `@resvg/resvg-js`. It is built from engine data and never generated.
 
 | Part | Value |
 |---|---|
@@ -968,14 +979,14 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | Account | Where | Env vars | Owner | Notes |
 |---|---|---|---|---|
 | TrueFoundry | Ram's gateway | `TRUEFOUNDRY_API_KEY`, `TRUEFOUNDRY_BASE_URL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `ANTHROPIC_MODEL`, `EMBED_MODEL`, `IMAGE_MODEL`, `TTS_MODEL` | Ram | One key for every model except the call voice and Ultra. The key stays on Ram's machine in `.env.local` (not in `.env`), so gateway calls run on Ram's laptop; teammates stub model calls or use their own keys. Model IDs are in section 5.4. |
-| NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Ram (done Nov 7) | For Nemotron 3 Ultra (the planner, call plans, simulated lenders). The key stays on Ram's machine in `.env.local`, like the gateway key; without it the planner falls back to Super. The same key also lists the Nemotron 3.5 models (Super VL, Lightning, embeddings, content safety) if we want them later. The $60 Brev code is redeemed. |
-| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2.1`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. The key stays on Ram's machine in `.env.local`, so real calls run on Ram's laptop. `gpt-realtime-2.1` spoke on a real call on Nov 7; fall back to `gpt-realtime-2`, then `gpt-realtime`. |
+| NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL`, `NEMOTRON_VL_MODEL`, `NVIDIA_EMBED_MODEL` | Ram (done Nov 7) | For Nemotron 3 Ultra (the planner, call plans, simulated lenders), and for every Nemotron role in NVIDIA mode (section 5.4). The key is in the shared, encrypted `.env`, so both of us have it. Also set: `NEMOTRON_VL_MODEL` and `NVIDIA_EMBED_MODEL`. The same key also lists the Nemotron 3.5 models (Super VL, Lightning, embeddings, content safety) if we want them later. The $60 Brev code is redeemed. |
+| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2.1`) | Ram | Only for the call voice, since GPT realtime isn't on the gateway. The key stays on Ram's machine in `.env.local`, so real calls run on Ram's laptop. `gpt-realtime-2.1` spoke on a real call on Nov 7; fall back to `gpt-realtime-2`, then `gpt-realtime`. |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |
 | Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram | Done Nov 7 (commit `ebab6a4`): the number is bought ($2/month) and the default voice profile points to LiveKit over TLS. |
-| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Done Nov 7 (commit `ebab6a4`): inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS (the `ST_…` ID is in `.env`). |
-| Phones | Two team iPhones | `CUSTOMER_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Yoshua's phone is on the Photon account and texts the line once first. |
-| PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
-| URLs | — | `SERVER_URL` (`http://localhost:8787`), `DASHBOARD_URL` (`http://localhost:3000`) | Money engine and dashboard | |
+| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Ram | Done Nov 7 (commit `ebab6a4`): inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS (the `ST_…` ID is in `.env`). |
+| Phones | Two team iPhones | `CUSTOMER_PHONE`, `LENDER_PHONE` (E.164) | Yoshua (customer phone), Ram (lender phone) | Yoshua's phone is on the Photon account and texts the line once first. |
+| PIN | — | `INBOUND_PIN` | Ram | 4 digits. |
+| URLs | — | `SERVER_URL` (`http://localhost:8787`), `DASHBOARD_URL` (`http://localhost:3000`) | Yoshua | |
 | Database | — | `DATABASE_URL` | — | Unused (in-memory store). Kept in case you switch to Postgres. |
 | Devpost | devpost.com | — | Anyone, **before Sat 11 PM** | Opt into PNC, NVIDIA and Photon. |
 
@@ -983,70 +994,91 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 ## 10. Workstreams and tasks
 
-### 10.1 The first 30 minutes, together
+Two people build at the same time. **Ram** holds the paid keys (the TrueFoundry gateway and OpenAI realtime) and the bigger machine, so Ram owns everything that needs them, plus every long or expensive run. **Yoshua** never needs those keys: everything Yoshua owns runs on the shared `.env` (Photon, LiveKit, NVIDIA's build.nvidia.com) or on no keys at all, and Yoshua can run the whole agent in NVIDIA mode (section 5.4).
 
-**Starting split:** Yoshua owns Money engine and dashboard, Ram owns Agent brain, and Shravan owns Messaging and voice. Ram has the agent because the TrueFoundry gateway key only works on Ram's machine, so every model call is built and run there. Swap if it doesn't fit.
+### 10.1 The first hour
 
-1. Pull, follow [README.md › Setup](README.md#setup), run `pnpm install`, and run the key check.
-2. Whoever has the scaffold done pushes it. The Money engine owner scaffolds: root workspace, `packages/shared` with every type from section 2, and empty apps that start.
-3. All three read section 2 and agree on it. From then on, `packages/shared` changes only after telling the other two.
+1. Both: pull, follow [README.md › Setup](README.md#setup), run `pnpm install`, and run the key check. On Yoshua's machine the gateway and OpenAI keys show as missing; that's expected.
+2. **Yoshua** scaffolds and pushes: the root workspace, `packages/shared` with every type, zod schema, tool name and event name from sections 2 and 5.6, and empty apps that start.
+3. **Ram** pushes `apps/server/src/models/` (both providers, section 5.4) and `agent/stub.ts`: a scripted agent that walks the repair case with UI.md's exact texts and no model calls, so the server, dashboard and Photon bridge have something real to drive before the agent lands.
+4. Both read section 2 and agree on it. From then on, `packages/shared` changes only after telling the other person.
 
-### 10.2 Money engine and dashboard (PNC) · Yoshua
+### 10.2 Who owns which files
 
-1. Scaffold the monorepo and `packages/shared` (types, schemas, tool names, event names).
-2. Engine fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions`, `simulate`, with all the tests in section 3. **Sat 11 PM: tests pass.**
-3. Dashboard shell: layout, SSE client (`lib/events.ts` with `Last-Event-ID` resume), and server URL wiring.
-4. Home. The header has the logo, five text tabs underlined when selected (Home · Messages · Activity · Accounts · Arena), and on the right the demo controls and the avatar. Left side: the checking balance, one status line ("Lowest −$300 on Tue, Nov 10"), the range switch above the pace line, and four health stats under it, split by hairlines. Each stat is a button: clicking one shows one line under the row with why and how to improve (the `reason` and `improve` text from `healthScores`), and clicking again closes it. Right side: the PacePay panel, the only white card, one step at a time: Heads up (the best fix on its own with **Ask my lender**, the other two as plain rows) → Limits → Call → Approve → Done. When the demo clock reaches day 11 the panel shows the CD alert: the best use first, **Compare in what-if** and **Later** buttons, and the other option as a row.
-5. The pace line (visx), built to `UI.md › The pace line`: a stepped line, 14 days by default with a 14/30/60 switch. The $0 line is the heaviest gridline and always visible. A dashed ochre minimum line. Hatching below $0 only, and no other shading. ▲ paychecks and ▼ bills as markers, with labels that never cover the line (a label that fits nowhere is dropped). A dot on the lowest point. A ghost line for scenarios: a gray dashed "Before" line during a call, and a gray dashed "Current plan" line in what-if. Click a dip to see its causes.
-6. What-if, inside the PacePay panel. A **What if** button sits left of the range switch and turns the panel into the what-if panel (hidden during a call). It shows the lowest balance and days below $0 as now → what if, extra lines only when relevant (card use, emergency fund), and checkbox rows for the changes (move the car payment, paycheck lands Monday, put the repair on the card, use the CD to pay off the card). Footer: "Nothing changes until you say so." It runs the engine in the browser and draws the what-if line against the current plan. The lender console is also in the panel, inside the Call step: when the call fails, the header becomes "Negotiating by text", a "Lender types here" box appears above the buttons, and the transcript, offer checks and approvals stay the same. It opens on `call.failed` or by hand.
-7. Messages tab and Activity tab. Messages is the iMessage thread in dashboard style (PacePay on the left in white boxes, Yoshua on the right in a green tint, chart images inline, a centered column of 640px at most), with the note "Same thread as iMessage" and a "Message PacePay" input that posts to `POST /api/thread`. This is the coach chat. Activity has two columns: the plan checklist on the left (a status mark, the step title and who runs it, with the label showing which model wrote the plan), and the log on the right, newest first (time · who · what), with collapsible details and the live call transcript.
-8. Accounts tab. Left: accounts under PNC's six category headings, net worth in the header, one line per account. Right: "Next 14 days" (date · name · signed amount, a moved payment on a green tint), then "Your rules": keep in checking, keep in savings, most in fees, off-limits accounts, quiet hours and a **Pause PacePay** switch. Rules are edited here and saved with `PUT /api/rules`.
-9. Demo controls in the header: today's date with a **Skip to Wed, Nov 18** button that jumps the demo clock to day 11 (on day 11 it reads **Back to Sat, Nov 7**), **Presenter** (everything 25% bigger), **Reset**, and bill-photo injection.
-10. Arena tab: the title "Negotiation arena", a stat row (runs, deals, honest no deal, handed to Yoshua, limit violations, disclosures), a 10 × 5 grid with one tile per run (the persona word and an outcome mark), a legend, and a **Run 3 live** button.
+Each file has one owner, so two people never edit the same file.
 
-### 10.3 Agent brain (NVIDIA) · Ram
+| Path | Owner |
+|---|---|
+| `packages/shared`, `packages/engine` | Yoshua |
+| `apps/dashboard` | Yoshua |
+| `apps/server/src/index.ts`, `api/` (all but `api/voice.ts`), `store/`, `bus.ts` | Yoshua |
+| `apps/server/src/messaging/` (Photon adapter, reply parser, `chart.ts`) | Yoshua |
+| `apps/server/src/voice/dispatch.ts`, `agent/watcher.ts` | Yoshua |
+| Tools without a model: `get_accounts`, `get_forecast`, `simulate`, `check_offer`, `send_message`, `send_chart`, `request_approval`, `place_call`, `schedule_followup` | Yoshua |
+| `scripts/demo-e2e` | Yoshua |
+| `apps/server/src/models/`, `prompts/` | Ram |
+| `apps/server/src/agent/` (all but `watcher.ts`): planner, orchestrator, machine, negotiator, second opinion, arena, stub | Ram |
+| Tools with a model: `read_bill`, `second_opinion`, `get_terms`, `decide`, `post_call_summary` | Ram |
+| `apps/server/src/api/voice.ts`, `apps/voice`, `scripts/voice-test` | Ram |
+| `packages/engine/fixtures/terms/*.md` (loan and card terms for `get_terms`) | Ram |
 
-1. Server skeleton: Hono, store with snapshot, SSE bus, demo control endpoints, dashboard read endpoints.
-2. Model clients: NVIDIA (OpenAI SDK) and Anthropic, with timeouts, one retry, and a `model.called` event per call.
-3. Tool registry: the 14 tools with zod validation and activity events. Messaging and voice tools call the ports owned by the other workstream (use stubs until they land).
-4. Planner (Ultra), plan validation, template plans, orchestrator loop, state machine with the hard gates. **Sat 11 PM: the tool-calling loop works on the bill-photo event with stubbed messaging.**
-5. Negotiator (`decide`): classification, read-back, `check_offer`, counters from the call plan, approvals and the 60-second timeout, outcomes. Text mode first (lender console), voice on top.
-6. Watcher: daily check on clock change, `CD_MATURING`, `SHORTFALL`, follow-ups.
-7. `post_call_summary`, Q&A for inbound calls (`/ask`), and `read_bill` with Nemotron Nano 2 VL.
-8. Should items: second opinion (Claude), terms lookup (embeddings + rerank over `fixtures/terms/*.md`), arena runner and grader.
+### 10.3 Yoshua: engine, server, dashboard and iMessage (PNC and Photon)
 
-### 10.4 Messaging and voice (Photon) · Shravan
+No paid keys. Yoshua uses Photon, LiveKit's API (for dispatch code), the NVIDIA key, and Yoshua's own phone, which is the customer phone.
 
-1. Yoshua's phone is already paired with PacePay's iMessage number. Have Yoshua text `ping` to it once, then confirm the server sees it and can reply with a text and a test image.
-2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: PacePay sends a first text.**
-3. Inbound pipeline: route Yoshua's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
-4. Chart PNG rendering and `send_chart`. (`read_bill` moved to Agent brain, because model calls run on Ram's machine.)
-5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
-6. ~~LiveKit trunks and dispatch rule, connected to Photon.~~ **Done Nov 7** (commit `ebab6a4`).
-7. `place_call` dispatch from the server (`voice/dispatch.ts`), call status events, `SipCallError` → `CALL_FAILED`.
-8. Inbound: PIN flow, `ask_pacepay`, unknown-caller line.
-9. Should: 30 generated bill photos with known values for the bill-reader test.
+1. Scaffold and `packages/shared` (first hour).
+2. Engine fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions` and `simulate`, with every test in section 3. **Sat 11 PM: tests pass.**
+3. Server skeleton: Hono, the store with its snapshot, the SSE bus, the dashboard read endpoints, demo controls, the lender console endpoints and `/api/media`. It runs on `agent/stub.ts` until Ram's agent lands.
+4. Photon bridge: the `MessagingPort` adapter, the polling receive loop, sending text and images, downloading incoming photos (still unverified, section 12; Yoshua holds the customer phone, so test it directly), the code reply parser (section 5.1), and routing texts to agent events. **Sat 11 PM: the server sends a first text.**
+5. The tools without a model, with zod validation and activity events: `send_message` with the facts check, `request_approval` with its timeouts, and `place_call`'s LiveKit dispatch (`voice/dispatch.ts`, `SipCallError` → `CALL_FAILED`).
+6. Chart PNGs (section 6) and `send_chart`.
+7. Watcher: the daily check on every clock change, `CD_MATURING`, `SHORTFALL` and follow-ups (the night-before reminder).
+8. Dashboard, built from the mockup and `UI.md`:
+   - Shell: layout, the SSE client (`lib/events.ts`, resuming with `Last-Event-ID`) and the server URL.
+   - Header: the logo, five text tabs underlined when selected (Home · Messages · Activity · Accounts · Arena), and on the right the demo controls and the avatar.
+   - Home, left side: the checking balance, one status line ("Lowest −$300 on Tue, Nov 10"), the range switch, the pace line, and four health stats split by hairlines. Each stat is a button that shows its why/improve line (`reason` and `improve` from `healthScores`).
+   - The pace line (visx), built to `UI.md › The pace line`: a stepped line, 14 days by default with a 14/30/60 switch, the $0 line as the heaviest gridline, a dashed ochre minimum line, hatching below $0 only, ▲/▼ markers with labels that never cover the line (a label that fits nowhere is dropped), a dot on the lowest point, and a gray dashed ghost line ("Before" during a call, "Current plan" in what-if).
+   - Home, right side: the PacePay panel, the only white card, one step at a time: Heads up → Limits → Call → Approve → Done, plus the what-if state (engine in the browser), the CD alert on day 11, and the lender console inside the Call step ("Negotiating by text").
+   - Messages tab (the coach chat, posting to `POST /api/thread`), Activity tab (plan checklist and log), Accounts tab (accounts by PNC category, next 14 days, Your rules with `PUT /api/rules`), Arena tab (stat row, 10 × 5 grid, **Run 3 live**).
+   - Demo controls: **Skip to Wed, Nov 18** (day 11) and back, **Presenter**, **Reset**, and bill-photo injection.
+9. `pnpm demo:e2e` (section 11). It runs on Yoshua's machine in NVIDIA mode: Nemotron on build.nvidia.com, the Claude steps skipped with a `warn`, and the negotiation over text through the lender console.
 
-### 10.5 Where workstreams meet
+### 10.4 Ram: models, agent, calls and heavy runs (NVIDIA and voice)
 
-| Integration point | Producer → consumer | Owner (writes the glue and the test) | Due |
+Everything that needs the gateway or the OpenAI key, plus every long or costly run.
+
+1. `models/`: the gateway and NVIDIA providers, picked automatically (section 5.4), with timeouts, one retry and a `model.called` event per call. Plus `agent/stub.ts`. Both in the first hour.
+2. Planner (Ultra), plan validation, template plans, the orchestrator loop, and the state machine with its hard gates. The agent's entry point is `agent.handle(event)`, which Yoshua's server and Photon bridge call. **Sat 11 PM: the tool loop runs on the bill-photo event.**
+3. Negotiator (`decide`): classification, read-back, `check_offer`, counters from the call plan, approvals with the 60-second timeout, and outcomes. Text mode first (the lender console), then voice.
+4. Tools with a model: `read_bill` with the Claude cross-check, `second_opinion`, `get_terms` (embeddings over the terms fixtures, which Ram writes), `post_call_summary`, and Q&A (`answer_question` and inbound `/ask`).
+5. Voice: `api/voice.ts` (brief, decide, approval, events, inbound, PIN, ask) and the `apps/voice` worker, starting from the worker in `scripts/voice-test`, which answered and placed real calls on Nov 7.
+6. Heavy runs, in the background while building: the arena (50 lenders with Claude grading), 30 generated bill photos and the bill reader's accuracy on them, prompt tuning against both, live call rehearsals, and, optionally, a Brev GPU.
+7. Later: Devpost video assets (the TTS voiceover).
+
+### 10.5 Where the two meet
+
+| Integration point | From → to | Owner (writes the glue and the test) | Due |
 |---|---|---|---|
-| `packages/shared` types | Money engine → everyone | Money engine | First 30 min |
-| Engine API | Money engine → Agent brain, dashboard | Money engine | Sat 11 PM |
-| HTTP + SSE contracts | Agent brain → dashboard | Agent brain | Sat 11 PM (stubs), Sun 4 AM (real) |
-| `MessagingPort` | Messaging → Agent brain | Messaging and voice | Sat 11 PM |
-| Voice endpoints (`decide`, approval, brief, events) | Agent brain ↔ voice worker | Agent brain (server side), Messaging and voice (worker side) | Sun 2 AM |
-| Chart PNG from forecast | Money engine data → Messaging renderer | Messaging and voice | Sun 4 AM |
-| Lender console ↔ text negotiation | Agent brain → dashboard | Money engine and dashboard | Sun 4 AM |
+| `packages/shared` types and tool schemas | Yoshua → Ram | Yoshua | First hour |
+| `models/` and `agent/stub.ts` | Ram → Yoshua | Ram | First hour |
+| Engine API | Yoshua → Ram, dashboard | Yoshua | Sat 11 PM |
+| `MessagingPort` | Yoshua → Ram's agent | Yoshua | Sat 11 PM |
+| `agent.handle(event)` and the tool registry | Yoshua's server → Ram's agent | Ram | Sat 11 PM |
+| HTTP and SSE contracts (section 4) | Yoshua's server → dashboard | Yoshua | Sat 11 PM |
+| `place_call` dispatch → voice worker | Yoshua → Ram | Yoshua (dispatch), Ram (worker) | Sun 2 AM |
+| Voice endpoints ↔ voice worker | Ram | Ram | Sun 2 AM |
+| Lender console ↔ `decide` | Ram's negotiator → Yoshua's dashboard | Yoshua (UI), Ram (`decide`) | Sun 4 AM |
 
 ### 10.6 Checkpoints (from `v2.md`)
 
-| Checkpoint | Money engine and dashboard | Agent brain | Messaging and voice |
-|---|---|---|---|
-| **Sat 11 PM** | Scaffold, engine tests pass, dashboard shell reads `/api/household` | Server skeleton, Nemotron tool loop runs on a bill-photo event | First text sent; the voice worker talks in the LiveKit Playground |
-| **Sun 4 AM** | Home, forecast, feed, coach chat, demo controls, what-if, lender console | Full case: plan → options → choice → call plan → `decide` → approval → summary, plus the CD alert | Bill photos in, charts out; outbound and inbound PIN calls through Photon if voice is live, otherwise the full flow over text negotiation |
-| **Sun 9 AM** | Arena page, polish | Second opinion, terms lookup, arena run of 50 | Bill cross-check and test photos, backup video recorded |
-| **Sun 11 AM** | Freeze | Freeze | Freeze |
+| Checkpoint | Yoshua | Ram |
+|---|---|---|
+| **Sat 11 PM** | Scaffold and `packages/shared` (first hour); engine tests pass; the server, SSE and dashboard shell run on the stub agent; the server sends a first text through Photon | `models/` with both providers and the stub agent (first hour); the Nemotron tool loop runs on the bill-photo event; the voice worker answers calls with `decide` stubbed |
+| **Sun 4 AM** | Home, the pace line, Messages, Activity, what-if, the lender console and demo controls; photos in and charts out over Photon; the watcher and CD alert; `demo:e2e` passes in NVIDIA mode | The full case on the real agent: plan → options → choice → limits → second opinion → call → `decide` → approval → summary; inbound PIN calls |
+| **Sun 9 AM** | Accounts, the Arena tab, Presenter mode, polish | Arena run of 50 (started overnight), the bill-photo test, terms lookup; backup video recorded on Ram's machine |
+| **Sun 11 AM** | Freeze | Freeze |
+
+**On demo day,** the server, agent and voice worker run on Ram's laptop, because they need its keys. The dashboard can run on either laptop with `SERVER_URL` pointing at Ram's.
 
 ---
 
@@ -1103,13 +1135,13 @@ These could each change part of this spec. Whoever owns the row checks it and po
 
 | Question | Owner | If the answer is no |
 |---|---|---|
-| Does a call to our Photon SMS number land in LiveKit? **Not yet tested:** someone has to dial the number while a worker runs. Photon refuses a test call from its own number to itself (403). | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
-| ~~After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation?~~ **Yes, verified Nov 7.** | Messaging and voice | — |
-| ~~Do image attachments send through Photon's attachments API on the shared line?~~ **Sending works, verified Nov 7.** Still check that an incoming photo from Yoshua can be downloaded. | Messaging and voice | Ask Yoshua to type the bill amount |
-| ~~Does an outbound call connect end to end: LiveKit outbound trunk → Photon → lender phone?~~ **Yes, verified Nov 7:** the lender phone answered in 8 s and a test agent on `gpt-realtime-2.1` spoke its line, then hung up. | Messaging and voice | — |
-| ~~Does the LiveKit OpenAI plugin accept `gpt-realtime-2`?~~ **Yes, verified Nov 7:** plugin 1.9.5 passes any model name through, and `gpt-realtime-2.1` works. | Messaging and voice | — |
-| ~~Are the model IDs in section 5.4 live for our key, with tool calling?~~ **Yes, verified Nov 7:** the gateway models, and Nemotron 3 Ultra on build.nvidia.com (correct tool call in 1.0 s). | Agent brain | — |
-| What attribute holds the caller's number on a LiveKit SIP participant (`sip.phoneNumber`)? | Messaging and voice | Read it from the SIP headers or the room name |
+| ~~Does a call to our Photon SMS number land in LiveKit?~~ **Yes, verified Nov 7:** Ram dialed the number, and the test agent joined the `photon-` room, spoke its line and hung up. | Ram | — |
+| ~~After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation?~~ **Yes, verified Nov 7.** | Yoshua | — |
+| ~~Do image attachments send through Photon's attachments API on the shared line?~~ **Sending works, verified Nov 7.** Still check that an incoming photo from Yoshua can be downloaded. | Yoshua | Ask Yoshua to type the bill amount |
+| ~~Does an outbound call connect end to end: LiveKit outbound trunk → Photon → lender phone?~~ **Yes, verified Nov 7:** the lender phone answered in 8 s and a test agent on `gpt-realtime-2.1` spoke its line, then hung up. | Ram | — |
+| ~~Does the LiveKit OpenAI plugin accept `gpt-realtime-2`?~~ **Yes, verified Nov 7:** plugin 1.9.5 passes any model name through, and `gpt-realtime-2.1` works. | Ram | — |
+| ~~Are the model IDs in section 5.4 live for our key, with tool calling?~~ **Yes, verified Nov 7:** the gateway models, and Nemotron 3 Ultra on build.nvidia.com (correct tool call in 1.0 s). | Ram | — |
+| What attribute holds the caller's number on a LiveKit SIP participant (`sip.phoneNumber`)? | Ram | Read it from the SIP headers or the room name |
 
 ---
 
@@ -1121,11 +1153,11 @@ These could each change part of this spec. Whoever owns the row checks it and po
 |---|---|---|---|
 | Logo and app icon | Concepts from `IMAGE_MODEL` (GPT Image 2) through TrueFoundry, then redrawn as an SVG: a pace line that dips and recovers | Yoshua | Should |
 | PacePay's avatar in Messages | Export the logo as a square PNG and upload it in Photon → Settings → Agent profile → Avatar | Yoshua | Should |
-| Chart images in iMessage | Rendered from engine data (section 6), 1200 × 800 | Shravan | Should |
+| Chart images in iMessage | Rendered from engine data (section 6), 1200 × 800 | Yoshua | Should |
 | The printed repair quote | An HTML page printed on paper (details below) | Yoshua | Must |
 | 30 test bill photos | `IMAGE_MODEL` with known amounts and dates. Keep a photo only if Nemotron Nano 2 VL and Claude both read back the intended numbers | Ram | Should |
 | Lender logos for the arena grid | `IMAGE_MODEL`, 50 small marks for fictional lenders | Ram | Could |
-| Deal recap GIF | Remotion renders a 3-second GIF of the pace line turning green; send it in iMessage if Photon accepts GIFs | Shravan | Could |
+| Deal recap GIF | Remotion renders a 3-second GIF of the pace line turning green; send it in iMessage if Photon accepts GIFs | Yoshua | Could |
 | Devpost video | Screen recording plus Remotion titles, with a voiceover from `TTS_MODEL` (ElevenLabs v3). An AI-generated opening shot needs Sora or Veo, which aren't on the gateway | With the submission kit | Later |
 
 **The repair quote** (print two copies):

@@ -40,6 +40,8 @@ const checks = [
   ["PHOTON_IMESSAGE_NUMBER", "phone"],
   ["PHOTON_VOICE_NUMBER", "phone"],
   ["PHOTON_VOICE_PROFILE_ID"],
+  ["PHOTON_CUSTOMER_SPACE_ID", () => (/^pho_spc_/.test(env.PHOTON_CUSTOMER_SPACE_ID) ? "ok" : "should start with pho_spc_")],
+  ["PHOTON_AGENT_SENDER_ID", () => (/^pho_usr_/.test(env.PHOTON_AGENT_SENDER_ID) ? "ok" : "should start with pho_usr_")],
   ["LIVEKIT_URL"],
   ["LIVEKIT_API_KEY"],
   ["LIVEKIT_API_SECRET"],

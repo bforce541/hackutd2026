@@ -715,12 +715,19 @@ await photon.projects.sendMessage({
 });
 ```
 
-Images: Photon 2.0 iMessage supports images. Upload with `POST /v1/projects/{id}/attachments`, then send a message whose content references the attachment. Download incoming photos with `GET /v1/projects/{id}/attachments/{attachmentId}/content`. The beta guides don't show the image message body yet, so confirm it in the API reference (section 12).
+**Verified on Nov 7 with raw HTTP** (text and image both reached Yoshua's iPhone as `delivered`):
+
+- **Always send a `User-Agent` header** (for example `pacepay/0.1`). Photon's bot filter rejects Python's default client with a 403 (Cloudflare error 1010).
+- **List messages:** `GET /v1/projects/{id}/messages?pageSize=50&order=desc` returns `{ items: [...] }`. Each message has `id`, `content`, `space.id`, `sentBy`, `receivedBy` (PacePay's own user ID on inbound messages), `status` (`received`, `dispatched`, `delivered`) and `timestamps`.
+- **Send text:** `POST /v1/projects/{id}/messages` with an `Idempotency-Key` header and `{ spaceId, senderId, content: { type: "text", format: "plain", text } }`. `parentMessageId` is optional. The reply is `202` with status `dispatched`.
+- **Send an image:** first upload it with `POST /v1/projects/{id}/attachments` as `multipart/related`. It takes exactly two parts: JSON `{ contentType, sizeBytes, filename }`, then the file bytes. Send `Content-Length` and `Idempotency-Key` too. You get `201` with an `pho_att_…` ID. Then send `content: { type: "attachment", attachmentId }`. **Don't send `metadata`** (Photon owns it and rejects captions); put any caption in a separate text.
+- **Incoming photos:** `GET /v1/projects/{id}/attachments/{attachmentId}/content`.
+- The API also lists `poll` content. It might suit numbered options, but it's untested on the shared beta line.
 
 **Photon facts that shape the design:**
 
 - **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Yoshua's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
-- **A shared line can't send an unsolicited first message.** Setup step: Yoshua's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every PacePay-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Yoshua's next message.
+- **PacePay can text first once the person has messaged the line** (verified Nov 7). Photon's rule: a shared line sends only in direct conversations, to someone who has messaged it since they were paired. Yoshua already sent `ping`, so PacePay can start any message, including the CD alert, in that conversation. Its IDs are `PHOTON_CUSTOMER_SPACE_ID` and `PHOTON_AGENT_SENDER_ID` in `.env`.
 - **Only assigned senders can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
 - **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "no").
 - **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). PacePay never texts from that number.
@@ -1065,8 +1072,8 @@ These could each change part of this spec. Whoever owns the row checks it and po
 | Question | Owner | If the answer is no |
 |---|---|---|
 | Does a test call reach our Photon SMS number's voice profile and land in LiveKit? | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
-| After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Yoshua's next message |
-| Do image attachments send and arrive through Photon's attachments API on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Yoshua to type the bill amount |
+| ~~After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation?~~ **Yes, verified Nov 7.** | Messaging and voice | — |
+| ~~Do image attachments send through Photon's attachments API on the shared line?~~ **Sending works, verified Nov 7.** Still check that an incoming photo from Yoshua can be downloaded. | Messaging and voice | Ask Yoshua to type the bill amount |
 | Once voice is live, does a call connect end to end: LiveKit outbound trunk → Photon → lender phone? | Messaging and voice | Recheck the cookbook settings (TLS, SRTP, the `ST_…` trunk ID); the text fallback still demos the agent |
 | Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |
 | Are the model IDs in section 5.4 live for our key, with tool calling? | Agent brain | Shift each role down one size (Ultra → Super, Super → Nano) and note it on the architecture slide |

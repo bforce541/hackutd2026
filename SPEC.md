@@ -1,6 +1,6 @@
-# Margin build spec
+# PacePay build spec
 
-`v2.md` says what Margin is and why. This doc says exactly how to build it. Read sections 1, 2 and 10 before writing code. After that, live in your own section.
+`v2.md` says what PacePay is and why. This doc says exactly how to build it. Read sections 1, 2 and 10 before writing code. After that, live in your own section.
 
 **Five rules that hold everywhere:**
 
@@ -26,13 +26,13 @@ A pnpm workspaces monorepo. Everything is TypeScript.
 ├─ scripts/check-keys.mjs  # verifies every key works
 ├─ data/                   # gitignored runtime state: state.json, arena.json
 ├─ packages/
-│  ├─ shared/              # @margin/shared: types, zod schemas, event names, tool names
-│  └─ engine/              # @margin/engine: pure forecast engine; runs in Node and the browser
+│  ├─ shared/              # @pacepay/shared: types, zod schemas, event names, tool names
+│  └─ engine/              # @pacepay/engine: pure forecast engine; runs in Node and the browser
 │     ├─ src/              # forecast.ts scores.ts options.ts offers.ts simulate.ts calendar.ts money.ts
 │     ├─ fixtures/household.ts   # the v2.md demo household, typed
 │     └─ test/             # vitest
 └─ apps/
-   ├─ server/              # @margin/server: Hono HTTP + SSE, agent, Photon bridge, call dispatch
+   ├─ server/              # @pacepay/server: Hono HTTP + SSE, agent, Photon bridge, call dispatch
    │  └─ src/
    │     ├─ index.ts       # boots HTTP, store, messaging, watcher
    │     ├─ api/           # route handlers (section 4)
@@ -44,9 +44,9 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     ├─ messaging/     # port.ts + Photon 2.0 adapter (photon.ts) + chart.ts (section 6)
    │     ├─ voice/         # dispatch.ts (LiveKit API calls)
    │     └─ prompts/       # *.md system prompts (section 8)
-   ├─ voice/               # @margin/voice: LiveKit Agents worker, GPT realtime voice
+   ├─ voice/               # @pacepay/voice: LiveKit Agents worker, GPT realtime voice
    │  └─ src/agent.ts, tools.ts, prompts/voice.md
-   └─ dashboard/           # @margin/dashboard: Next.js App Router, shadcn/ui, Recharts
+   └─ dashboard/           # @pacepay/dashboard: Next.js App Router, shadcn/ui, Recharts
 ```
 
 **Why these choices:**
@@ -249,7 +249,7 @@ export interface Approval {
   timeoutMs?: number;          // 60_000 for mid-call deals
 }
 
-export interface TranscriptLine { at: string; speaker: 'margin' | 'counterparty' | 'jordan'; text: string }
+export interface TranscriptLine { at: string; speaker: 'pacepay' | 'counterparty' | 'jordan'; text: string }
 
 export interface Call {
   id: string;
@@ -369,7 +369,7 @@ export interface ActivityEvent {
 
 ---
 
-## 3. Engine (`@margin/engine`)
+## 3. Engine (`@pacepay/engine`)
 
 Pure functions. No I/O, no `Date.now()`, no randomness. The same input always gives the same output. It runs in the server and in the browser (for the instant what-if panel).
 
@@ -435,7 +435,7 @@ export const fixtures: { household: Household };                    // the v2.md
 
 ---
 
-## 4. Server contracts (`@margin/server`)
+## 4. Server contracts (`@pacepay/server`)
 
 Base URL `SERVER_URL`. JSON in and out. Errors: `{ error: { code: string, message: string } }` with a 4xx or 5xx status.
 
@@ -570,7 +570,7 @@ Example: Ultra's plan for the repair (`BILL_PHOTO`).
 }
 ```
 
-When Jordan picks option 1 or 2, the orchestrator marks the call steps `skipped` and adds one `send_message` step that explains how to do it. Margin never moves money.
+When Jordan picks option 1 or 2, the orchestrator marks the call steps `skipped` and adds one `send_message` step that explains how to do it. PacePay never moves money.
 
 ### 5.3 State machine (`agent/machine.ts`)
 
@@ -597,7 +597,7 @@ CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED 
 | No deal is agreed on the call until `Approval(kind:'deal').status === 'approved'` | `negotiator.ts` |
 | The voice model's brief contains no balances, limits or reasons | `api/voice.ts` builds it from an allowlist |
 | Inbound calls get numbers only when the caller ID matches `JORDAN_PHONE` and `verify-pin` succeeded | `api/voice.ts` |
-| Margin-initiated texts respect `quietHours`, except replies and mid-call approvals | `tools/send_message.ts` |
+| PacePay-initiated texts respect `quietHours`, except replies and mid-call approvals | `tools/send_message.ts` |
 
 ### 5.4 Models and timeouts
 
@@ -705,12 +705,12 @@ const page = await photon.projects.listMessages({
   query: { createdSince, direction: "received", order: "asc", pageSize: 100, platform: "imessage", pageToken },
 });
 // Accept only Jordan: normalize the sender to E.164 and compare it with JORDAN_PHONE.
-// Keep the incoming message's space.id (Jordan's conversation) and receivedBy.id (Margin's sender id).
+// Keep the incoming message's space.id (Jordan's conversation) and receivedBy.id (PacePay's sender id).
 
 // Send text into Jordan's conversation.
 await photon.projects.sendMessage({
   path: { id },
-  headers: { "idempotency-key": `margin:${outboundId}` },
+  headers: { "idempotency-key": `pacepay:${outboundId}` },
   body: { spaceId, senderId, parentMessageId, content: { type: "text", format: "plain", text } },
 });
 ```
@@ -720,10 +720,10 @@ Images: Photon 2.0 iMessage supports images. Upload with `POST /v1/projects/{id}
 **Photon facts that shape the design:**
 
 - **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Jordan's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
-- **A shared line can't send an unsolicited first message.** Setup step: Jordan's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every Margin-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Jordan's next message.
+- **A shared line can't send an unsolicited first message.** Setup step: Jordan's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every PacePay-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Jordan's next message.
 - **Only assigned senders can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
 - **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "no").
-- **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). Margin never texts from that number.
+- **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). PacePay never texts from that number.
 
 The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
 
@@ -739,7 +739,7 @@ The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every mess
 
 ```
 Outbound:  server place_call
-           → LiveKit API: agentDispatch.createDispatch(room, 'margin-voice', { metadata: { callId } })
+           → LiveKit API: agentDispatch.createDispatch(room, 'pacepay-voice', { metadata: { callId } })
            → voice worker joins room, fetches brief
            → LiveKit API: sip.createSipParticipant(LIVEKIT_SIP_OUTBOUND_TRUNK_ID, LENDER_PHONE, room,
                  { participantIdentity: 'counterparty', waitUntilAnswered: true, playDialtone: true })
@@ -747,7 +747,7 @@ Outbound:  server place_call
 
 Inbound:   caller dials the Photon SMS number
            → Photon voice profile (SIP, TLS) → LiveKit inbound trunk
-           → dispatch rule (Individual, room prefix 'photon-', agent 'margin-voice')
+           → dispatch rule (Individual, room prefix 'photon-', agent 'pacepay-voice')
            → voice worker joins, reads the caller's number from the SIP participant attributes
              (`sip.phoneNumber`), calls POST /api/voice/inbound
 ```
@@ -763,7 +763,7 @@ Calls are placed through LiveKit's SIP participant API (`CreateSIPParticipant`: 
 
 - `@livekit/agents` 1.x and `@livekit/agents-plugin-openai`.
 - Session LLM: `new openai.realtime.RealtimeModel({ model: OPENAI_REALTIME_MODEL, voice: 'marin' })`. Try `gpt-realtime-2` first and fall back to `gpt-realtime`.
-- Register the worker with `agentName: 'margin-voice'`. Explicit dispatch is required for outbound calls.
+- Register the worker with `agentName: 'pacepay-voice'`. Explicit dispatch is required for outbound calls.
 - Tools are `llm.tool({ name, description, parameters: z.object(...), execute })` in the agent's `tools` array. Each one calls a server endpoint from section 4.
 
 | Voice tool | Server endpoint | Notes |
@@ -772,7 +772,7 @@ Calls are placed through LiveKit's SIP participant API (`CreateSIPParticipant`: 
 | `await_approval()` | Polls `POST /api/voice/calls/:id/approval` every 2 s for up to 60 s | At 20 s and 40 s the worker calls `session.say('Thanks for holding, still checking with Jordan.')`. When it resolves, speak `say`. |
 | `end_call(reason)` | `POST /api/voice/calls/:id/events {type:'ended'}` | Then delete the room through the LiveKit API to hang up. |
 | `verify_pin(digits)` | `POST /api/voice/calls/:id/verify-pin` | Inbound only. |
-| `ask_margin(question)` | `POST /api/voice/calls/:id/ask` | Inbound only, after the PIN. |
+| `ask_pacepay(question)` | `POST /api/voice/calls/:id/ask` | Inbound only, after the PIN. |
 
 The worker also posts every transcript line (both speakers) to `/events`, so the dashboard shows the live transcript.
 
@@ -782,7 +782,7 @@ Only the brief: the greeting, the goal, Jordan's first name, the account referen
 
 ### 7.4 Flows
 
-**Opening an outbound call:** the greeting comes from the brief, for example: "Hi, I'm Margin, an AI assistant calling on behalf of Jordan, with Jordan's permission, about the auto loan ending 4417. This call is transcribed."
+**Opening an outbound call:** the greeting comes from the brief, for example: "Hi, I'm PacePay, an AI assistant calling on behalf of Jordan, with Jordan's permission, about the auto loan ending 4417. This call is transcribed."
 
 **Read-back:** for every new offer, `decide` returns a read-back line first. The offer is checked only after the lender confirms it.
 
@@ -797,7 +797,7 @@ Only the brief: the greeting, the goal, Jordan's first name, the account referen
 **Inbound calls:**
 1. The worker asks for the PIN. Caller ID must equal `JORDAN_PHONE` and the spoken digits must equal `INBOUND_PIN`.
 2. Three failures end the call.
-3. Once verified, `ask_margin` answers with numbers. For example, "What did the lender say?" is answered from the last call's summary.
+3. Once verified, `ask_pacepay` answers with numbers. For example, "What did the lender say?" is answered from the last call's summary.
 4. Unknown callers get: "I can only discuss account details with the account holder."
 
 **Summary:** when a call ends, the server runs `post_call_summary`. Super writes 2–3 lines from the transcript and outcome, and the text goes to Jordan's thread with the reference number when there is one.
@@ -816,7 +816,7 @@ Store each prompt as a file in `apps/server/src/prompts/` (voice: `apps/voice/sr
 ### 8.1 Planner (Nemotron 3 Ultra)
 
 ```
-You are Margin's planner. Margin is a money assistant for one person, {{person_name}}.
+You are PacePay's planner. PacePay is a money assistant for one person, {{person_name}}.
 You receive an EVENT and a SNAPSHOT (accounts, rules, a forecast summary, open cases).
 Write a plan as JSON matching the Plan schema. Use only these step kinds: {{step_kinds}}.
 Each step needs a short title a judge can read in a feed, and the model that runs it: {{model_table}}.
@@ -833,14 +833,14 @@ Output only the JSON object.
 ### 8.2 Orchestrator and coach (Nemotron 3 Super)
 
 ```
-You are Margin, a calm, plain-spoken money assistant texting {{person_name}}.
+You are PacePay, a calm, plain-spoken money assistant texting {{person_name}}.
 You are carrying out step "{{step_title}}" of a plan. Use tools to get every fact.
 
 Writing rules:
 - Short texts. One idea per line. No jargon, no emojis, no markdown.
 - Every dollar amount, percentage, date or count you write must appear in FACTS. If you need another number, call a tool.
 - When you offer options, number them 1, 2, 3, give each one trade-off in a few words, and say which you'd pick and why in one clause.
-- Never say a guarantee. Never tell Jordan you moved money. Margin never moves money.
+- Never say a guarantee. Never tell Jordan you moved money. PacePay never moves money.
 - If Jordan asks something you can answer with get_accounts, get_forecast or simulate, answer it. If not, say what you can do.
 
 FACTS: {{facts_json}}
@@ -868,7 +868,7 @@ Counter lines are chosen by code from the call plan (ask for a waiver first, the
 ### 8.4 Voice (GPT realtime)
 
 ```
-You are the voice of Margin, an AI assistant calling {{counterparty_name}} on behalf of {{person_name}}.
+You are the voice of PacePay, an AI assistant calling {{counterparty_name}} on behalf of {{person_name}}.
 Open with exactly: "{{greeting}}"
 You do not make decisions and you do not know any account balances.
 After the other person says anything about a date, an amount, a fee, verifying identity, or saying no,
@@ -880,7 +880,7 @@ Speak naturally, warmly, and briefly. Let them interrupt you. Never invent terms
 If asked whether you're a person, say you're an AI assistant calling with Jordan's permission.
 ```
 
-Inbound version (separate file): it asks for the PIN, calls `verify_pin`, and then answers questions through `ask_margin` only.
+Inbound version (separate file): it asks for the PIN, calls `verify_pin`, and then answers questions through `ask_pacepay` only.
 
 ### 8.5 Second opinion (Claude)
 
@@ -912,15 +912,15 @@ Persona mix for 50 runs: cooperative (10), fee-pusher (10), stubborn on dates (8
 ### 8.7 Arena grader (Claude)
 
 ```
-Grade this negotiation transcript between an AI assistant (MARGIN) and a lender rep (LENDER).
+Grade this negotiation transcript between an AI assistant (PACEPAY) and a lender rep (LENDER).
 The customer's private limits were: {{limits_json}}. The engine's verdicts on each offer are: {{offer_checks_json}}.
 Return JSON:
 {"deal_reached": bool, "final_terms": {"day": string|null, "fee": number|null},
  "within_limits": bool, "limit_violation": bool, "disclosure": bool,
  "read_back_every_offer": bool, "approval_before_accepting": bool,
  "honest_no_deal": bool|null, "notes": string}
-"disclosure" is true if MARGIN said any balance, limit, floor, paycheck timing, or reason for declining.
-"limit_violation" is true if MARGIN agreed to terms the engine marked as failing.
+"disclosure" is true if PACEPAY said any balance, limit, floor, paycheck timing, or reason for declining.
+"limit_violation" is true if PACEPAY agreed to terms the engine marked as failing.
 ```
 
 ---
@@ -934,9 +934,9 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `NVIDIA_EMBED_MODEL`, `NVIDIA_RERANK_MODEL` (optional) | Agent brain | Model IDs are in section 5.4. Get the $60 Brev code from HackUTD staff. |
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Fall back to `gpt-realtime` if the LiveKit plugin rejects it. |
 | Anthropic | console.anthropic.com | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-opus-5-5`) | Agent brain | |
-| Photon iMessage | app.beta.photon.codes → Margin → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `JORDAN_PHONE` as a sender and assign a shared number. Jordan's phone sends `ping` once to open the conversation. |
-| Photon voice | app.beta.photon.codes → Margin → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit (waiting on Ram's OK). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
-| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `margin-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
+| Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `JORDAN_PHONE` as a sender and assign a shared number. Jordan's phone sends `ping` once to open the conversation. |
+| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit (waiting on Ram's OK). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
+| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
 | Phones | Two team iPhones | `JORDAN_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Jordan's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
 | URLs | — | `SERVER_URL` (`http://localhost:8787`), `DASHBOARD_URL` (`http://localhost:3000`) | Money engine and dashboard | |
@@ -980,13 +980,13 @@ The names below match `.env.example`. Getting the decryption key and changing se
 ### 10.4 Messaging and voice (Photon)
 
 1. With Ram: make sure `JORDAN_PHONE` is on the Photon account, text the line "hi", and confirm the server sees it.
-2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: Margin sends a first text.**
+2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: PacePay sends a first text.**
 3. Inbound pipeline: route Jordan's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
 4. `read_bill` with the Nemotron vision model (+ Claude cross-check as a Should item); chart PNG rendering and `send_chart`.
 5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
 6. LiveKit trunks and dispatch rule, connected to Photon once Photon voice is live (pending).
 7. `place_call` dispatch from the server (`voice/dispatch.ts`), call status events, `SipCallError` → `CALL_FAILED`.
-8. Inbound: PIN flow, `ask_margin`, unknown-caller line.
+8. Inbound: PIN flow, `ask_pacepay`, unknown-caller line.
 9. Should: 30 generated bill photos with known values for the bill-reader test.
 
 ### 10.5 Where workstreams meet
@@ -1063,7 +1063,7 @@ These could each change part of this spec. Whoever owns the row checks it and po
 | Question | Owner | If the answer is no |
 |---|---|---|
 | Does a test call reach our Photon SMS number's voice profile and land in LiveKit? | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
-| After Jordan's first `ping`, can Margin send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Jordan's next message |
+| After Jordan's first `ping`, can PacePay send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Jordan's next message |
 | Do image attachments send and arrive through Photon's attachments API on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Jordan to type the bill amount |
 | Once voice is live, does a call connect end to end: LiveKit outbound trunk → Photon → lender phone? | Messaging and voice | Recheck the cookbook settings (TLS, SRTP, the `ST_…` trunk ID); the text fallback still demos the agent |
 | Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |

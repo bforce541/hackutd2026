@@ -733,7 +733,7 @@ The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every mess
 
 ## 7. Voice
 
-> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. Buying the number is waiting on Ram's OK. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
+> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. Photon won't sell a number until the organization has a card on file, even though the credit covers it, and no card is on file yet. So calls are blocked until someone adds one. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
 
 ### 7.1 Call path
 
@@ -935,7 +935,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Fall back to `gpt-realtime` if the LiveKit plugin rejects it. |
 | Anthropic | console.anthropic.com | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-opus-5-5`) | Agent brain | |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `JORDAN_PHONE` as a sender and assign a shared number. Jordan's phone sends `ping` once to open the conversation. |
-| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit (waiting on Ram's OK). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
+| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit, but Photon requires a card on the organization before it sells one (none on file yet). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
 | LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
 | Phones | Two team iPhones | `JORDAN_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Jordan's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |

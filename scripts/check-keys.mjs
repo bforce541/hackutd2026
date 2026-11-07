@@ -18,18 +18,17 @@ async function http(url, init) {
 }
 
 const checks = [
+  ["TRUEFOUNDRY_API_KEY", () =>
+    http(`${env.TRUEFOUNDRY_BASE_URL}/models`, { headers: { Authorization: `Bearer ${env.TRUEFOUNDRY_API_KEY}` } })],
+  ["TRUEFOUNDRY_BASE_URL"],
   ["NVIDIA_API_KEY", () =>
     http(`${env.NVIDIA_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${env.NVIDIA_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: env.NEMOTRON_NANO_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
-    })],
+      body: JSON.stringify({ model: env.NEMOTRON_ULTRA_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+    }), { optional: true }],
   ["OPENAI_API_KEY", () =>
     http("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } })],
-  ["ANTHROPIC_API_KEY", () =>
-    http("https://api.anthropic.com/v1/models", {
-      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    })],
   ["PHOTON_API_KEY", () =>
     env.PHOTON_PROJECT_ID
       ? http(`https://api.photon.codes/v1/projects/${env.PHOTON_PROJECT_ID}`, {
@@ -52,15 +51,15 @@ const checks = [
 
 // Values that must never sit in .env as plain text, because the repo is public.
 const SECRETS = [
-  "NVIDIA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PHOTON_API_KEY",
+  "TRUEFOUNDRY_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY", "PHOTON_API_KEY",
   "PHOTON_IMESSAGE_NUMBER", "PHOTON_VOICE_NUMBER", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET",
   "DATABASE_URL", "CUSTOMER_PHONE", "LENDER_PHONE", "INBOUND_PIN",
 ];
 
 let problems = 0;
-for (const [name, test] of checks) {
+for (const [name, test, opts = {}] of checks) {
   let status;
-  if (!env[name]) status = test === "optional" ? "optional, not set" : "missing";
+  if (!env[name]) status = test === "optional" || opts.optional ? "optional, not set" : "missing";
   else if (test === "phone") status = E164.test(env[name]) ? "ok" : "not E.164 (+1...)";
   else if (typeof test === "function") status = await test();
   else status = "set";

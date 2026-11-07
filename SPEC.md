@@ -40,7 +40,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     ├─ bus.ts         # activity events → SSE
    │     ├─ agent/         # planner.ts orchestrator.ts negotiator.ts machine.ts watcher.ts secondOpinion.ts arena.ts
    │     ├─ tools/         # one file per tool (section 5.6)
-   │     ├─ models/        # nvidia.ts (OpenAI SDK with NVIDIA base URL), anthropic.ts
+   │     ├─ models/        # gateway.ts (OpenAI SDK on the TrueFoundry gateway), nvidia.ts (Ultra, optional)
    │     ├─ messaging/     # port.ts + Photon 2.0 adapter (photon.ts) + chart.ts (section 6)
    │     ├─ voice/         # dispatch.ts (LiveKit API calls)
    │     └─ prompts/       # *.md system prompts (section 8)
@@ -601,35 +601,35 @@ CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED 
 
 ### 5.4 Models and timeouts
 
-All Nemotron calls go through the OpenAI SDK with `baseURL: NVIDIA_BASE_URL` and `apiKey: NVIDIA_API_KEY`, using chat completions with `tools`. Check each model card on build.nvidia.com for its reasoning on/off switch; Nano runs with reasoning off for latency.
+**One gateway for almost every model.** Chat, tools, vision, Claude, embeddings, images and text-to-speech all go through Ram's TrueFoundry gateway: the OpenAI SDK with `baseURL: TRUEFOUNDRY_BASE_URL` and `apiKey: TRUEFOUNDRY_API_KEY`, using chat completions with `tools`. Model IDs are the gateway's `group/model` names. Two things aren't on the gateway: GPT realtime (the voice worker uses `OPENAI_API_KEY` directly) and Nemotron 3 Ultra (optional, through build.nvidia.com with `NVIDIA_API_KEY`). Without an NVIDIA key, the planner uses Super.
 
-Model IDs (from build.nvidia.com's public list; they live in `.env`):
+Model IDs (they live in `.env`; the gateway ones were tested on Nov 7):
 
 | Env var | Model ID |
 |---|---|
-| `NEMOTRON_ULTRA_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` |
-| `NEMOTRON_SUPER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| `NEMOTRON_NANO_MODEL` | `nvidia/nemotron-nano-3-30b-a3b` (try `nvidia/nemotron-3.5-lightning-30b-a3b` if calls feel slow) |
-| `NEMOTRON_VISION_MODEL` | `nvidia/nemotron-3.5-super-vl-120b-a12b` |
-| `NVIDIA_EMBED_MODEL` | `nvidia/nemotron-3.5-embed-1b` |
-| `NVIDIA_RERANK_MODEL` | Optional; none on the public list. Terms lookup works with embeddings alone. |
-| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2`, falling back to `gpt-realtime` | Claude calls use `@anthropic-ai/sdk` with `ANTHROPIC_MODEL`:
-- Set `output_config.effort` explicitly (`high` for the review and grading).
-- Use structured outputs (`output_config.format`) for JSON.
-- Don't send `temperature`, `top_p` or `top_k`, and don't force `tool_choice`.
-- Check `stop_reason` for `refusal` before reading the content.
+| `NEMOTRON_ULTRA_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` (build.nvidia.com only, optional) |
+| `NEMOTRON_SUPER_MODEL` | `aws-bedrock/nvidia.nemotron-super-3-120b` (correct tool call in 0.8 s) |
+| `NEMOTRON_NANO_MODEL` | `aws-bedrock/nvidia.nemotron-nano-3-30b` (skipped the tool in a quick test; calls use Super until Nano passes with the real prompt) |
+| `NEMOTRON_VISION_MODEL` | `aws-bedrock/nvidia.nemotron-nano-12b-v2` (Nemotron Nano 2 VL; read a phone number off an image correctly in 0.9 s) |
+| `ANTHROPIC_MODEL` | `claude-group/claude-opus-5-5` (tool calls and image reading work through the gateway) |
+| `EMBED_MODEL` | `openai-group/text-embedding-3-small` |
+| `IMAGE_MODEL` | `openai-group/gpt-image-2` |
+| `TTS_MODEL` | `elevenlabs-primary/eleven_v3` (Devpost voiceover) |
+| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2`, falling back to `gpt-realtime` (OpenAI directly) |
+
+Claude calls use the same gateway client. Don't send `temperature`, `top_p` or `top_k`, don't force `tool_choice`, and when you need JSON, ask for it and validate it with zod, retrying once on a parse failure.
 
 | Step or job | Model | Timeout | On timeout or error |
 |---|---|---|---|
-| Write the plan | Nemotron 3 Ultra (`NEMOTRON_ULTRA_MODEL`) | 45 s | Retry once with Super, then use the template plan |
-| `plan_call`, ranking options, CD advice | Ultra | 45 s | Super |
+| Write the plan | Nemotron 3 Ultra if `NVIDIA_API_KEY` is set, otherwise Super | 45 s | Retry once with Super, then use the template plan |
+| `plan_call`, ranking options, CD advice | Ultra, or Super | 45 s | Super |
 | Orchestrator (run steps, write texts, answer questions) | Nemotron 3 Super (`NEMOTRON_SUPER_MODEL`) | 20 s | Retry once, then a canned text |
-| `decide` on a call | Nemotron 3 Nano (`NEMOTRON_NANO_MODEL`) | 4 s | Say "One moment," retry once, then say "Let me check on that and call you back," and end with `no_deal` |
+| `decide` on a call | Nemotron 3 Super (Nano once it handles tools reliably) | 4 s | Say "One moment," retry once, then say "Let me check on that and call you back," and end with `no_deal` |
 | `read_bill` | Nemotron vision (`NEMOTRON_VISION_MODEL`) | 20 s | Ask Yoshua to type the amount and due date |
 | Bill cross-check (Should) | Claude (`ANTHROPIC_MODEL`) | 20 s | Skip, log `warn` |
 | `second_opinion` (Should) | Claude | 30 s | Proceed, log `warn` |
-| `get_terms` (Should) | `NVIDIA_EMBED_MODEL` (+ `NVIDIA_RERANK_MODEL` if set) | 10 s | Proceed without terms |
-| Arena lenders | Ultra | 30 s per turn | Mark the run `errored`; don't count it |
+| `get_terms` (Should) | `EMBED_MODEL` | 10 s | Proceed without terms |
+| Arena lenders | Ultra, or Super | 30 s per turn | Mark the run `errored`; don't count it |
 | Arena grading | Claude | 60 s | Mark `ungraded` |
 | Mid-call approval | Yoshua | **60 s** | Ask the lender to hold the offer, get a reference number, end the call, text Yoshua |
 | Option choice | Yoshua | none | A reminder text after 30 minutes of demo-clock time |
@@ -931,9 +931,9 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 | Account | Where | Env vars | Owner | Notes |
 |---|---|---|---|---|
-| NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `NVIDIA_EMBED_MODEL`, `NVIDIA_RERANK_MODEL` (optional) | Agent brain | Model IDs are in section 5.4. Get the $60 Brev code from HackUTD staff. |
-| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Fall back to `gpt-realtime` if the LiveKit plugin rejects it. |
-| Anthropic | console.anthropic.com | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-opus-5-5`) | Agent brain | |
+| TrueFoundry | Ram's gateway | `TRUEFOUNDRY_API_KEY`, `TRUEFOUNDRY_BASE_URL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `ANTHROPIC_MODEL`, `EMBED_MODEL`, `IMAGE_MODEL`, `TTS_MODEL` | Ram | One key for every model except the call voice and Ultra. Model IDs are in section 5.4. |
+| NVIDIA (optional) | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Agent brain | Only for Nemotron 3 Ultra; without it the planner uses Super. Get the $60 Brev code from HackUTD staff. |
+| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. Fall back to `gpt-realtime` if the LiveKit plugin rejects `gpt-realtime-2`. |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |
 | Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit, but Photon requires a card on the organization before it sells one (none on file yet). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
 | LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
@@ -1044,7 +1044,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 Record the backup video during the last clean run.
 
 **Arena (`pnpm arena`):**
-- 50 runs in text mode, concurrency 4 to stay under build.nvidia.com rate limits. Ultra plays the lender from the persona mix in 8.6. Claude grades each transcript (8.7).
+- 50 runs in text mode, concurrency 4 to stay under rate limits. Ultra (or Super) plays the lender from the persona mix in 8.6. Claude grades each transcript (8.7).
 - Results go to `data/arena.json` and `GET /api/arena`.
 - **Pass bar:** 0 limit violations and 0 disclosures. Also report the deal rate and how often every offer was read back.
 - Run all 50 before the expo. During the demo, run three live.

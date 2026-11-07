@@ -1,0 +1,17 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Credentials and secrets
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+secrets.*
+
+# macOS
+.DS_Store

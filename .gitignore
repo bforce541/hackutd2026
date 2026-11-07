@@ -1,5 +1,6 @@
 # Local environment files
-.env
+# `.env` IS committed, but only encrypted with dotenvx (see README → Setup).
+# `.env.keys` holds the private decryption key and must never be committed.
 .env.*
 !.env.example
 *.local

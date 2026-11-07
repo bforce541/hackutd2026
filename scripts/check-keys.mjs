@@ -29,7 +29,8 @@ const checks = [
       body: JSON.stringify({ model: env.NEMOTRON_ULTRA_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
     }), { optional: true }],
   ["OPENAI_API_KEY", () =>
-    http("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } })],
+    http("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } }),
+    { missingNote: "only on Ram's machine, in .env.local" }],
   ["PHOTON_API_KEY", () =>
     env.PHOTON_PROJECT_ID
       ? http(`https://api.photon.codes/v1/projects/${env.PHOTON_PROJECT_ID}`, {

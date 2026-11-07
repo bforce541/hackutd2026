@@ -15,15 +15,15 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 7. **Alert only when it matters**, meaning the forecast crosses your minimum or $0. Use one thread per problem.
 8. **The person decides,** twice: first the limits before PacePay calls, then the final deal.
 9. **Show evidence, not reasoning.** Show before/after numbers, not the model's explanation.
-10. **Calm and still.** Light theme, one typeface, five colors, no decorative motion.
+10. **Calm and still.** Dark theme, one typeface, five colors, no decorative motion.
 
 ## Look and feel
 
 **Type**
 - One family, Inter (fallback: system UI), in weights 400 and 600. Use tabular figures (`font-variant-numeric: tabular-nums`) for every amount.
 - **Sizes:**
-  - balance: 32px
-  - side-card headline: 22px
+  - balance: 36px
+  - side-card headline: 24px
   - tile values: 24px
   - body: 16px
   - labels: 14px
@@ -31,22 +31,29 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 
   **Presenter mode** scales everything up 25% for the expo.
 
+**Theme: dark, deep navy** *(judgment, following platform dark-mode guidance)*
+- The page is deep navy (`#0B1020`), not pure black. Black behind bright text glares and smears, and navy leaves room to show depth.
+- Cards are one step lighter (`#121A2D`) with a hairline border. Depth comes from lighter surfaces, never shadows.
+- Text is off-white (`#E7EBF3`), never pure white. Accents are light tints (`#6E9BFF`), because saturated colors vibrate on dark backgrounds and fail contrast.
+- Primary buttons use a deeper blue (`#3563F0`) so their white text still passes 4.5:1.
+- Demo controls (Presenter, Reset) are plain text buttons, so the header stays quiet.
+
 **Color: five roles**
 
 | Role | Used for | Values |
 |---|---|---|
-| Neutrals | Text, borders, backgrounds | ink `#101828`, muted `#475467`, border `#E4E7EC`, page `#F5F6F8`, card `#FFFFFF` |
-| Blue | The forecast line, primary buttons, links | `#1D4ED8` |
-| Vermilion | Overdrawn (below $0), and only that | `#C2410C` |
-| Amber | Below your minimum; dark text on an amber fill | fill `#FDB022`, text `#7A2E0E`, minimum line `#B54708` |
-| Teal | On track, used sparingly | `#0F766E` |
+| Neutrals | Backgrounds, text, borders | page `#0B1020`, card `#121A2D`, inset `#0E1528`, border `#1E2A44`, text `#E7EBF3`, muted `#9AA4B8`, axis labels `#7D879C` |
+| Blue | The forecast line, links, the selected tab; primary buttons | line and links `#6E9BFF`, buttons `#3563F0` with white text |
+| Vermilion | Overdrawn (below $0), and only that | text `#FF9B6E`, hatching `#FF7A45` on `#3A1D12` |
+| Amber | Your minimum, and "Over limit" | `#F2B544` (dashed line; shading at 22% opacity) |
+| Teal | Paychecks and "On track," used sparingly | text `#4FE0C2`, markers `#3DD6B5` |
 
-- Amounts stay near-black. Color goes on the marker or label next to an amount, never on the number itself.
-- **Contrast:** 4.5:1 or more for text, 3:1 or more for chart marks and control borders.
+- Amounts stay off-white. Color goes on the marker or label next to an amount, never on the number itself.
+- **Contrast:** 4.5:1 or more for text, 3:1 or more for chart marks and control borders. Measured on the card color: muted text 6.9:1, axis labels 4.8:1, button text 5.0:1, forecast line 6.4:1, "Before" line 3.9:1.
 - **Check every screen** in grayscale, and with Chrome DevTools' color-blindness emulation.
 
 **Layout: dense, not cramped**
-- Cards fill the width on a light gray page. Page padding is 16–20px, card padding 16–20px, and gaps 16px.
+- Cards fill the width on the navy page. Page padding is 16–20px, card padding 16–20px, and gaps 16px.
 - Home fits one laptop screen (1440 × 900) without scrolling.
 - Never leave big empty areas. If a column runs short, the cards beside it stretch to match.
 - At phone width the side card drops below the chart.
@@ -128,7 +135,7 @@ Keep every message short. These are the exact templates:
 - *Calling:* "Calling your lender now."
 - *Approval:* "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO"
 - *Done:* "Done. Car payment is now Fri, Nov 13 ($20). Ref A1B2C3."
-- *Chart image:* 1080 × 1350 with one line ("Lowest: −$300 on Tue, Nov 10") and the next 14 days of the pace line. It's rendered from engine data and goes out just before the alert.
+- *Chart image:* 1080 × 1350 in the dashboard's dark colors, with one line ("Lowest: −$300 on Tue, Nov 10") and the next 14 days of the pace line: the $0 line, hatching below $0 and a dot on the lowest day. It's rendered from engine data and goes out just before the alert.
 
 Quiet hours apply to everything except mid-call approvals.
 
@@ -136,6 +143,7 @@ Quiet hours apply to everything except mid-call approvals.
 
 - Walls of text, explanatory sentences on the main screen, more cards than the step needs, big empty areas.
 - Glass and blur effects, decorative gradients, accent stripes on the edges of cards.
+- Pure black pages, pure white text, saturated accents, shadows on dark surfaces.
 - Gauges, donuts, smooth curves, cut-off axes, red and green as the only signal.
 - Counting-up numbers, decorative animation, repeated alerts.
 - "AI insights" with no numbers, one combined "health score," shaming copy, overpromising.
@@ -148,7 +156,7 @@ PNC already offers **Low Cash Mode** (a balance threshold you set, plus extra ti
 
 - **Components:** Tailwind and shadcn/ui (Card, Tabs, Badge, Button, Tooltip, Switch, Slider).
 - **The pace line:** visx (`@visx/shape` with `curveStepAfter`, `@visx/pattern` for the hatching, `@visx/annotation`). Use Recharts only for small charts.
-- **Tokens:** define the five color roles and the sizes once, as CSS variables.
+- **Tokens:** define the five color roles and the sizes once, as CSS variables. Dark is the only theme: put `class="dark"` on `<html>` and point shadcn's tokens (`--background`, `--card`, `--primary`, `--muted-foreground`, `--border`) at the values above.
 - **Before calling a screen done:** a grayscale screenshot, color-blindness emulation, a keyboard-only pass, reduced motion on, and a check at phone width.
 
 ## Sources
@@ -163,6 +171,8 @@ PNC already offers **Low Cash Mode** (a balance threshold you set, plus extra ti
   - UK Analysis Function, colors in charts: https://analysisfunction.civilservice.gov.uk/policy-store/data-visualisation-colours-in-charts/
   - WCAG 2.2: use of color https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html, contrast https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html, non-text contrast https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html
   - Stripe, accessible color systems: https://stripe.com/blog/accessible-color-systems
+  - Material Design, dark theme: https://m2.material.io/design/color/dark-theme.html
+  - Apple Human Interface Guidelines, dark mode: https://developer.apple.com/design/human-interface-guidelines/dark-mode
 - Alerts and behavior:
   - FCA, automatic overdraft alerts: https://www.fca.org.uk/publications/occasional-papers/occasional-paper-no-36-sending-out-sms-impact-automatically-enrolling-consumers-overdraft-alerts
   - Medina, reminders and overdraft fees: https://ideas.repec.org/a/oup/rfinst/v34y2021i5p2580-2607..html

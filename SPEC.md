@@ -46,7 +46,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     └─ prompts/       # *.md system prompts (section 8)
    ├─ voice/               # @pacepay/voice: LiveKit Agents worker, GPT realtime voice
    │  └─ src/agent.ts, tools.ts, prompts/voice.md
-   └─ dashboard/           # @pacepay/dashboard: Next.js App Router, shadcn/ui, Recharts
+   └─ dashboard/           # @pacepay/dashboard: Next.js App Router, shadcn/ui, visx (look and behavior: UI.md)
 ```
 
 **Why these choices:**
@@ -968,7 +968,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 2. Engine fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions`, `simulate`, with all the tests in section 3. **Sat 11 PM: tests pass.**
 3. Dashboard shell: layout, SSE client (`lib/events.ts` with `Last-Event-ID` resume), and server URL wiring.
 4. Home: accounts grouped by PNC's six categories, net worth, four score cards.
-5. Forecast chart (Recharts): 60 days, floor line, red below the floor, bill and paycheck markers, click a dip to see its causes.
+5. The pace line (visx), built to `UI.md` §2: 60-day stepped line, $0 and minimum lines, amber below the minimum, hatched vermilion below $0, ▲/▼ markers, ghost line for scenarios, click a dip to see its causes.
 6. Activity feed: plan checklist plus event rows with model labels, collapsible details, live call transcript.
 7. Coach chat (thread mirror plus input), rules page, demo controls (reset, clock, bill-photo injection).
 8. What-if panel: toggles from the spec, running the engine in the browser, side by side with the current plan.

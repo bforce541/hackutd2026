@@ -10,6 +10,7 @@
 
 - [v2.md](v2.md): what we're building and why
 - [SPEC.md](SPEC.md): how we're building it
+- [UI.md](UI.md): how it looks and behaves, based on research
 
 ## Setup
 

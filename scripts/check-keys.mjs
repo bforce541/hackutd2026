@@ -39,7 +39,7 @@ const checks = [
   ["LIVEKIT_API_KEY"],
   ["LIVEKIT_API_SECRET"],
   ["LIVEKIT_SIP_OUTBOUND_TRUNK_ID"],
-  ["DATABASE_URL"],
+  ["DATABASE_URL", "optional"],
   ["JORDAN_PHONE", "phone"],
   ["LENDER_PHONE", "phone"],
   ["INBOUND_PIN", () => (/^\d{4}$/.test(env.INBOUND_PIN) ? "ok" : "should be 4 digits")],
@@ -55,12 +55,13 @@ const SECRETS = [
 let problems = 0;
 for (const [name, test] of checks) {
   let status;
-  if (!env[name]) status = "missing";
+  if (!env[name]) status = test === "optional" ? "optional, not set" : "missing";
   else if (test === "phone") status = E164.test(env[name]) ? "ok" : "not E.164 (+1...)";
   else if (typeof test === "function") status = await test();
   else status = "set";
-  if (status !== "ok" && status !== "set") problems++;
-  console.log(`${status === "ok" || status === "set" ? "✓" : "✗"} ${name.padEnd(30)} ${status}`);
+  const fine = status === "ok" || status === "set" || status === "optional, not set";
+  if (!fine) problems++;
+  console.log(`${fine ? "✓" : "✗"} ${name.padEnd(30)} ${status}`);
 }
 
 try {

@@ -14,5 +14,8 @@ credentials.json
 service-account*.json
 secrets.*
 
+# Runtime state written by the server (see SPEC.md)
+data/
+
 # macOS
 .DS_Store

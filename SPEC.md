@@ -41,7 +41,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     ├─ agent/         # planner.ts orchestrator.ts negotiator.ts machine.ts watcher.ts secondOpinion.ts arena.ts
    │     ├─ tools/         # one file per tool (section 5.6)
    │     ├─ models/        # nvidia.ts (OpenAI SDK with NVIDIA base URL), anthropic.ts
-   │     ├─ messaging/     # port.ts + spectrum-ts adapter + chart.ts (section 6)
+   │     ├─ messaging/     # port.ts + Photon 2.0 adapter (photon.ts) + chart.ts (section 6)
    │     ├─ voice/         # dispatch.ts (LiveKit API calls)
    │     └─ prompts/       # *.md system prompts (section 8)
    ├─ voice/               # @margin/voice: LiveKit Agents worker, GPT realtime voice
@@ -53,7 +53,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
 
 - **Hono for the server.** It's small, TypeScript-first, and has a built-in SSE helper.
 - **In-memory state with a JSON snapshot instead of a database.** One server process owns all state, and the demo resets dozens of times. A database adds migrations and setup with no benefit here. `DATABASE_URL` is kept in the env but unused unless you switch the store to Postgres later.
-- **No public URL needed.** Photon messages arrive through the spectrum-ts SDK's message stream, the voice worker connects out to LiveKit Cloud, and the voice worker reaches the server on localhost. The whole system runs on one laptop.
+- **No public URL needed.** Photon messages are fetched from Photon's API (polling, or Socket.IO live events), the voice worker connects out to LiveKit Cloud, and the voice worker reaches the server on localhost. The whole system runs on one laptop.
 
 **Ports:** server `8787`, dashboard `3000`. `SERVER_URL` defaults to `http://localhost:8787` and `DASHBOARD_URL` to `http://localhost:3000`. The dashboard reads the server URL through `next.config` (`env: { NEXT_PUBLIC_SERVER_URL: process.env.SERVER_URL }`), so there's no extra env var.
 
@@ -690,43 +690,40 @@ export interface MessagingPort {
 export interface InboundMessage { id: string; from: string; text?: string; imageRef?: string; at: string }
 ```
 
-**The server talks to Photon only through `spectrum-ts`** (`pnpm add spectrum-ts` in `apps/server`). The project secret doesn't authorize Photon's REST API (it returns 403), so there's no REST client. The adapter is `messaging/spectrum.ts`:
+**The server talks to Photon 2.0 through its REST API, using the official client `@photon-ai/api`** (`pnpm add @photon-ai/api` in `apps/server`; needs Node 22+). Auth is the project API key `PHOTON_API_KEY` (`pho_sk_…`, full access), sent as a bearer token to `https://api.photon.codes/v1`. The project is on the **Photon 2.0 beta dashboard, app.beta.photon.codes**, not the older app.photon.codes. The adapter is `messaging/photon.ts`:
 
 ```ts
-import { Spectrum, attachment } from "spectrum-ts";
-import { imessage } from "spectrum-ts/providers/imessage";
+import { Photon } from "@photon-ai/api";
 
-const app = await Spectrum({
-  projectId: process.env.SPECTRUM_PROJECT_ID!,
-  projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
-  providers: [imessage.config()],
+// Create the client with PHOTON_API_KEY. Check Photon's API-client "Credentials" page for the exact constructor option.
+const photon = new Photon({ apiKey: process.env.PHOTON_API_KEY! });
+const id = process.env.PHOTON_PROJECT_ID!;
+
+// Receive: poll every 2 seconds and follow nextPageToken. Socket.IO live events are the upgrade.
+const page = await photon.projects.listMessages({
+  path: { id },
+  query: { createdSince, direction: "received", order: "asc", pageSize: 100, platform: "imessage", pageToken },
 });
+// Accept only Jordan: normalize the sender to E.164 and compare it with JORDAN_PHONE.
+// Keep the incoming message's space.id (Jordan's conversation) and receivedBy.id (Margin's sender id).
 
-// Receive: one long-running loop.
-for await (const [space, message] of app.messages) {
-  // Accept only Jordan: message.sender?.id must match JORDAN_PHONE (normalize both to E.164).
-  // message.content.type === "text" → InboundMessage.text; an image attachment → InboundMessage.imageRef.
-  // Keep `space` as Jordan's conversation for every later send.
-}
-
-// Send text and images into Jordan's conversation.
-await space.send("…");
-await space.send(attachment(pngBuffer, { name: "week.png", mimeType: "image/png" }));
-
-// Open the conversation by phone number, if Margin has to text first.
-const im = imessage(app);
-const dm = await im.space.create(await im.user(process.env.JORDAN_PHONE!));
+// Send text into Jordan's conversation.
+await photon.projects.sendMessage({
+  path: { id },
+  headers: { "idempotency-key": `margin:${outboundId}` },
+  body: { spaceId, senderId, parentMessageId, content: { type: "text", format: "plain", text } },
+});
 ```
 
-Wrap slow replies in `space.responding(async () => { … })` so Jordan sees the typing indicator. For incoming images, read the attachment from the message content. Photon's "Fetching iMessage attachments" page covers it, and the cloud provider has `imessage(app).getAttachment(guid)`.
+Images: Photon 2.0 iMessage supports images. Upload with `POST /v1/projects/{id}/attachments`, then send a message whose content references the attachment. Download incoming photos with `GET /v1/projects/{id}/attachments/{attachmentId}/content`. The beta guides don't show the image message body yet, so confirm it in the API reference (section 12).
 
 **Photon facts that shape the design:**
 
-- **The free plan uses a shared iMessage line** (`PHOTON_IMESSAGE_NUMBER`), and **a phone has to be on the Photon account before it can text the line.** Add `JORDAN_PHONE` to the account during setup.
-- **Margin texts first only into an existing conversation, until proven otherwise.** Photon's beta docs say a shared line can't send an unsolicited first message. Setup step: Jordan's phone texts the line once ("hi"), and the server keeps that `space` and sends every Margin-initiated message into it, including the CD alert. If `im.space.create` works on the shared line, that's fine too. If proactive sends are rejected, ask Photon's Discord for a dedicated line; meanwhile the CD alert goes out right after Jordan's next message.
-- **Only phones on the account can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
+- **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Jordan's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
+- **A shared line can't send an unsolicited first message.** Setup step: Jordan's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every Margin-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Jordan's next message.
+- **Only assigned senders can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
 - **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "no").
-- **Voice uses a separate number** (`PHOTON_VOICE_NUMBER`) and is pending Photon voice availability (section 7). Margin never texts from that number; SMS texting would need 10DLC registration.
+- **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). Margin never texts from that number.
 
 The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
 
@@ -736,7 +733,7 @@ The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every mess
 
 ## 7. Voice
 
-> **Pending Photon voice availability.** Photon's project-creation picker still shows Voice as "Soon," and Ram is checking whether calls work today. Build and test the worker now in LiveKit's Agents Playground (browser audio, no phone line needed). Calls ring through Photon once voice is live. Until then, text negotiation through the lender console is a Must and carries the demo.
+> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. Buying the number is waiting on Ram's OK. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
 
 ### 7.1 Call path
 
@@ -937,8 +934,8 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `NVIDIA_EMBED_MODEL`, `NVIDIA_RERANK_MODEL` (optional) | Agent brain | Model IDs are in section 5.4. Get the $60 Brev code from HackUTD staff. |
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Fall back to `gpt-realtime` if the LiveKit plugin rejects it. |
 | Anthropic | console.anthropic.com | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-opus-5-5`) | Agent brain | |
-| Photon iMessage | app.photon.codes → project Settings | `SPECTRUM_PROJECT_ID`, `SPECTRUM_PROJECT_SECRET`, `PHOTON_IMESSAGE_NUMBER` (the shared line) | Ram (set up) | spectrum-ts reads the two `SPECTRUM_*` names directly. Add `JORDAN_PHONE` to the Photon account so it can text the line. |
-| Photon voice | app.photon.codes → Voice → Lines → number → SIP profile | `PHOTON_VOICE_NUMBER` | Ram, then Messaging and voice | **Pending Photon voice availability.** Inbound: LiveKit SIP URI plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
+| Photon iMessage | app.beta.photon.codes → Margin → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `JORDAN_PHONE` as a sender and assign a shared number. Jordan's phone sends `ping` once to open the conversation. |
+| Photon voice | app.beta.photon.codes → Margin → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit (waiting on Ram's OK). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
 | LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `margin-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
 | Phones | Two team iPhones | `JORDAN_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Jordan's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
@@ -983,7 +980,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 ### 10.4 Messaging and voice (Photon)
 
 1. With Ram: make sure `JORDAN_PHONE` is on the Photon account, text the line "hi", and confirm the server sees it.
-2. `MessagingPort` adapter on `spectrum-ts`: receive loop, send text, send image, read incoming images. **Sat 11 PM: Margin sends a first text.**
+2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: Margin sends a first text.**
 3. Inbound pipeline: route Jordan's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
 4. `read_bill` with the Nemotron vision model (+ Claude cross-check as a Should item); chart PNG rendering and `send_chart`.
 5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
@@ -1065,9 +1062,9 @@ These could each change part of this spec. Whoever owns the row checks it and po
 
 | Question | Owner | If the answer is no |
 |---|---|---|
-| Is Photon voice live for our project? The project-creation picker says "Soon." | Ram | Text negotiation carries the demo. Ask Photon's Discord when voice opens. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
-| Can the shared iMessage line send into the conversation after Jordan's first "hi," or open one with `im.space.create`? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Jordan's next message |
-| Do image attachments send and arrive through `spectrum-ts` on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Jordan to type the bill amount |
+| Does a test call reach our Photon SMS number's voice profile and land in LiveKit? | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
+| After Jordan's first `ping`, can Margin send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Jordan's next message |
+| Do image attachments send and arrive through Photon's attachments API on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Jordan to type the bill amount |
 | Once voice is live, does a call connect end to end: LiveKit outbound trunk → Photon → lender phone? | Messaging and voice | Recheck the cookbook settings (TLS, SRTP, the `ST_…` trunk ID); the text fallback still demos the agent |
 | Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |
 | Are the model IDs in section 5.4 live for our key, with tool calling? | Agent brain | Shift each role down one size (Ultra → Super, Super → Nano) and note it on the architecture slide |

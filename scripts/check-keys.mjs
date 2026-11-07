@@ -30,11 +30,16 @@ const checks = [
     http("https://api.anthropic.com/v1/models", {
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
     })],
-  // The project secret only works through the spectrum-ts SDK, so this checks its shape, not a live call.
-  ["SPECTRUM_PROJECT_ID", () => (/^[0-9a-f-]{36}$/.test(env.SPECTRUM_PROJECT_ID) ? "ok" : "not a project UUID")],
-  ["SPECTRUM_PROJECT_SECRET", () => (env.SPECTRUM_PROJECT_SECRET.length >= 32 ? "set" : "too short")],
+  ["PHOTON_API_KEY", () =>
+    env.PHOTON_PROJECT_ID
+      ? http(`https://api.photon.codes/v1/projects/${env.PHOTON_PROJECT_ID}`, {
+          headers: { Authorization: `Bearer ${env.PHOTON_API_KEY}` },
+        })
+      : "set, but PHOTON_PROJECT_ID is missing"],
+  ["PHOTON_PROJECT_ID", () => (/^pho_prj_[a-z0-9]+$/.test(env.PHOTON_PROJECT_ID) ? "ok" : "should start with pho_prj_")],
   ["PHOTON_IMESSAGE_NUMBER", "phone"],
   ["PHOTON_VOICE_NUMBER", "phone"],
+  ["PHOTON_VOICE_PROFILE_ID"],
   ["LIVEKIT_URL"],
   ["LIVEKIT_API_KEY"],
   ["LIVEKIT_API_SECRET"],
@@ -47,7 +52,7 @@ const checks = [
 
 // Values that must never sit in .env as plain text, because the repo is public.
 const SECRETS = [
-  "NVIDIA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SPECTRUM_PROJECT_ID", "SPECTRUM_PROJECT_SECRET",
+  "NVIDIA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PHOTON_API_KEY",
   "PHOTON_IMESSAGE_NUMBER", "PHOTON_VOICE_NUMBER", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET",
   "DATABASE_URL", "JORDAN_PHONE", "LENDER_PHONE", "INBOUND_PIN",
 ];

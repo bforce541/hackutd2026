@@ -8,7 +8,7 @@
 2. **`v2.md` is the source of truth for the demo household and every number in it.** This doc never repeats those numbers; tests read them from the fixture, and the fixture comes from `v2.md`.
 3. **The contracts in `packages/shared` are frozen after the first 30 minutes.** Changing a type means telling the other two workstreams first.
 4. **Every agent step emits an activity event.** If it isn't in the activity feed, judges can't see it.
-5. **Nothing is final without Jordan's yes, and every offer goes through `check_offer`.** These checks live in code, not in prompts.
+5. **Nothing is final without Yoshua's yes, and every offer goes through `check_offer`.** These checks live in code, not in prompts.
 
 ---
 
@@ -114,7 +114,7 @@ export interface ScheduledItem {
   accountId: string;           // the account it posts to (bills post to checking, card_spend to the card)
   label: string;
   amount: Cents;               // signed change to that account's `balance` (on a liability, + means more owed)
-  counterAccountId?: string;   // set when money moves between Jordan's own accounts
+  counterAccountId?: string;   // set when money moves between Yoshua's own accounts
   counterAmount?: Cents;       // signed change to the counter account's `balance` (card autopay: checking −, card −)
   day: Day;                    // first occurrence
   every?: { days: number } | { months: number };
@@ -141,7 +141,7 @@ export interface Counterparty {
 
 export interface Household {
   id: string;
-  person: { name: 'Jordan'; phoneEnv: 'JORDAN_PHONE' };
+  person: { name: 'Yoshua'; phoneEnv: 'CUSTOMER_PHONE' };
   day0Date: ISODate;           // a Saturday
   grossAnnualIncome: Cents;
   monthlyEssentials: { label: string; amount: Cents }[];
@@ -239,7 +239,7 @@ export type ApprovalKind = 'option_choice' | 'deal' | 'bill_confirm';
 export interface Approval {
   id: string;
   kind: ApprovalKind;
-  prompt: string;              // the exact text sent to Jordan
+  prompt: string;              // the exact text sent to Yoshua
   choices: string[];           // ['1','2','3'] or ['yes','no']
   status: 'pending' | 'approved' | 'declined' | 'answered' | 'timeout';
   answer?: string;
@@ -249,7 +249,7 @@ export interface Approval {
   timeoutMs?: number;          // 60_000 for mid-call deals
 }
 
-export interface TranscriptLine { at: string; speaker: 'pacepay' | 'counterparty' | 'jordan'; text: string }
+export interface TranscriptLine { at: string; speaker: 'pacepay' | 'counterparty' | 'customer'; text: string }
 
 export interface Call {
   id: string;
@@ -288,7 +288,7 @@ export interface CallPlan {
   feeLimit: Cents;             // never said out loud
   openingAsk: string;          // e.g. ask to move with no fee
   walkAway: string;            // when to stop
-  fallbackText: string;        // what to text Jordan on no deal
+  fallbackText: string;        // what to text Yoshua on no deal
 }
 
 export type StepKind =
@@ -451,7 +451,7 @@ Endpoints under `/api/voice/*` accept requests from localhost only. The voice wo
 | `POST /api/simulate` | `{ changes: Change[] }` | `{ forecast, scores, netWorth }` (the dashboard may also run the engine locally) |
 | `GET /api/rules` / `PUT /api/rules` | `Rules` | `Rules` |
 | `GET /api/thread` | — | `Message[]` (the iMessage thread mirror) |
-| `POST /api/thread` | `{ text: string }` | `{ ok: true }` (coach chat: treated exactly like a text from Jordan) |
+| `POST /api/thread` | `{ text: string }` | `{ ok: true }` (coach chat: treated exactly like a text from Yoshua) |
 | `GET /api/cases/current` | — | `{ case: Case, plan: Plan, approvals: Approval[] }` or `{ case: null }` |
 | `GET /api/calls/:id` | — | `Call` |
 | `GET /api/media/:id` | — | image bytes (bill photos and chart PNGs) |
@@ -464,8 +464,8 @@ Endpoints under `/api/voice/*` accept requests from localhost only. The voice wo
 |---|---|---|
 | `POST /api/demo/reset` | — | `{ ok: true }` — reload the fixture, clear cases, thread, calls and approvals, set the clock to day 0, emit `demo.reset` |
 | `POST /api/demo/clock` | `{ day: Day }` or `{ advance: number }` | `{ day }` — emit `clock.changed`, then run the watcher's daily check (this is how the CD alert fires) |
-| `POST /api/demo/bill-photo` | `{ fixture: 'brake_quote' }` or multipart image | `{ ok: true }` — inject a bill photo as if Jordan texted it (rehearsal without phones) |
-| `POST /api/demo/jordan-says` | `{ text }` | `{ ok: true }` — inject a text from Jordan |
+| `POST /api/demo/bill-photo` | `{ fixture: 'brake_quote' }` or multipart image | `{ ok: true }` — inject a bill photo as if Yoshua texted it (rehearsal without phones) |
+| `POST /api/demo/customer-says` | `{ text }` | `{ ok: true }` — inject a text from Yoshua |
 
 ### Lender console (text negotiation; the call's fallback)
 
@@ -480,7 +480,7 @@ These are the server side of the voice tools in section 7. The voice model only 
 
 | Method and path | Request | Response |
 |---|---|---|
-| `GET /api/voice/calls/:id/brief` | — | `{ direction, greeting: string, goal: string, personName: 'Jordan', accountReference: string, counterpartyName?: string }`, with no balances or limits |
+| `GET /api/voice/calls/:id/brief` | — | `{ direction, greeting: string, goal: string, personName: 'Yoshua', accountReference: string, counterpartyName?: string }`, with no balances or limits |
 | `POST /api/voice/calls/:id/decide` | `{ utterance: string }` | `DecideResult` |
 | `POST /api/voice/calls/:id/approval` | — | `{ status: 'pending' \| 'approved' \| 'declined' \| 'timeout', say?: string, next?: 'listen' \| 'end_call' }` (the worker polls this) |
 | `POST /api/voice/calls/:id/events` | `{ type: 'answered' \| 'transcript' \| 'ended' \| 'failed', speaker?, text?, sipStatus?: string }` | `204` |
@@ -520,10 +520,10 @@ export interface DecideResult {
 
 | Event | Source | Starts |
 |---|---|---|
-| `BILL_PHOTO` | An image from Jordan, or `/api/demo/bill-photo` | A new case and a plan |
-| `CHOICE_REPLY` | "1", "2" or "3" from Jordan while an `option_choice` approval is pending | Resumes the case |
-| `APPROVAL_REPLY` | "yes" or "no" from Jordan while a `deal` or `bill_confirm` approval is pending | Resumes the case |
-| `TEXT` | Any other text from Jordan (iMessage or coach chat) | `answer_question` with Super and tools |
+| `BILL_PHOTO` | An image from Yoshua, or `/api/demo/bill-photo` | A new case and a plan |
+| `CHOICE_REPLY` | "1", "2" or "3" from Yoshua while an `option_choice` approval is pending | Resumes the case |
+| `APPROVAL_REPLY` | "yes" or "no" from Yoshua while a `deal` or `bill_confirm` approval is pending | Resumes the case |
+| `TEXT` | Any other text from Yoshua (iMessage or coach chat) | `answer_question` with Super and tools |
 | `DAILY_CHECK` | The watcher on each clock change, and once per real day | Forecast check; raises `CD_MATURING` or `SHORTFALL` when found |
 | `CD_MATURING` | Daily check: a CD matures within 2 business days | A new case and a short plan (no call) |
 | `SHORTFALL` | Daily check: cushion goes red with no open case | A new case (same shape as `BILL_PHOTO` without the bill) |
@@ -550,27 +550,27 @@ Example: Ultra's plan for the repair (`BILL_PHOTO`).
 
 ```json
 {
-  "goal": "Cover the $650 repair without going below Jordan's floor",
+  "goal": "Cover the $650 repair without going below Yoshua's floor",
   "steps": [
     { "kind": "read_bill",         "title": "Read the repair quote",              "model": "nemotron-vision" },
     { "kind": "forecast",          "title": "Check the week if paid today",        "model": "engine" },
     { "kind": "build_options",     "title": "Compare card, savings, moving a payment", "model": "engine" },
-    { "kind": "send_options",      "title": "Text Jordan the options and a chart", "model": "nemotron-super" },
-    { "kind": "await_choice",      "title": "Wait for Jordan's pick",              "model": "code" },
+    { "kind": "send_options",      "title": "Text Yoshua the options and a chart", "model": "nemotron-super" },
+    { "kind": "await_choice",      "title": "Wait for Yoshua's pick",              "model": "code" },
     { "kind": "get_terms",         "title": "Pull the auto loan's terms",          "model": "nemotron-super" },
     { "kind": "plan_call",         "title": "Plan the call to the lender",         "model": "nemotron-ultra" },
     { "kind": "second_opinion",    "title": "Second opinion on the call plan",     "model": "claude-opus" },
     { "kind": "place_call",        "title": "Call the lender",                     "model": "code" },
     { "kind": "negotiate",         "title": "Negotiate the due date",              "model": "nemotron-nano" },
-    { "kind": "confirm_deal",      "title": "Confirm the deal Jordan approved",    "model": "code" },
-    { "kind": "post_call_summary", "title": "Text Jordan the summary",             "model": "nemotron-super" },
+    { "kind": "confirm_deal",      "title": "Confirm the deal Yoshua approved",    "model": "code" },
+    { "kind": "post_call_summary", "title": "Text Yoshua the summary",             "model": "nemotron-super" },
     { "kind": "update_forecast",   "title": "Update the forecast",                 "model": "engine" },
-    { "kind": "schedule_followup", "title": "Remind Jordan the night before",      "model": "code" }
+    { "kind": "schedule_followup", "title": "Remind Yoshua the night before",      "model": "code" }
   ]
 }
 ```
 
-When Jordan picks option 1 or 2, the orchestrator marks the call steps `skipped` and adds one `send_message` step that explains how to do it. PacePay never moves money.
+When Yoshua picks option 1 or 2, the orchestrator marks the call steps `skipped` and adds one `send_message` step that explains how to do it. PacePay never moves money.
 
 ### 5.3 State machine (`agent/machine.ts`)
 
@@ -591,12 +591,12 @@ CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED 
 
 | Gate | Enforced in |
 |---|---|
-| No `place_call` unless the case's `chosenOption === 'move_payment'` came from Jordan's reply | `tools/place_call.ts` |
+| No `place_call` unless the case's `chosenOption === 'move_payment'` came from Yoshua's reply | `tools/place_call.ts` |
 | No `place_call` until `second_opinion` returned `approve`, or `revise` was applied, or it timed out (logged as `warn`) | `machine.ts` |
 | Every new offer is read back, and `check_offer` runs only after the lender confirms the read-back | `negotiator.ts` |
 | No deal is agreed on the call until `Approval(kind:'deal').status === 'approved'` | `negotiator.ts` |
 | The voice model's brief contains no balances, limits or reasons | `api/voice.ts` builds it from an allowlist |
-| Inbound calls get numbers only when the caller ID matches `JORDAN_PHONE` and `verify-pin` succeeded | `api/voice.ts` |
+| Inbound calls get numbers only when the caller ID matches `CUSTOMER_PHONE` and `verify-pin` succeeded | `api/voice.ts` |
 | PacePay-initiated texts respect `quietHours`, except replies and mid-call approvals | `tools/send_message.ts` |
 
 ### 5.4 Models and timeouts
@@ -625,18 +625,18 @@ Model IDs (from build.nvidia.com's public list; they live in `.env`):
 | `plan_call`, ranking options, CD advice | Ultra | 45 s | Super |
 | Orchestrator (run steps, write texts, answer questions) | Nemotron 3 Super (`NEMOTRON_SUPER_MODEL`) | 20 s | Retry once, then a canned text |
 | `decide` on a call | Nemotron 3 Nano (`NEMOTRON_NANO_MODEL`) | 4 s | Say "One moment," retry once, then say "Let me check on that and call you back," and end with `no_deal` |
-| `read_bill` | Nemotron vision (`NEMOTRON_VISION_MODEL`) | 20 s | Ask Jordan to type the amount and due date |
+| `read_bill` | Nemotron vision (`NEMOTRON_VISION_MODEL`) | 20 s | Ask Yoshua to type the amount and due date |
 | Bill cross-check (Should) | Claude (`ANTHROPIC_MODEL`) | 20 s | Skip, log `warn` |
 | `second_opinion` (Should) | Claude | 30 s | Proceed, log `warn` |
 | `get_terms` (Should) | `NVIDIA_EMBED_MODEL` (+ `NVIDIA_RERANK_MODEL` if set) | 10 s | Proceed without terms |
 | Arena lenders | Ultra | 30 s per turn | Mark the run `errored`; don't count it |
 | Arena grading | Claude | 60 s | Mark `ungraded` |
-| Mid-call approval | Jordan | **60 s** | Ask the lender to hold the offer, get a reference number, end the call, text Jordan |
-| Option choice | Jordan | none | A reminder text after 30 minutes of demo-clock time |
+| Mid-call approval | Yoshua | **60 s** | Ask the lender to hold the offer, get a reference number, end the call, text Yoshua |
+| Option choice | Yoshua | none | A reminder text after 30 minutes of demo-clock time |
 
 ### 5.5 Text the agent sends
 
-Super writes every Jordan-facing text from a **facts object** the engine produced. The prompt forbids any number not in the facts object, and code checks it: every `$` amount and `%` in the outgoing text must appear in the facts object, or the text is regenerated once and then sent from a template.
+Super writes every Yoshua-facing text from a **facts object** the engine produced. The prompt forbids any number not in the facts object, and code checks it: every `$` amount and `%` in the outgoing text must appear in the facts object, or the text is regenerated once and then sent from a template.
 
 ### 5.6 The 14 tools
 
@@ -651,12 +651,12 @@ Schemas live in `packages/shared/src/tools.ts` as zod objects. The same definiti
 | `get_terms` | Orchestrator | `{ counterpartyId, question: string }` | `{ passages: { docId, text, score }[] }` | — |
 | `read_bill` | Orchestrator | `{ mediaId }` | `{ merchant, amount: Cents, dueDay: Day \| null, description, confidence: number, crossCheck?: { agrees: boolean, amount?: Cents, dueDay?: Day } }` | stores the bill on the case |
 | `second_opinion` | Orchestrator | `{ callPlan: CallPlan, rules: Rules, script: string }` | `{ verdict: 'approve' \| 'revise', issues: { severity: 'high' \| 'low', issue: string, fix: string }[] }` | emits `review.result` |
-| `send_message` | Orchestrator | `{ text: string, facts: Record<string, string> }` | `{ messageId }` | sends to Jordan's iMessage thread and mirrors it to the dashboard |
+| `send_message` | Orchestrator | `{ text: string, facts: Record<string, string> }` | `{ messageId }` | sends to Yoshua's iMessage thread and mirrors it to the dashboard |
 | `send_chart` | Orchestrator | `{ kind: 'week' \| 'what_if', changes?: Change[] }` | `{ messageId, mediaId }` | renders a PNG and sends it as an image |
 | `request_approval` | Orchestrator, negotiator | `{ kind: ApprovalKind, prompt: string, choices: string[], timeoutMs?: number, callId?: string }` | `{ approvalId }` | sends the prompt; the reply resolves it |
 | `place_call` | Orchestrator | `{ negotiationId }` | `{ callId, room }` | dispatches the voice agent and dials `LENDER_PHONE` |
 | `decide` | Voice worker, lender console, arena | `{ negotiationId, utterance: string }` | `DecideResult` | updates the negotiation; may call `check_offer` and `request_approval` |
-| `post_call_summary` | Orchestrator | `{ callId }` | `{ messageId, summary, referenceNumber? }` | texts Jordan |
+| `post_call_summary` | Orchestrator | `{ callId }` | `{ messageId, summary, referenceNumber? }` | texts Yoshua |
 | `schedule_followup` | Orchestrator | `{ atDay: Day, text: string }` | `{ followupId }` | the watcher sends it when the clock passes `atDay` |
 
 **How `decide` works** (`agent/negotiator.ts`). It's a ReAct loop around Nano with code-enforced steps:
@@ -665,11 +665,11 @@ Schemas live in `packages/shared/src/tools.ts` as zod objects. The same definiti
 2. Nano classifies it and extracts any offer: `{ kind: 'offer' | 'confirm' | 'deny' | 'question' | 'verification_request' | 'refusal' | 'chitchat', offer?: { day: string, fee?: number } }`. Code converts the day phrase to a `Day` using the demo calendar.
 3. **New offer:** store it as pending, set state `reading_back`, and return the read-back ("So that's Friday, with a twenty-dollar fee?").
 4. **Confirmation of a pending offer:** run `check_offer`.
-   - **Pass:** `request_approval(kind:'deal', timeoutMs: 60000)` and return `{ say: 'Let me confirm with Jordan, one moment.', next: 'await_approval' }`.
+   - **Pass:** `request_approval(kind:'deal', timeoutMs: 60000)` and return `{ say: 'Let me confirm with Yoshua, one moment.', next: 'await_approval' }`.
    - **Fail:** Nano picks a counter from the `CallPlan`:
      - Ask for a waiver first when the only problem is the fee.
      - Otherwise ask for `targetDay`.
-     - Never state the reason or Jordan's limits.
+     - Never state the reason or Yoshua's limits.
 5. **Verification request:** ask for a reference number, set the outcome to `handoff_verification`, and end the call.
 6. **Refusal:** thank them, set the outcome to `no_deal`, and end the call.
 7. **Question or chitchat:** Nano answers briefly within the brief's allowlist.
@@ -704,10 +704,10 @@ const page = await photon.projects.listMessages({
   path: { id },
   query: { createdSince, direction: "received", order: "asc", pageSize: 100, platform: "imessage", pageToken },
 });
-// Accept only Jordan: normalize the sender to E.164 and compare it with JORDAN_PHONE.
-// Keep the incoming message's space.id (Jordan's conversation) and receivedBy.id (PacePay's sender id).
+// Accept only Yoshua: normalize the sender to E.164 and compare it with CUSTOMER_PHONE.
+// Keep the incoming message's space.id (Yoshua's conversation) and receivedBy.id (PacePay's sender id).
 
-// Send text into Jordan's conversation.
+// Send text into Yoshua's conversation.
 await photon.projects.sendMessage({
   path: { id },
   headers: { "idempotency-key": `pacepay:${outboundId}` },
@@ -719,13 +719,13 @@ Images: Photon 2.0 iMessage supports images. Upload with `POST /v1/projects/{id}
 
 **Photon facts that shape the design:**
 
-- **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Jordan's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
-- **A shared line can't send an unsolicited first message.** Setup step: Jordan's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every PacePay-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Jordan's next message.
+- **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Yoshua's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
+- **A shared line can't send an unsolicited first message.** Setup step: Yoshua's phone starts a new iMessage conversation with the line by sending `ping`. The server keeps that `spaceId` and sends every PacePay-initiated message into it, including the CD alert. If proactive sends there are rejected, ask Photon's Discord; meanwhile the CD alert goes out right after Yoshua's next message.
 - **Only assigned senders can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
 - **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "no").
 - **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). PacePay never texts from that number.
 
-The bridge ignores messages from anyone but `JORDAN_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
+The bridge ignores messages from anyone but `CUSTOMER_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
 
 **Chart images** (`messaging/chart.ts`, owned by Messaging and voice): build an SVG line chart from `Forecast` (7 days, floor line, red dips, bill markers), then render it to PNG with `@resvg/resvg-js`. No AI-generated images.
 
@@ -769,7 +769,7 @@ Calls are placed through LiveKit's SIP participant API (`CreateSIPParticipant`: 
 | Voice tool | Server endpoint | Notes |
 |---|---|---|
 | `decide(utterance)` | `POST /api/voice/calls/:id/decide` | Called after every counterparty turn that mentions a date, money, a fee, verification, or refusal. Speak `say` word for word. |
-| `await_approval()` | Polls `POST /api/voice/calls/:id/approval` every 2 s for up to 60 s | At 20 s and 40 s the worker calls `session.say('Thanks for holding, still checking with Jordan.')`. When it resolves, speak `say`. |
+| `await_approval()` | Polls `POST /api/voice/calls/:id/approval` every 2 s for up to 60 s | At 20 s and 40 s the worker calls `session.say('Thanks for holding, still checking with Yoshua.')`. When it resolves, speak `say`. |
 | `end_call(reason)` | `POST /api/voice/calls/:id/events {type:'ended'}` | Then delete the room through the LiveKit API to hang up. |
 | `verify_pin(digits)` | `POST /api/voice/calls/:id/verify-pin` | Inbound only. |
 | `ask_pacepay(question)` | `POST /api/voice/calls/:id/ask` | Inbound only, after the PIN. |
@@ -778,29 +778,29 @@ The worker also posts every transcript line (both speakers) to `/events`, so the
 
 ### 7.3 What the voice model knows
 
-Only the brief: the greeting, the goal, Jordan's first name, the account reference (e.g. "ending 4417") and the counterparty's name. **It never gets balances, the fee limit, the floors, or why an offer failed.** It learns what to say one line at a time from `decide`. Section 8.4 has its instructions.
+Only the brief: the greeting, the goal, Yoshua's first name, the account reference (e.g. "ending 4417") and the counterparty's name. **It never gets balances, the fee limit, the floors, or why an offer failed.** It learns what to say one line at a time from `decide`. Section 8.4 has its instructions.
 
 ### 7.4 Flows
 
-**Opening an outbound call:** the greeting comes from the brief, for example: "Hi, I'm PacePay, an AI assistant calling on behalf of Jordan, with Jordan's permission, about the auto loan ending 4417. This call is transcribed."
+**Opening an outbound call:** the greeting comes from the brief, for example: "Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed."
 
 **Read-back:** for every new offer, `decide` returns a read-back line first. The offer is checked only after the lender confirms it.
 
 **Mid-call approval:**
 1. `decide` returns `next: 'await_approval'`.
 2. The worker says the line and calls `await_approval()`.
-3. Jordan gets the text with the offer.
-4. Jordan replies "yes" and the server resolves the approval.
+3. Yoshua gets the text with the offer.
+4. Yoshua replies "yes" and the server resolves the approval.
 5. The worker speaks the confirmation.
 6. On timeout, the server's `say` asks the lender to hold the offer and asks for a reference number, then `next: 'end_call'`.
 
 **Inbound calls:**
-1. The worker asks for the PIN. Caller ID must equal `JORDAN_PHONE` and the spoken digits must equal `INBOUND_PIN`.
+1. The worker asks for the PIN. Caller ID must equal `CUSTOMER_PHONE` and the spoken digits must equal `INBOUND_PIN`.
 2. Three failures end the call.
 3. Once verified, `ask_pacepay` answers with numbers. For example, "What did the lender say?" is answered from the last call's summary.
 4. Unknown callers get: "I can only discuss account details with the account holder."
 
-**Summary:** when a call ends, the server runs `post_call_summary`. Super writes 2–3 lines from the transcript and outcome, and the text goes to Jordan's thread with the reference number when there is one.
+**Summary:** when a call ends, the server runs `post_call_summary`. Super writes 2–3 lines from the transcript and outcome, and the text goes to Yoshua's thread with the reference number when there is one.
 
 **Fallback to text:** if `createSipParticipant` throws `SipCallError`, or the call ends before any outcome:
 1. The server emits `call.failed` and moves the negotiation to `channel: 'text'`.
@@ -840,8 +840,8 @@ Writing rules:
 - Short texts. One idea per line. No jargon, no emojis, no markdown.
 - Every dollar amount, percentage, date or count you write must appear in FACTS. If you need another number, call a tool.
 - When you offer options, number them 1, 2, 3, give each one trade-off in a few words, and say which you'd pick and why in one clause.
-- Never say a guarantee. Never tell Jordan you moved money. PacePay never moves money.
-- If Jordan asks something you can answer with get_accounts, get_forecast or simulate, answer it. If not, say what you can do.
+- Never say a guarantee. Never tell Yoshua you moved money. PacePay never moves money.
+- If Yoshua asks something you can answer with get_accounts, get_forecast or simulate, answer it. If not, say what you can do.
 
 FACTS: {{facts_json}}
 ```
@@ -877,7 +877,7 @@ While waiting for a tool, you may say one short filler like "One second, let me 
 If decide returns next=await_approval, say the line, then call await_approval.
 If a tool returns next=end_call, say the line, thank them, and call end_call.
 Speak naturally, warmly, and briefly. Let them interrupt you. Never invent terms, numbers, or promises.
-If asked whether you're a person, say you're an AI assistant calling with Jordan's permission.
+If asked whether you're a person, say you're an AI assistant calling with Yoshua's permission.
 ```
 
 Inbound version (separate file): it asks for the PIN, calls `verify_pin`, and then answers questions through `ask_pacepay` only.
@@ -934,10 +934,10 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `NVIDIA_EMBED_MODEL`, `NVIDIA_RERANK_MODEL` (optional) | Agent brain | Model IDs are in section 5.4. Get the $60 Brev code from HackUTD staff. |
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Fall back to `gpt-realtime` if the LiveKit plugin rejects it. |
 | Anthropic | console.anthropic.com | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-opus-5-5`) | Agent brain | |
-| Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `JORDAN_PHONE` as a sender and assign a shared number. Jordan's phone sends `ping` once to open the conversation. |
+| Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |
 | Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit, but Photon requires a card on the organization before it sells one (none on file yet). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
 | LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
-| Phones | Two team iPhones | `JORDAN_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Jordan's phone is on the Photon account and texts the line once first. |
+| Phones | Two team iPhones | `CUSTOMER_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Yoshua's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
 | URLs | — | `SERVER_URL` (`http://localhost:8787`), `DASHBOARD_URL` (`http://localhost:3000`) | Money engine and dashboard | |
 | Database | — | `DATABASE_URL` | — | Unused (in-memory store). Kept in case you switch to Postgres. |
@@ -979,9 +979,9 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 ### 10.4 Messaging and voice (Photon)
 
-1. With Ram: make sure `JORDAN_PHONE` is on the Photon account, text the line "hi", and confirm the server sees it.
+1. With Ram: make sure `CUSTOMER_PHONE` is on the Photon account, text the line "hi", and confirm the server sees it.
 2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: PacePay sends a first text.**
-3. Inbound pipeline: route Jordan's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
+3. Inbound pipeline: route Yoshua's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
 4. `read_bill` with the Nemotron vision model (+ Claude cross-check as a Should item); chart PNG rendering and `send_chart`.
 5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
 6. LiveKit trunks and dispatch rule, connected to Photon once Photon voice is live (pending).
@@ -1020,11 +1020,11 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 1. `POST /api/demo/reset`. Inject the `brake_quote` bill photo.
 2. Assert: a plan was created (author `nemotron-ultra`), the options text matches the engine's options (every number appears in the facts object), and the lowest day is the one in `v2.md`.
-3. `jordan-says "3"`. Assert: `second_opinion` ran (or was skipped with a `warn`) before the call; the negotiation opened in text mode.
+3. `customer-says "3"`. Assert: `second_opinion` ran (or was skipped with a `warn`) before the call; the negotiation opened in text mode.
 4. Lender says "We can do Wednesday." Assert: the read-back comes first. Lender says "Yes." Assert: `offer.checked` fails and the reply contains no `$` amount and no reason.
 5. Lender says "Friday, with a twenty dollar fee." → read-back → "Yes." Assert: a `deal` approval was requested with a 60 s timeout.
-6. `jordan-says "yes"`. Assert: the deal is confirmed, a summary text went out, and the forecast's lowest point now matches the "moved to Friday" row in `v2.md`.
-7. `POST /api/demo/clock { day: 11 }`. Assert: the CD alert text went out with no prompt from Jordan, and its numbers come from `cdOptions`.
+6. `customer-says "yes"`. Assert: the deal is confirmed, a summary text went out, and the forecast's lowest point now matches the "moved to Friday" row in `v2.md`.
+7. `POST /api/demo/clock { day: 11 }`. Assert: the CD alert text went out with no prompt from Yoshua, and its numbers come from `cdOptions`.
 8. Variants, each in its own run:
    - "Thursday" → `PAYDAY_SAME_DAY`
    - "$35 fee" → `FEE_OVER_LIMIT`, then a waiver ask
@@ -1034,7 +1034,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
    - No approval reply → after 60 s, `approval_timeout` with the hold-and-reference line
 
 **Live rehearsal (with phones), before the expo:**
-1. Photo from Jordan's phone.
+1. Photo from Yoshua's phone.
 2. Call on the lender phone.
 3. Mid-call approval by text.
 4. Inbound call with the PIN.
@@ -1063,8 +1063,8 @@ These could each change part of this spec. Whoever owns the row checks it and po
 | Question | Owner | If the answer is no |
 |---|---|---|
 | Does a test call reach our Photon SMS number's voice profile and land in LiveKit? | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
-| After Jordan's first `ping`, can PacePay send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Jordan's next message |
-| Do image attachments send and arrive through Photon's attachments API on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Jordan to type the bill amount |
+| After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation (the CD alert)? | Messaging and voice | Ask Photon's Discord for a dedicated line; meanwhile send the CD alert right after Yoshua's next message |
+| Do image attachments send and arrive through Photon's attachments API on the shared line? | Messaging and voice | Fall back to a 7-line text table for charts, and ask Yoshua to type the bill amount |
 | Once voice is live, does a call connect end to end: LiveKit outbound trunk → Photon → lender phone? | Messaging and voice | Recheck the cookbook settings (TLS, SRTP, the `ST_…` trunk ID); the text fallback still demos the agent |
 | Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |
 | Are the model IDs in section 5.4 live for our key, with tool calling? | Agent brain | Shift each role down one size (Ultra → Super, Super → Nano) and note it on the architecture slide |

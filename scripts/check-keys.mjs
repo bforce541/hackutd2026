@@ -45,7 +45,7 @@ const checks = [
   ["LIVEKIT_API_SECRET"],
   ["LIVEKIT_SIP_OUTBOUND_TRUNK_ID"],
   ["DATABASE_URL", "optional"],
-  ["JORDAN_PHONE", "phone"],
+  ["CUSTOMER_PHONE", "phone"],
   ["LENDER_PHONE", "phone"],
   ["INBOUND_PIN", () => (/^\d{4}$/.test(env.INBOUND_PIN) ? "ok" : "should be 4 digits")],
 ];
@@ -54,7 +54,7 @@ const checks = [
 const SECRETS = [
   "NVIDIA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PHOTON_API_KEY",
   "PHOTON_IMESSAGE_NUMBER", "PHOTON_VOICE_NUMBER", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET",
-  "DATABASE_URL", "JORDAN_PHONE", "LENDER_PHONE", "INBOUND_PIN",
+  "DATABASE_URL", "CUSTOMER_PHONE", "LENDER_PHONE", "INBOUND_PIN",
 ];
 
 let problems = 0;

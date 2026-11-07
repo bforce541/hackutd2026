@@ -13,7 +13,7 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 5. **Never rely on color alone.** Every state also gets a word or a shape.
 6. **Don't judge.** Health stats show the goal next to the number ("Goal: under 30%"), and "On track" once it's met. No grades, no red, no single combined score.
 7. **Alert only when it matters**, meaning the forecast crosses your minimum or $0. Use one thread per problem.
-8. **The person decides,** twice: first the limits before PacePay calls, then the final deal.
+8. **The person decides,** twice: an OK on the limits before PacePay calls, then an OK on the deal, even mid-call.
 9. **Show evidence, not reasoning.** Show before/after numbers, not the model's explanation.
 10. **Calm and still.** Light theme on warm neutrals, one typeface, three accent colors, no decorative motion.
 11. **Look made, not generated.** Skip the template defaults: a grid of cards, pill badges, KPI tiles with progress bars, Inter on slate gray, dark navy with neon accents.
@@ -73,27 +73,33 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 
 ## Screens
 
-**Navigation:** a slim header with the logo, three text tabs underlined when selected (**Home · Accounts · Activity**), Presenter, Reset and an avatar.
+**Navigation:** a slim header. On the left, the logo and five text tabs, underlined when selected (**Home · Messages · Activity · Accounts · Arena**). On the right, the demo controls: today's date with a **Skip to Wed, Nov 18** button, Presenter, Reset and the avatar. Rules live on the Accounts tab.
+
+**Demo controls:** the Skip button jumps the demo clock to day 11 (Wed, Nov 18), which is when the CD alert arrives. On day 11 it reads **Back to Sat, Nov 7**.
 
 ### Home
 
-- **Left, straight on the page:** the checking balance ($1,950), one status line ("Lowest −$300 on Tue, Nov 10") and a range switch (Next 14 / 30 / 60 days, 14 by default) above the pace line.
-  - **Under the chart, four health stats in a row,** split by hairlines. Each is a label, a value and one line:
-    - Emergency fund · 0.6 mo · Goal: 3–6 months
-    - Card use · 56% · Goal: under 30%
-    - Debt vs. income · 35.5% · On track: under 36%
-    - Net worth · $60,650 · 8 accounts
+- **Left, straight on the page:** the checking balance ($1,950), one status line ("Lowest −$300 on Tue, Nov 10") and, above the pace line, a **What if** button and a range switch (Next 14 / 30 / 60 days, 14 by default). What if sits left of the range switch and is hidden during a call.
+  - **Under the chart, four health stats in a row,** split by hairlines. Each is a label, a value and one line, and each is a button. Clicking one shows one line under the row with why and how to improve; clicking again closes it.
+    - Emergency fund · 0.6 mo · Goal: 3–6 months. Opens: "Savings ($1,800) cover 0.6 months of essentials ($3,065 a month). The CD on Nov 20 could take it to 1.5 months."
+    - Card use · 56% · Goal: under 30%. Opens: "$2,800 of your $5,000 limit. Under $1,500 gets you below 30%."
+    - Debt vs. income · 35.5% · On track: under 36%. Opens: "$1,835 a month in debt payments on $5,167 a month of income."
+    - Net worth · $60,650 · 8 accounts. Opens: "$207,950 in assets minus $147,300 owed."
 - **Right: the PacePay panel,** the only white card. One step at a time:
   1. **Heads up:** "−$300 on Tue, Nov 10 / If you pay the $650 repair today." Below that, the best fix on its own ("Move your car payment to Fri / Stays above $100. Fee up to $25.") with one button, **Ask my lender**. The other two fixes are plain rows under "Other options":
      - Put it on your card · About $14/mo interest
      - Use $400 of savings · Below your $1,500 floor
-  2. **Limits** (first approval): "PacePay will call your lender," then three rows (New date: Fri, Nov 13 or earlier · Fee: $25 max · New credit: None) and one line: "It says it's an AI and never shares your balances." Buttons: **Call now** and **Cancel**.
+  2. **Limits** (first approval): eyebrow "Your limits" in ochre, then "PacePay will call your lender," then three rows (Ask for: Fri, Nov 13 · Most in fees: $25 · New credit: None) and one line: "It says it's an AI and never shares your balances." Buttons: **Call now** and **Cancel**.
   3. **Call:** "On the call with your lender" plus a timer.
      - The transcript shows its last 4 lines, each under a "PacePay" or "Lender" label.
      - Each offer gets a row with a one-word verdict: "Wed, Nov 11 · no fee · Overdrawn," "Fri, Nov 13 · $35 fee · Over limit," "Fri, Nov 13 · $20 fee · Works."
      - Meanwhile, the chart shows the offer being checked.
+     - **Text fallback:** if the call fails ("Call dropped? Switch to text" in the mockup), the header becomes "Negotiating by text" with an ochre dot and the note "The call dropped. Same negotiator, same limits." A "Lender types here" box appears above the buttons. Same transcript, offer checks and approvals.
   4. **Approve** (second approval): "Approve this deal?" with three before → after rows (Payment Tue, Nov 10 → Fri, Nov 13 · Fee $0 → $20 · Lowest −$300 → $100). **Approve** and **Decline** are side by side, the same size.
   5. **Done:** "Covered through Dec 7," the results with the lender's reference number, and a **What happened** button that opens Activity.
+- **Two more states use the same panel:**
+  - **What-if:** opened by the What if button (see What-if below).
+  - **CD alert:** appears when the demo clock reaches day 11. Eyebrow "Coming up," headline "Your $5,000 CD matures Fri, Nov 20." Then a green "Best use" eyebrow, "Pay off your card, save the rest" and "$2,214 to the card, $2,786 to savings. Saves about $550 a year, and your emergency fund goes from 0.6 to 1.5 months." Buttons: **Compare in what-if** (opens the what-if panel with the CD row checked) and **Later**. One other-option row: "Renew the CD · Earns about $205 a year." Footer: "You make the move at your bank. PacePay never moves money."
 
 ### The pace line (the chart)
 
@@ -108,34 +114,101 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 
 ### What-if
 
-A **What if** button next to the chart switches the PacePay panel to a few controls: move a payment, paycheck late, use the CD. The result shows first ("Lowest −$300 → $100"), and the chart updates with the ghost line. *(Not in the mockup yet.)*
+The **What if** button turns the PacePay panel into the what-if panel. It runs the engine in the browser, so it updates as you click.
 
-### Accounts tab
+- **Top:** eyebrow "What if" and a **Close** button.
+- **Result first:** "Lowest in the next 14 days," then "−$300 → $100" (now → what if), then "Days below $0: 2 → 0."
+- **Extra lines, only when relevant:** "Card use: 56% → 69%, about $14/mo interest" and "Emergency fund: 0.6 → 1.5 months, about $550 a year saved."
+- **Checkbox rows:**
+  - Move the car payment to Fri · Fri, Nov 13 with a $20 fee
+  - Paycheck lands Mon, not Thu · Mon, Nov 16 instead of Thu, Nov 12
+  - Put the repair on your card · About $14/mo interest
+  - Use the CD to pay off your card · When it matures Fri, Nov 20
+- **Footer:** "Nothing changes until you say so."
+- **Chart:** it draws the what-if line, and the current plan stays as a gray dashed "Current plan" line.
 
-Two lists side by side, straight on the page:
-- **Accounts:** one line each (name · type · amount), with net worth in the header.
-- **Next 14 days:** bills and paychecks (date · name · signed amount), with a moved payment on a green tint.
+### Messages tab
+
+The iMessage thread, mirrored in dashboard style, in a centered column (640px max). PacePay's messages are in white boxes on the left, Yoshua's in a green tint on the right, and chart images show inline. The header note says "Same thread as iMessage." A **Message PacePay** input sits at the bottom. Anything typed there is treated exactly like a text from Yoshua (`POST /api/thread`). This is the dashboard's coach chat.
 
 ### Activity tab
 
-One line per entry: time · who · what · status. For example: "7:04 PM · PacePay turned down Wed (overdrawn) and a $35 fee · Declined." Declines and failures get logged too.
+Two columns.
 
-### Rules, Arena, Presenter mode
+- **Plan:** "The $650 repair · plan written by Nemotron 3 Ultra." The label shows whichever model actually wrote the plan (Nemotron 3 Super if the NVIDIA key is missing). Below it, a checklist with one row per step: a status mark (a filled check = done, a dot in a ring plus "In progress," an empty circle = waiting), the step title, and under it who runs it. The repair plan has 15 steps:
+  1. Read the repair quote (Nemotron Nano 2 VL)
+  2. Check the week if paid today (Engine)
+  3. Compare card, savings and moving a payment (Engine)
+  4. Text Yoshua the options and a chart (Nemotron 3 Super)
+  5. Wait for Yoshua's pick (Yoshua)
+  6. Pull the auto loan's terms (Nemotron 3 Super)
+  7. Plan the call (Nemotron 3 Ultra)
+  8. Check the limits with Yoshua (Yoshua)
+  9. Second opinion on the call plan (Claude Opus 5.5)
+  10. Call the lender (Code)
+  11. Negotiate the due date (Nemotron 3 Super)
+  12. Get Yoshua's OK on the deal (Yoshua)
+  13. Text Yoshua the summary (Nemotron 3 Super)
+  14. Update the forecast (Engine)
+  15. Remind Yoshua the night before (Code)
+- **Log:** newest first, one row each: time · who (a model, Engine, Code or Yoshua) · what. For example: "7:05 PM · Engine · Checked "Fri, Nov 13 · $35 fee": fails, over your fee limit." Declines and failures get logged too.
 
-- **Rules:** minimum balance, savings floor, the most you'll pay in fees, off-limits accounts, quiet hours, and **Pause PacePay**.
-- **Arena:** a scorecard ("0 violations · 0 disclosures · N of 50 deals"), plus a 10 × 5 grid of tiles, each with an icon and one word.
-- **Presenter mode:** everything 25% bigger. For the expo.
+### Accounts tab
+
+Two columns, straight on the page.
+
+- **Left:** accounts grouped under PNC's six categories with small headings (Checking · Savings · CDs and IRAs · Loans · Credit cards · Mortgage, with the home's estimated value). Net worth is in the header. One line per account: name · detail · amount.
+- **Right:** "Next 14 days" (date · name · signed amount, with a moved payment on a green tint), then "Your rules":
+  - Keep in checking · $100
+  - Keep in savings · $1,500
+  - Most in fees · $25
+  - Off-limits · Roth IRA
+  - Quiet hours · 9 PM to 8 AM
+  - A **Pause PacePay** switch
+
+### Arena tab
+
+- **Title and line:** "Negotiation arena" and "50 simulated lenders played by Nemotron, graded by Claude."
+- **Stat row,** split by hairlines: Runs · Deals · Honest no deal · Handed to Yoshua · Limit violations · Disclosures.
+- **Grid:** 10 × 5, one tile per run. Each tile has the persona word (Friendly, Fees, Firm, Vague, No, ID check, Chatty) and an outcome mark:
+  - a check on a green tint = deal within limits
+  - a dash on white = honest no deal
+  - an arrow on an ochre tint = handed to Yoshua for an ID check
+- **Below the grid:** a legend and a **Run 3 live** button.
+- The mockup's numbers are samples, and the tab says so.
+
+### Presenter mode
+
+Everything 25% bigger, for the expo. It's switched on from the header.
 
 ## iMessage
 
-Keep every message short. These are the exact templates:
+Keep every message short. These are the exact texts:
 
-- *Alert:* "Heads up: −$300 on Tue, Nov 10 if you pay the repair today. 1. Move car payment to Fri (best) 2. Put it on your card 3. Use savings. Reply 1, 2 or 3."
-- *Limits:* "I'll ask for Fri or earlier, $25 max fee. OK?"
+- *Ack after a bill photo:* "Got it: $650 to Northside Auto Service, due today. Checking your week."
+- *Alert* (sent right after the chart image):
+  > Heads up: −$300 on Tue, Nov 10 if you pay the repair today (mortgage Mon, car payment Tue, paycheck Thu).
+  > 1. I ask your lender to move the car payment to Fri. My pick: no new debt
+  > 2. Put it on your card: about $14/mo interest
+  > 3. Use $400 of savings: drops below your $1,500 floor
+  > Reply 1, 2 or 3.
+- *Limits:* "I'll ask to move it to Fri, Nov 13, with $25 max in fees. OK?"
 - *Calling:* "Calling your lender now."
-- *Approval:* "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO"
+- *Mid-call approval:* "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO"
 - *Done:* "Done. Car payment is now Fri, Nov 13 ($20). Ref A1B2C3."
-- *Chart image:* 1080 × 1350 on the dashboard's warm gray, with one line ("Lowest: −$300 on Tue, Nov 10") and the next 14 days of the pace line: the $0 line, hatching below $0 and a dot on the lowest day. It's rendered from engine data and goes out just before the alert.
+- *Reminder, the night before* (from `schedule_followup`; Thu, Nov 12, 8:00 PM): "Reminder: your $400 car payment and the $20 fee come out tomorrow. Checking will still have $1,680 after."
+- *CD alert* (Wed, Nov 18, day 11, unprompted):
+  > Your $5,000 CD matures Fri, Nov 20.
+  > 1. Pay off your card ($2,214) and put $2,786 in savings. My pick: saves about $550 a year, and your emergency fund goes from 0.6 to 1.5 months
+  > 2. Renew it: earns about $205 a year
+  > Reply 1 or 2 and I'll send the steps.
+- *CD reply after "1":* "Got it. I'll text you the steps Friday morning, when the CD matures."
+- *Bill check, only when unsure:* "Is it $650 to Northside Auto Service, due today? YES or NO"
+- *Chart image:* a 1200 × 800 PNG drawn like the mockup's chart card: warm gray background (#F2F1ED), the title "Lowest: −$300 on Tue, Nov 10," the subtitle "Checking, next 14 days," the stepped line in green (#1C6B4A), the $0 line (#7A766D), hatching below $0 (#C2410C lines on #FBE8DF), a vermilion dot (#B83A0B) on the lowest day, and date labels underneath (Today, Tue, Thu, Nov 20). IBM Plex Sans: bundle the TTF and pass it to resvg. It's rendered from engine data, never generated.
+
+Option 1 is always PacePay's pick. The reply "n" means the nth option as texted.
+
+The ack restates the merchant, amount and due date, and any reply that isn't a correction confirms it. PacePay asks the bill check outright only when Nemotron Nano 2 VL and the Claude cross-check disagree on the amount or due date, or the read's confidence is below 0.8. A reply with a dollar amount while the bill is unconfirmed ("it's $700") corrects the bill and re-runs the case.
 
 Quiet hours apply to everything except mid-call approvals.
 

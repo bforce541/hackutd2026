@@ -25,7 +25,7 @@ This repo is public, so every key lives in `.env` **encrypted** with [dotenvx](h
 
 3. Run anything with the keys loaded by putting `npx @dotenvx/dotenvx run --convention=nextjs --` in front of the command. That flag also loads a personal, gitignored `.env.local` if you have one.
 
-The TrueFoundry gateway key is **not** in `.env`. It stays on Ram's machine in `.env.local`, so model calls through the gateway only work there.
+Three keys are **not** in `.env`: the TrueFoundry gateway key, the NVIDIA key and the OpenAI key. They stay on Ram's machine in `.env.local`, so model calls and real phone calls only work there.
 
 To add or change a setting, run `npx @dotenvx/dotenvx set NAME value` (it encrypts automatically), then commit `.env`. Keep every value encrypted, even model names: a plain-text value makes git refuse the commit on machines that ran `dotenvx protect`. `.env.example` lists every setting and where to get it.
 

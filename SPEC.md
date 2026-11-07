@@ -40,7 +40,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     ├─ bus.ts         # activity events → SSE
    │     ├─ agent/         # planner.ts orchestrator.ts negotiator.ts machine.ts watcher.ts secondOpinion.ts arena.ts
    │     ├─ tools/         # one file per tool (section 5.6)
-   │     ├─ models/        # gateway.ts (OpenAI SDK on the TrueFoundry gateway), nvidia.ts (Ultra, optional)
+   │     ├─ models/        # gateway.ts (OpenAI SDK on the TrueFoundry gateway), nvidia.ts (Ultra on build.nvidia.com)
    │     ├─ messaging/     # port.ts + Photon 2.0 adapter (photon.ts) + chart.ts (section 6)
    │     ├─ voice/         # dispatch.ts (LiveKit API calls)
    │     └─ prompts/       # *.md system prompts (section 8)
@@ -235,12 +235,13 @@ export interface OfferCheck {
   reasons: OfferReason[];
 }
 
-export type ApprovalKind = 'option_choice' | 'deal' | 'bill_confirm';
+export type ApprovalKind = 'option_choice' | 'call_limits' | 'deal' | 'bill_confirm';
 export interface Approval {
   id: string;
   kind: ApprovalKind;
   prompt: string;              // the exact text sent to Yoshua
   choices: string[];           // ['1','2','3'] or ['yes','no']
+  optionIds?: OptionId[];      // option_choice only: the order shown to Yoshua; reply "n" maps to optionIds[n-1]
   status: 'pending' | 'approved' | 'declined' | 'answered' | 'timeout';
   answer?: string;
   callId?: string;
@@ -293,7 +294,7 @@ export interface CallPlan {
 
 export type StepKind =
   | 'read_bill' | 'forecast' | 'build_options' | 'send_options' | 'await_choice'
-  | 'get_terms' | 'plan_call' | 'second_opinion' | 'place_call' | 'negotiate'
+  | 'get_terms' | 'plan_call' | 'confirm_limits' | 'second_opinion' | 'place_call' | 'negotiate'
   | 'confirm_deal' | 'post_call_summary' | 'update_forecast' | 'schedule_followup'
   | 'send_message' | 'answer_question' | 'cd_options';
 
@@ -391,6 +392,8 @@ export function monthlyInterest(balance: Cents, apr: number): Cents; // rounded 
 export const fixtures: { household: Household };                    // the v2.md household
 ```
 
+`buildOptions` and `cdOptions` return options **unranked**. The orchestrator ranks them (section 5.4) and sends its pick first, as option 1. The `option_choice` approval stores the order it showed in `optionIds`.
+
 **Behavior rules** (each one has a test):
 
 | Rule | Behavior |
@@ -426,7 +429,7 @@ export const fixtures: { household: Household };                    // the v2.md
 | `offer.weekendRollsForward` | Rule: a Saturday offer posts Monday |
 | `options.card` | Bullet "The card option" (monthly interest, credit use before/after) |
 | `options.savings` | Bullet "The savings option" (savings after, floor violation, emergency months) |
-| `options.movePayment` | Story step 2, option 3: target day is the Friday after payday |
+| `options.movePayment` | Story step 2, the move-payment option: target day is the Friday after payday |
 | `scores.day0` | "Health scores on day 0" (all four, values and colors) |
 | `scores.afterCall` | Same paragraph: cash cushion green after the deal |
 | `cd.options` | Story step 7 and "After the CD move" (renew interest, payoff amount on the maturity day, interest saved, emergency months, credit use) |
@@ -521,8 +524,9 @@ export interface DecideResult {
 | Event | Source | Starts |
 |---|---|---|
 | `BILL_PHOTO` | An image from Yoshua, or `/api/demo/bill-photo` | A new case and a plan |
-| `CHOICE_REPLY` | "1", "2" or "3" from Yoshua while an `option_choice` approval is pending | Resumes the case |
-| `APPROVAL_REPLY` | "yes" or "no" from Yoshua while a `deal` or `bill_confirm` approval is pending | Resumes the case |
+| `CHOICE_REPLY` | A number from Yoshua while an `option_choice` approval is pending. "n" maps to the approval's `optionIds[n-1]` | Resumes the case |
+| `APPROVAL_REPLY` | "yes" or "no" from Yoshua while a `call_limits`, `deal` or `bill_confirm` approval is pending | Resumes the case |
+| `BILL_CORRECTION` | A reply with a dollar amount while the case's bill is unconfirmed, such as "it's $700" | Code updates the bill and re-runs the case from the `forecast` step |
 | `TEXT` | Any other text from Yoshua (iMessage or coach chat) | `answer_question` with Super and tools |
 | `DAILY_CHECK` | The watcher on each clock change, and once per real day | Forecast check; raises `CD_MATURING` or `SHORTFALL` when found |
 | `CD_MATURING` | Daily check: a CD matures within 2 business days | A new case and a short plan (no call) |
@@ -530,7 +534,9 @@ export interface DecideResult {
 | `CALL_FAILED` | The voice worker or dispatch | Moves the negotiation to the text channel and tells the dashboard to open the lender console |
 | `INBOUND_CALL` | The voice worker | A call record; PIN gate |
 
-Reply parsing is code, not a model: trim, lowercase, and strip punctuation. `^[123]$` matches a choice. `^(y|yes|yep|ok|approve|approved)$` is yes and `^(n|no|nope|decline)$` is no. Anything else becomes `TEXT`.
+Reply parsing is code, not a model: trim, lowercase, and strip punctuation. `^[1-9]$` matches a choice, and it counts only when it is within the pending approval's `optionIds`. `^(y|yes|yep|ok|approve|approved)$` is yes and `^(n|no|nope|decline)$` is no. Anything else becomes `TEXT`.
+
+**Detecting a correction.** A bill is unconfirmed from the moment PacePay sends the ack until Yoshua's next reply that isn't a correction (any such reply confirms it), or until Yoshua answers a pending `bill_confirm`. While it is unconfirmed, a reply that contains a dollar amount (`$700`, `$700.50`, "700 dollars") is a `BILL_CORRECTION`. A bare number such as "1" is a choice, not an amount. Code checks for a correction before the yes/no and choice patterns.
 
 ### 5.2 Plans
 
@@ -539,6 +545,7 @@ For every case-starting event, **Nemotron 3 Ultra writes the plan** as JSON matc
 1. **Every step kind is known**, and every step's `model` matches the table in 5.4.
 2. **Ordering gates hold:**
    - `place_call` comes after `await_choice`.
+   - `confirm_limits` comes after `plan_call` and before `second_opinion` and `place_call`.
    - `second_opinion` comes before `place_call`.
    - `confirm_deal` comes after `negotiate`.
    - `post_call_summary` comes after `place_call`.
@@ -559,6 +566,7 @@ Example: Ultra's plan for the repair (`BILL_PHOTO`).
     { "kind": "await_choice",      "title": "Wait for Yoshua's pick",              "model": "code" },
     { "kind": "get_terms",         "title": "Pull the auto loan's terms",          "model": "nemotron-super" },
     { "kind": "plan_call",         "title": "Plan the call to the lender",         "model": "nemotron-ultra" },
+    { "kind": "confirm_limits",    "title": "Check the limits with Yoshua",        "model": "code" },
     { "kind": "second_opinion",    "title": "Second opinion on the call plan",     "model": "claude-opus" },
     { "kind": "place_call",        "title": "Call the lender",                     "model": "code" },
     { "kind": "negotiate",         "title": "Negotiate the due date",              "model": "nemotron-nano" },
@@ -570,7 +578,9 @@ Example: Ultra's plan for the repair (`BILL_PHOTO`).
 }
 ```
 
-When Yoshua picks option 1 or 2, the orchestrator marks the call steps `skipped` and adds one `send_message` step that explains how to do it. PacePay never moves money.
+When Yoshua picks the card or savings option, the orchestrator marks the call steps (`get_terms` through `post_call_summary`) `skipped` and adds one `send_message` step that explains how to do it. PacePay never moves money.
+
+**Bill check.** `read_bill` is followed by a `bill_confirm` approval only when PacePay is unsure: Nemotron Nano 2 VL and the Claude cross-check disagree on the amount or due date, or the read's confidence is below 0.8. Otherwise the ack text restates the merchant, amount and due date, and any reply that isn't a correction confirms the bill. `bill_confirm` is not a plan step. The orchestrator raises it inside `read_bill` and the case waits for the answer.
 
 ### 5.3 State machine (`agent/machine.ts`)
 
@@ -578,12 +588,14 @@ One case at a time. The states are `CaseState`:
 
 ```
 NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE
-  ├─ choice 1/2 → ADVISED → DONE
-  └─ choice 3 → PREPARING_CALL → REVIEWING → CALLING → NEGOTIATING ⇄ AWAITING_APPROVAL
-                                                         ├─ approved → CONFIRMING → SUMMARIZING → DONE
-                                                         ├─ declined / no deal → SUMMARIZING → DONE
-                                                         ├─ approval timeout → HOLD_REQUESTED → SUMMARIZING → DONE
-                                                         └─ call failed → TEXT_NEGOTIATION → (same branches)
+  ├─ card or savings option → ADVISED → DONE
+  └─ call option (move_payment) → PREPARING_CALL → AWAITING_LIMITS
+        ├─ "no" → ADVISED → DONE   (PacePay texts the next-best options)
+        └─ "ok" → REVIEWING → CALLING → NEGOTIATING ⇄ AWAITING_APPROVAL
+                                           ├─ approved → CONFIRMING → SUMMARIZING → DONE
+                                           ├─ declined / no deal → SUMMARIZING → DONE
+                                           ├─ approval timeout → HOLD_REQUESTED → SUMMARIZING → DONE
+                                           └─ call failed → TEXT_NEGOTIATION → (same branches)
 CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED → DONE
 ```
 
@@ -592,6 +604,7 @@ CD_MATURING: NEW → ANALYZING → OPTIONS_SENT → AWAITING_CHOICE → ADVISED 
 | Gate | Enforced in |
 |---|---|
 | No `place_call` unless the case's `chosenOption === 'move_payment'` came from Yoshua's reply | `tools/place_call.ts` |
+| No `place_call` until the `call_limits` approval is approved | `machine.ts` |
 | No `place_call` until `second_opinion` returned `approve`, or `revise` was applied, or it timed out (logged as `warn`) | `machine.ts` |
 | Every new offer is read back, and `check_offer` runs only after the lender confirms the read-back | `negotiator.ts` |
 | No deal is agreed on the call until `Approval(kind:'deal').status === 'approved'` | `negotiator.ts` |
@@ -607,7 +620,7 @@ Model IDs (they live in `.env`; the gateway ones were tested on Nov 7):
 
 | Env var | Model ID |
 |---|---|
-| `NEMOTRON_ULTRA_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` (build.nvidia.com only, optional) |
+| `NEMOTRON_ULTRA_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` (build.nvidia.com with `NVIDIA_API_KEY`; correct tool call in 1.0 s on Nov 7) |
 | `NEMOTRON_SUPER_MODEL` | `aws-bedrock/nvidia.nemotron-super-3-120b` (correct tool call in 0.8 s) |
 | `NEMOTRON_NANO_MODEL` | `aws-bedrock/nvidia.nemotron-nano-3-30b` (skipped the tool in a quick test; calls use Super until Nano passes with the real prompt) |
 | `NEMOTRON_VISION_MODEL` | `aws-bedrock/nvidia.nemotron-nano-12b-v2` (Nemotron Nano 2 VL; read a phone number off an image correctly in 0.9 s) |
@@ -615,7 +628,7 @@ Model IDs (they live in `.env`; the gateway ones were tested on Nov 7):
 | `EMBED_MODEL` | `openai-group/text-embedding-3-small` |
 | `IMAGE_MODEL` | `openai-group/gpt-image-2` |
 | `TTS_MODEL` | `elevenlabs-primary/eleven_v3` (Devpost voiceover) |
-| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2`, falling back to `gpt-realtime` (OpenAI directly) |
+| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` (spoke on a real test call on Nov 7), falling back to `gpt-realtime-2`, then `gpt-realtime` (OpenAI directly) |
 
 Claude calls use the same gateway client. Don't send `temperature`, `top_p` or `top_k`, don't force `tool_choice`, and when you need JSON, ask for it and validate it with zod, retrying once on a parse failure.
 
@@ -633,10 +646,12 @@ Claude calls use the same gateway client. Don't send `temperature`, `top_p` or `
 | Arena grading | Claude | 60 s | Mark `ungraded` |
 | Mid-call approval | Yoshua | **60 s** | Ask the lender to hold the offer, get a reference number, end the call, text Yoshua |
 | Option choice | Yoshua | none | A reminder text after 30 minutes of demo-clock time |
+| Limits OK | Yoshua | none | A reminder text after 30 minutes of demo-clock time. The case stays in `AWAITING_LIMITS`; no call is placed |
+| Bill check | Yoshua | none | The same reminder. The case waits |
 
 ### 5.5 Text the agent sends
 
-Super writes every Yoshua-facing text from a **facts object** the engine produced. The prompt forbids any number not in the facts object, and code checks it: every `$` amount and `%` in the outgoing text must appear in the facts object, or the text is regenerated once and then sent from a template.
+Yoshua-facing texts follow the iMessage templates in `UI.md`. Code fills the limits, calling, approval, done, reminder and bill-check texts from those templates. Super writes the ack, the options text, the CD alert and answers to questions. Both paths use a **facts object** the engine produced. For Super's texts, the prompt forbids any number not in the facts object, and code checks it: every `$` amount and `%` in the outgoing text must appear in the facts object, or the text is regenerated once and then sent from a template.
 
 ### 5.6 The 14 tools
 
@@ -729,18 +744,32 @@ await photon.projects.sendMessage({
 - **The free plan uses a shared iMessage number** (`PHOTON_IMESSAGE_NUMBER`). On the dashboard's iMessage page, add Yoshua's phone as a sender and assign a number from the shared pool. Only assigned senders reach the line, and group chats aren't supported.
 - **PacePay can text first once the person has messaged the line** (verified Nov 7). Photon's rule: a shared line sends only in direct conversations, to someone who has messaged it since they were paired. Yoshua already sent `ping`, so PacePay can start any message, including the CD alert, in that conversation. Its IDs are `PHOTON_CUSTOMER_SPACE_ID` and `PHOTON_AGENT_SENDER_ID` in `.env`.
 - **Only assigned senders can text the line.** That's why the lender's text fallback is the dashboard's lender console, not iMessage.
-- **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "no").
+- **Beta iMessage supports text and images only, with no tapbacks.** Approvals are typed replies ("1", "2", "3", "yes", "ok", "no").
 - **Voice uses a separate SMS number** (`PHOTON_VOICE_NUMBER`, $2/month from the project's credit) with a voice profile (`PHOTON_VOICE_PROFILE_ID`). PacePay never texts from that number.
 
 The bridge ignores messages from anyone but `CUSTOMER_PHONE`. It stores every message in the thread and emits `message.in` / `message.out`. If the receive loop throws, it restarts after 2 seconds and logs a `warn` event.
 
-**Chart images** (`messaging/chart.ts`, owned by Messaging and voice): build an SVG line chart from `Forecast` (7 days, floor line, red dips, bill markers), then render it to PNG with `@resvg/resvg-js`. No AI-generated images.
+**Chart images** (`messaging/chart.ts`, owned by Messaging and voice): a 1200 × 800 PNG drawn like the dashboard mockup's chart card, rendered from `Forecast` with `@resvg/resvg-js`. It is built from engine data and never generated.
+
+| Part | Value |
+|---|---|
+| Background | warm gray `#F2F1ED` |
+| Title | "Lowest: −$300 on Tue, Nov 10" |
+| Subtitle | "Checking, next 14 days" |
+| Line | stepped, green `#1C6B4A` |
+| $0 line | `#7A766D` |
+| Below $0 | hatching: `#C2410C` lines on `#FBE8DF` |
+| Lowest day | vermilion dot `#B83A0B` |
+| Date labels | underneath: Today, Tue, Thu, Nov 20 |
+| Font | IBM Plex Sans. Bundle the TTF and pass it to resvg (`fontFiles`) |
+
+It goes out just before the alert text.
 
 ---
 
 ## 7. Voice
 
-> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. PacePay's call number was bought on Nov 7 (`PHOTON_VOICE_NUMBER` in `.env`; $2/month on the team's card once the credit runs out). **The call path is live as of Nov 7:** Photon's default voice profile sends incoming calls to LiveKit project `hackutd26` over TLS, and LiveKit has an inbound trunk, a dispatch rule (room prefix `photon-`, agent `pacepay-voice`) and an outbound trunk through `sip.photon.codes:5061`. The IDs are in `.env`. SIP passwords went straight from one API to the other and aren't stored anywhere; to rotate them, rerun the linking (re-`PUT` Photon's inbound and outbound settings and update the LiveKit trunks). The OpenAI key for the voice is on Ram's machine. What's left is the voice worker itself. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
+> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. PacePay's call number was bought on Nov 7 (`PHOTON_VOICE_NUMBER` in `.env`; $2/month on the team's card once the credit runs out). **The call path is live as of Nov 7:** Photon's default voice profile sends incoming calls to LiveKit project `hackutd26` over TLS, and LiveKit has an inbound trunk, a dispatch rule (room prefix `photon-`, agent `pacepay-voice`) and an outbound trunk through `sip.photon.codes:5061`. The IDs are in `.env`. SIP passwords went straight from one API to the other and aren't stored anywhere; to rotate them, rerun the linking (re-`PUT` Photon's inbound and outbound settings and update the LiveKit trunks). The OpenAI key for the voice is on Ram's machine. What's left is the voice worker itself and a real test call. Build and test the worker in LiveKit's Agents Playground first (browser audio, no phone line needed), then try a call through Photon. Text negotiation through the lender console stays a Must and carries the demo if a call fails.
 
 ### 7.1 Call path
 
@@ -769,7 +798,7 @@ Calls are placed through LiveKit's SIP participant API (`CreateSIPParticipant`: 
 ### 7.2 Worker (`apps/voice/src/agent.ts`)
 
 - `@livekit/agents` 1.x and `@livekit/agents-plugin-openai`.
-- Session LLM: `new openai.realtime.RealtimeModel({ model: OPENAI_REALTIME_MODEL, voice: 'marin' })`. Try `gpt-realtime-2` first and fall back to `gpt-realtime`.
+- Session LLM: `new openai.realtime.RealtimeModel({ model: OPENAI_REALTIME_MODEL, voice: 'marin' })`. Use `gpt-realtime-2.1`, which spoke on a real test call on Nov 7. The plugin (1.9.5) passes any model name through. Fall back to `gpt-realtime-2`, then `gpt-realtime`.
 - Register the worker with `agentName: 'pacepay-voice'`. Explicit dispatch is required for outbound calls.
 - Tools are `llm.tool({ name, description, parameters: z.object(...), execute })` in the agent's `tools` array. Each one calls a server endpoint from section 4.
 
@@ -831,7 +860,7 @@ Each step needs a short title a judge can read in a feed, and the model that run
 Rules:
 - You never calculate numbers. Steps of kind forecast, build_options, cd_options and check_offer are done by the engine.
 - Include get_terms only when the next action depends on a lender's or biller's policy you don't already have.
-- A phone call is always: await_choice → plan_call → second_opinion → place_call → negotiate → confirm_deal → post_call_summary.
+- A phone call is always: await_choice → get_terms (when needed) → plan_call → confirm_limits → second_opinion → place_call → negotiate → confirm_deal → post_call_summary.
 - Never plan a call for a CD alert or a question. Never plan to move money.
 - Prefer the fewest steps that fully handle the event.
 Output only the JSON object.
@@ -846,7 +875,7 @@ You are carrying out step "{{step_title}}" of a plan. Use tools to get every fac
 Writing rules:
 - Short texts. One idea per line. No jargon, no emojis, no markdown.
 - Every dollar amount, percentage, date or count you write must appear in FACTS. If you need another number, call a tool.
-- When you offer options, number them 1, 2, 3, give each one trade-off in a few words, and say which you'd pick and why in one clause.
+- When you offer options, number them 1, 2, 3 with PacePay's pick first, as 1. Give each one trade-off in a few words, and say why it's your pick in one clause.
 - Never say a guarantee. Never tell Yoshua you moved money. PacePay never moves money.
 - If Yoshua asks something you can answer with get_accounts, get_forecast or simulate, answer it. If not, say what you can do.
 
@@ -939,11 +968,11 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | Account | Where | Env vars | Owner | Notes |
 |---|---|---|---|---|
 | TrueFoundry | Ram's gateway | `TRUEFOUNDRY_API_KEY`, `TRUEFOUNDRY_BASE_URL`, `NEMOTRON_SUPER_MODEL`, `NEMOTRON_NANO_MODEL`, `NEMOTRON_VISION_MODEL`, `ANTHROPIC_MODEL`, `EMBED_MODEL`, `IMAGE_MODEL`, `TTS_MODEL` | Ram | One key for every model except the call voice and Ultra. The key stays on Ram's machine in `.env.local` (not in `.env`), so gateway calls run on Ram's laptop; teammates stub model calls or use their own keys. Model IDs are in section 5.4. |
-| NVIDIA (optional) | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Agent brain | Only for Nemotron 3 Ultra; without it the planner uses Super. Get the $60 Brev code from HackUTD staff. |
-| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. The key stays on Ram's machine in `.env.local`, so real calls run on Ram's laptop. It can also reach `gpt-realtime-2.1`. Fall back to `gpt-realtime` if the LiveKit plugin rejects `gpt-realtime-2`. |
+| NVIDIA | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Ram (done Nov 7) | For Nemotron 3 Ultra (the planner, call plans, simulated lenders). The key stays on Ram's machine in `.env.local`, like the gateway key; without it the planner falls back to Super. The same key also lists the Nemotron 3.5 models (Super VL, Lightning, embeddings, content safety) if we want them later. The $60 Brev code is redeemed. |
+| OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2.1`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. The key stays on Ram's machine in `.env.local`, so real calls run on Ram's laptop. `gpt-realtime-2.1` spoke on a real call on Nov 7; fall back to `gpt-realtime-2`, then `gpt-realtime`. |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |
-| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram (number bought), then Shravan | The number is bought ($2/month). Next is the default voice profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
-| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
+| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram | Done Nov 7 (commit `ebab6a4`): the number is bought ($2/month) and the default voice profile points to LiveKit over TLS. |
+| LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Done Nov 7 (commit `ebab6a4`): inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS (the `ST_…` ID is in `.env`). |
 | Phones | Two team iPhones | `CUSTOMER_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Yoshua's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
 | URLs | — | `SERVER_URL` (`http://localhost:8787`), `DASHBOARD_URL` (`http://localhost:3000`) | Money engine and dashboard | |
@@ -967,13 +996,13 @@ The names below match `.env.example`. Getting the decryption key and changing se
 1. Scaffold the monorepo and `packages/shared` (types, schemas, tool names, event names).
 2. Engine fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions`, `simulate`, with all the tests in section 3. **Sat 11 PM: tests pass.**
 3. Dashboard shell: layout, SSE client (`lib/events.ts` with `Last-Event-ID` resume), and server URL wiring.
-4. Home: accounts grouped by PNC's six categories, net worth, four score cards.
-5. The pace line (visx), built to `UI.md` §2: 60-day stepped line, $0 and minimum lines, amber below the minimum, hatched vermilion below $0, ▲/▼ markers, ghost line for scenarios, click a dip to see its causes.
-6. Activity feed: plan checklist plus event rows with model labels, collapsible details, live call transcript.
-7. Coach chat (thread mirror plus input), rules page, demo controls (reset, clock, bill-photo injection).
-8. What-if panel: toggles from the spec, running the engine in the browser, side by side with the current plan.
-9. Lender console (text negotiation UI); it opens on `call.failed` or by hand.
-10. Arena page: grid of runs (green/red), scorecard, "run three live" button.
+4. Home. The header has the logo, five text tabs underlined when selected (Home · Messages · Activity · Accounts · Arena), and on the right the demo controls and the avatar. Left side: the checking balance, one status line ("Lowest −$300 on Tue, Nov 10"), the range switch above the pace line, and four health stats under it, split by hairlines. Each stat is a button: clicking one shows one line under the row with why and how to improve (the `reason` and `improve` text from `healthScores`), and clicking again closes it. Right side: the PacePay panel, the only white card, one step at a time: Heads up (the best fix on its own with **Ask my lender**, the other two as plain rows) → Limits → Call → Approve → Done. When the demo clock reaches day 11 the panel shows the CD alert: the best use first, **Compare in what-if** and **Later** buttons, and the other option as a row.
+5. The pace line (visx), built to `UI.md › The pace line`: a stepped line, 14 days by default with a 14/30/60 switch. The $0 line is the heaviest gridline and always visible. A dashed ochre minimum line. Hatching below $0 only, and no other shading. ▲ paychecks and ▼ bills as markers, with labels that never cover the line (a label that fits nowhere is dropped). A dot on the lowest point. A ghost line for scenarios: a gray dashed "Before" line during a call, and a gray dashed "Current plan" line in what-if. Click a dip to see its causes.
+6. What-if, inside the PacePay panel. A **What if** button sits left of the range switch and turns the panel into the what-if panel (hidden during a call). It shows the lowest balance and days below $0 as now → what if, extra lines only when relevant (card use, emergency fund), and checkbox rows for the changes (move the car payment, paycheck lands Monday, put the repair on the card, use the CD to pay off the card). Footer: "Nothing changes until you say so." It runs the engine in the browser and draws the what-if line against the current plan. The lender console is also in the panel, inside the Call step: when the call fails, the header becomes "Negotiating by text", a "Lender types here" box appears above the buttons, and the transcript, offer checks and approvals stay the same. It opens on `call.failed` or by hand.
+7. Messages tab and Activity tab. Messages is the iMessage thread in dashboard style (PacePay on the left in white boxes, Yoshua on the right in a green tint, chart images inline, a centered column of 640px at most), with the note "Same thread as iMessage" and a "Message PacePay" input that posts to `POST /api/thread`. This is the coach chat. Activity has two columns: the plan checklist on the left (a status mark, the step title and who runs it, with the label showing which model wrote the plan), and the log on the right, newest first (time · who · what), with collapsible details and the live call transcript.
+8. Accounts tab. Left: accounts under PNC's six category headings, net worth in the header, one line per account. Right: "Next 14 days" (date · name · signed amount, a moved payment on a green tint), then "Your rules": keep in checking, keep in savings, most in fees, off-limits accounts, quiet hours and a **Pause PacePay** switch. Rules are edited here and saved with `PUT /api/rules`.
+9. Demo controls in the header: today's date with a **Skip to Wed, Nov 18** button that jumps the demo clock to day 11 (on day 11 it reads **Back to Sat, Nov 7**), **Presenter** (everything 25% bigger), **Reset**, and bill-photo injection.
+10. Arena tab: the title "Negotiation arena", a stat row (runs, deals, honest no deal, handed to Yoshua, limit violations, disclosures), a 10 × 5 grid with one tile per run (the persona word and an outcome mark), a legend, and a **Run 3 live** button.
 
 ### 10.3 Agent brain (NVIDIA) · Ram
 
@@ -993,7 +1022,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 3. Inbound pipeline: route Yoshua's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
 4. Chart PNG rendering and `send_chart`. (`read_bill` moved to Agent brain, because model calls run on Ram's machine.)
 5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
-6. LiveKit trunks and dispatch rule, connected to Photon once Photon voice is live (pending).
+6. ~~LiveKit trunks and dispatch rule, connected to Photon.~~ **Done Nov 7** (commit `ebab6a4`).
 7. `place_call` dispatch from the server (`voice/dispatch.ts`), call status events, `SipCallError` → `CALL_FAILED`.
 8. Inbound: PIN flow, `ask_pacepay`, unknown-caller line.
 9. Should: 30 generated bill photos with known values for the bill-reader test.
@@ -1029,18 +1058,21 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 1. `POST /api/demo/reset`. Inject the `brake_quote` bill photo.
 2. Assert: a plan was created (author `nemotron-ultra`), the options text matches the engine's options (every number appears in the facts object), and the lowest day is the one in `v2.md`.
-3. `customer-says "3"`. Assert: `second_opinion` ran (or was skipped with a `warn`) before the call; the negotiation opened in text mode.
-4. Lender says "We can do Wednesday." Assert: the read-back comes first. Lender says "Yes." Assert: `offer.checked` fails and the reply contains no `$` amount and no reason.
-5. Lender says "Friday, with a twenty dollar fee." → read-back → "Yes." Assert: a `deal` approval was requested with a 60 s timeout.
-6. `customer-says "yes"`. Assert: the deal is confirmed, a summary text went out, and the forecast's lowest point now matches the "moved to Friday" row in `v2.md`.
-7. `POST /api/demo/clock { day: 11 }`. Assert: the CD alert text went out with no prompt from Yoshua, and its numbers come from `cdOptions`.
-8. Variants, each in its own run:
+3. `customer-says "1"` (option 1 is PacePay's pick, the move-payment option). Assert: the limits text went out and no call was placed yet.
+4. `customer-says "ok"`. Assert: `second_opinion` ran (or was skipped with a `warn`) before the call; the negotiation opened in text mode.
+5. Lender says "We can do Wednesday." Assert: the read-back comes first. Lender says "Yes." Assert: `offer.checked` fails and the reply contains no `$` amount and no reason.
+6. Lender says "Friday, with a twenty dollar fee." → read-back → "Yes." Assert: a `deal` approval was requested with a 60 s timeout.
+7. `customer-says "yes"`. Assert: the deal is confirmed, a summary text went out, and the forecast's lowest point now matches the "moved to Friday" row in `v2.md`.
+8. `POST /api/demo/clock { day: 11 }`. Assert: the CD alert text went out with no prompt from Yoshua, and its numbers come from `cdOptions`.
+9. Variants, each in its own run:
    - "Thursday" → `PAYDAY_SAME_DAY`
    - "$35 fee" → `FEE_OVER_LIMIT`, then a waiver ask
    - "Early next week" → clarifying question
    - "We need to verify the account holder" → `handoff_verification`
    - Flat no → `no_deal` + next-best text
    - No approval reply → after 60 s, `approval_timeout` with the hold-and-reference line
+   - "no" to the limits → the next-best options text, no `place_call`, and the case ends in `DONE`
+   - A bill correction ("it's $700") → the case re-runs from the forecast step with $700, and the options text uses $700
 
 **Live rehearsal (with phones), before the expo:**
 1. Photo from Yoshua's phone.
@@ -1071,12 +1103,12 @@ These could each change part of this spec. Whoever owns the row checks it and po
 
 | Question | Owner | If the answer is no |
 |---|---|---|
-| Does a test call reach our Photon SMS number's voice profile and land in LiveKit? | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
+| Does a call to our Photon SMS number land in LiveKit? **Not yet tested:** someone has to dial the number while a worker runs. Photon refuses a test call from its own number to itself (403). | Ram | Text negotiation carries the demo. Ask Photon's Discord. A LiveKit call through another SIP provider still shows the voice agent, but it doesn't qualify for Best Voice Agent. |
 | ~~After Yoshua's first `ping`, can PacePay send unprompted messages into that conversation?~~ **Yes, verified Nov 7.** | Messaging and voice | — |
 | ~~Do image attachments send through Photon's attachments API on the shared line?~~ **Sending works, verified Nov 7.** Still check that an incoming photo from Yoshua can be downloaded. | Messaging and voice | Ask Yoshua to type the bill amount |
-| Once voice is live, does a call connect end to end: LiveKit outbound trunk → Photon → lender phone? | Messaging and voice | Recheck the cookbook settings (TLS, SRTP, the `ST_…` trunk ID); the text fallback still demos the agent |
-| Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |
-| Are the model IDs in section 5.4 live for our key, with tool calling? | Agent brain | Shift each role down one size (Ultra → Super, Super → Nano) and note it on the architecture slide |
+| ~~Does an outbound call connect end to end: LiveKit outbound trunk → Photon → lender phone?~~ **Yes, verified Nov 7:** the lender phone answered in 8 s and a test agent on `gpt-realtime-2.1` spoke its line, then hung up. | Messaging and voice | — |
+| ~~Does the LiveKit OpenAI plugin accept `gpt-realtime-2`?~~ **Yes, verified Nov 7:** plugin 1.9.5 passes any model name through, and `gpt-realtime-2.1` works. | Messaging and voice | — |
+| ~~Are the model IDs in section 5.4 live for our key, with tool calling?~~ **Yes, verified Nov 7:** the gateway models, and Nemotron 3 Ultra on build.nvidia.com (correct tool call in 1.0 s). | Agent brain | — |
 | What attribute holds the caller's number on a LiveKit SIP participant (`sip.phoneNumber`)? | Messaging and voice | Read it from the SIP headers or the room name |
 
 ---
@@ -1089,7 +1121,7 @@ These could each change part of this spec. Whoever owns the row checks it and po
 |---|---|---|---|
 | Logo and app icon | Concepts from `IMAGE_MODEL` (GPT Image 2) through TrueFoundry, then redrawn as an SVG: a pace line that dips and recovers | Yoshua | Should |
 | PacePay's avatar in Messages | Export the logo as a square PNG and upload it in Photon → Settings → Agent profile → Avatar | Yoshua | Should |
-| Chart images in iMessage | Rendered from engine data (section 6), 1080 × 1350 | Shravan | Should |
+| Chart images in iMessage | Rendered from engine data (section 6), 1200 × 800 | Shravan | Should |
 | The printed repair quote | An HTML page printed on paper (details below) | Yoshua | Must |
 | 30 test bill photos | `IMAGE_MODEL` with known amounts and dates. Keep a photo only if Nemotron Nano 2 VL and Claude both read back the intended numbers | Ram | Should |
 | Lender logos for the arena grid | `IMAGE_MODEL`, 50 small marks for fictional lenders | Ram | Could |

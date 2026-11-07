@@ -733,7 +733,7 @@ The bridge ignores messages from anyone but `CUSTOMER_PHONE`. It stores every me
 
 ## 7. Voice
 
-> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. Photon won't sell a number until the organization has a card on file, even though the credit covers it, and no card is on file yet. So calls are blocked until someone adds one. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
+> **Photon 2.0 supports calls on the free plan,** through an SMS number ($2/month) and a voice profile, with calls billed at $0.013/minute from the project's $100 credit. PacePay's call number was bought on Nov 7 (`PHOTON_VOICE_NUMBER` in `.env`; $2/month on the team's card once the credit runs out). Calls still need a LiveKit project, the default voice profile pointing at it, and an OpenAI key for the voice. Until the number and voice profile are live, build and test the worker in LiveKit's Agents Playground (browser audio, no phone line needed). Text negotiation through the lender console stays a Must and carries the demo if a call fails.
 
 ### 7.1 Call path
 
@@ -935,7 +935,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 | NVIDIA (optional) | build.nvidia.com | `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NEMOTRON_ULTRA_MODEL` | Agent brain | Only for Nemotron 3 Ultra; without it the planner uses Super. Get the $60 Brev code from HackUTD staff. |
 | OpenAI | platform.openai.com | `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (`gpt-realtime-2`) | Messaging and voice | Only for the call voice, since GPT realtime isn't on the gateway. Fall back to `gpt-realtime` if the LiveKit plugin rejects `gpt-realtime-2`. |
 | Photon iMessage | app.beta.photon.codes → PacePay → iMessage | `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`, `PHOTON_IMESSAGE_NUMBER` (the shared number) | Ram (key and project done) | Add `CUSTOMER_PHONE` as a sender and assign a shared number. Yoshua's phone sends `ping` once to open the conversation. |
-| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram, then Messaging and voice | Number is $2/month from credit, but Photon requires a card on the organization before it sells one (none on file yet). Default profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
+| Photon voice | app.beta.photon.codes → PacePay → SMS (number), then Voice (default profile) | `PHOTON_VOICE_NUMBER`, `PHOTON_VOICE_PROFILE_ID` | Ram (number bought), then Shravan | The number is bought ($2/month). Next is the default voice profile: SIP destination is the LiveKit SIP URI over TLS, plus the inbound trunk's username and password. Outbound: SHA-256 digest; save the one-time password. |
 | LiveKit Cloud | cloud.livekit.io | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | Messaging and voice | Inbound trunk (Photon number, auth), dispatch rule (Individual, prefix `photon-`, agent `pacepay-voice`), outbound trunk to `sip.photon.codes:5061` over TLS, giving the `ST_…` ID. |
 | Phones | Two team iPhones | `CUSTOMER_PHONE`, `LENDER_PHONE` (E.164) | Messaging and voice | Yoshua's phone is on the Photon account and texts the line once first. |
 | PIN | — | `INBOUND_PIN` | Messaging and voice | 4 digits. |
@@ -949,11 +949,13 @@ The names below match `.env.example`. Getting the decryption key and changing se
 
 ### 10.1 The first 30 minutes, together
 
+**Starting split:** Yoshua owns Money engine and dashboard, Ram owns Agent brain, and Shravan owns Messaging and voice. Ram has the agent because the TrueFoundry gateway key only works on Ram's machine, so every model call is built and run there. Swap if it doesn't fit.
+
 1. Pull, follow [README.md › Setup](README.md#setup), run `pnpm install`, and run the key check.
 2. Whoever has the scaffold done pushes it. The Money engine owner scaffolds: root workspace, `packages/shared` with every type from section 2, and empty apps that start.
 3. All three read section 2 and agree on it. From then on, `packages/shared` changes only after telling the other two.
 
-### 10.2 Money engine and dashboard (PNC)
+### 10.2 Money engine and dashboard (PNC) · Yoshua
 
 1. Scaffold the monorepo and `packages/shared` (types, schemas, tool names, event names).
 2. Engine fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions`, `simulate`, with all the tests in section 3. **Sat 11 PM: tests pass.**
@@ -966,7 +968,7 @@ The names below match `.env.example`. Getting the decryption key and changing se
 9. Lender console (text negotiation UI); it opens on `call.failed` or by hand.
 10. Arena page: grid of runs (green/red), scorecard, "run three live" button.
 
-### 10.3 Agent brain (NVIDIA)
+### 10.3 Agent brain (NVIDIA) · Ram
 
 1. Server skeleton: Hono, store with snapshot, SSE bus, demo control endpoints, dashboard read endpoints.
 2. Model clients: NVIDIA (OpenAI SDK) and Anthropic, with timeouts, one retry, and a `model.called` event per call.
@@ -974,15 +976,15 @@ The names below match `.env.example`. Getting the decryption key and changing se
 4. Planner (Ultra), plan validation, template plans, orchestrator loop, state machine with the hard gates. **Sat 11 PM: the tool-calling loop works on the bill-photo event with stubbed messaging.**
 5. Negotiator (`decide`): classification, read-back, `check_offer`, counters from the call plan, approvals and the 60-second timeout, outcomes. Text mode first (lender console), voice on top.
 6. Watcher: daily check on clock change, `CD_MATURING`, `SHORTFALL`, follow-ups.
-7. `post_call_summary`, Q&A for inbound calls (`/ask`).
+7. `post_call_summary`, Q&A for inbound calls (`/ask`), and `read_bill` with Nemotron Nano 2 VL.
 8. Should items: second opinion (Claude), terms lookup (embeddings + rerank over `fixtures/terms/*.md`), arena runner and grader.
 
-### 10.4 Messaging and voice (Photon)
+### 10.4 Messaging and voice (Photon) · Shravan
 
-1. With Ram: make sure `CUSTOMER_PHONE` is on the Photon account, text the line "hi", and confirm the server sees it.
+1. Yoshua's phone is already paired with PacePay's iMessage number. Have Yoshua text `ping` to it once, then confirm the server sees it and can reply with a text and a test image.
 2. `MessagingPort` adapter on `@photon-ai/api`: polling receive loop, send text, send image, read incoming images. **Sat 11 PM: PacePay sends a first text.**
 3. Inbound pipeline: route Yoshua's texts to agent events with the code-based reply parser; images become `BILL_PHOTO`.
-4. `read_bill` with the Nemotron vision model (+ Claude cross-check as a Should item); chart PNG rendering and `send_chart`.
+4. Chart PNG rendering and `send_chart`. (`read_bill` moved to Agent brain, because model calls run on Ram's machine.)
 5. Voice worker: realtime session, brief, the five voice tools, transcript posting, hang-up. Test it in LiveKit's Agents Playground. **Sat 11 PM: the worker negotiates by voice in the Playground.**
 6. LiveKit trunks and dispatch rule, connected to Photon once Photon voice is live (pending).
 7. `place_call` dispatch from the server (`voice/dispatch.ts`), call status events, `SipCallError` → `CALL_FAILED`.
@@ -1069,3 +1071,37 @@ These could each change part of this spec. Whoever owns the row checks it and po
 | Does the LiveKit OpenAI plugin accept `gpt-realtime-2`? | Messaging and voice | Use `gpt-realtime` |
 | Are the model IDs in section 5.4 live for our key, with tool calling? | Agent brain | Shift each role down one size (Ultra → Super, Super → Nano) and note it on the architecture slide |
 | What attribute holds the caller's number on a LiveKit SIP participant (`sip.phoneNumber`)? | Messaging and voice | Read it from the SIP headers or the room name |
+
+---
+
+## 13. Media, demo props and NVIDIA Brev
+
+**Rule:** generated images and video are for polish and testing only. Anything that shows a number is rendered from engine data, never generated.
+
+| Asset | How | Owner | Priority |
+|---|---|---|---|
+| Logo and app icon | Concepts from `IMAGE_MODEL` (GPT Image 2) through TrueFoundry, then redrawn as an SVG: a pace line that dips and recovers | Yoshua | Should |
+| PacePay's avatar in Messages | Export the logo as a square PNG and upload it in Photon → Settings → Agent profile → Avatar | Yoshua | Should |
+| Chart images in iMessage | Rendered from engine data (section 6), 1080 × 1350 | Shravan | Should |
+| The printed repair quote | An HTML page printed on paper (details below) | Yoshua | Must |
+| 30 test bill photos | `IMAGE_MODEL` with known amounts and dates. Keep a photo only if Nemotron Nano 2 VL and Claude both read back the intended numbers | Ram | Should |
+| Lender logos for the arena grid | `IMAGE_MODEL`, 50 small marks for fictional lenders | Ram | Could |
+| Deal recap GIF | Remotion renders a 3-second GIF of the pace line turning green; send it in iMessage if Photon accepts GIFs | Shravan | Could |
+| Devpost video | Screen recording plus Remotion titles, with a voiceover from `TTS_MODEL` (ElevenLabs v3). An AI-generated opening shot needs Sora or Veo, which aren't on the gateway | With the submission kit | Later |
+
+**The repair quote** (print two copies):
+- Header: Northside Auto Service (fictional), today's date, customer Yoshua, vehicle 2019 Toyota Corolla.
+- Line items: front brake pads and rotors, parts $380.00; labor, 2.0 hours at $120.00 = $240.00; shop supplies $30.00.
+- **Total due at pickup: $650.00.**
+- Plain black on white in large type, so the bill reader can read it under expo lighting. Keep a backup photo on the laptop in case the room is dark.
+
+**On the table:**
+- Yoshua's iPhone is the customer phone (`CUSTOMER_PHONE`), already paired with PacePay's iMessage number.
+- The lender phone (`LENDER_PHONE`) is the one the judge answers.
+- The laptop runs the dashboard in presenter mode, plugged in, with notifications off.
+
+**NVIDIA Brev ($60 in GPU credits).** The team's code is on Harp; don't put it in this repo. Redeem it in the Brev console under Billing → Redeem Code, then invite teammates from the Team tab.
+- **Use:** run Nemotron 3 Nano on our own GPU with an NVIDIA NIM container (or vLLM), and point `BREV_NEMOTRON_URL` at its OpenAI-compatible endpoint. The live call decisions and the arena get their own GPU with no gateway rate limits, and the pitch can say Nemotron runs on our own NVIDIA hardware.
+- **Sizing:** pick a GPU that fits a 30B model, such as an 80 GB H100 or A100, or an L40S running FP8. Stop the instance whenever nobody's using it, since credits burn by the hour.
+- Optional, since the gateway already serves Nemotron. Owner: Ram (Should).
+

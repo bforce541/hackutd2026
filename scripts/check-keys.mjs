@@ -45,6 +45,7 @@ const checks = [
   ["LIVEKIT_API_SECRET"],
   ["LIVEKIT_SIP_OUTBOUND_TRUNK_ID"],
   ["DATABASE_URL", "optional"],
+  ["BREV_NEMOTRON_URL", "optional"],
   ["CUSTOMER_PHONE", "phone"],
   ["LENDER_PHONE", "phone"],
   ["INBOUND_PIN", () => (/^\d{4}$/.test(env.INBOUND_PIN) ? "ok" : "should be 4 digits")],

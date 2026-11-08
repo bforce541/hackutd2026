@@ -1,3 +1,4 @@
+import { billItemId } from '@pacepay/shared';
 import { applyChanges, cardAccounts, checkingAccount, findAccount, savingsAccount } from './changes';
 import { forecast, SCORE_HORIZON_DAYS } from './forecast';
 import { balancesOn, postingDays } from './ledger';
@@ -6,10 +7,12 @@ import { planCallTargets } from './offers';
 import { monthlyEssentialsTotal } from './scores';
 import type { Cents, Change, Day, Household, Option, RuleViolation } from './types';
 
-export interface Bill {
+/** A bill to cover. `id` is the shared Bill's id when there is one (the item id becomes `bill:<id>`). */
+export interface BillInput {
   amount: Cents;
   day: Day;
   label: string;
+  id?: string;
 }
 
 const NO_TRADEOFFS: Option['tradeoffs'] = {
@@ -21,11 +24,11 @@ const NO_TRADEOFFS: Option['tradeoffs'] = {
 };
 
 /** The bill paid from checking on its day: the "do nothing" baseline every option starts from. */
-export function billChange(h: Household, bill: Bill): Change {
+export function billChange(h: Household, bill: BillInput): Change {
   return {
     type: 'add_item',
     item: {
-      id: 'bill',
+      id: bill.id ? billItemId(bill.id) : 'bill',
       accountId: checkingAccount(h).id,
       label: bill.label,
       amount: -bill.amount,
@@ -62,7 +65,7 @@ export function monthlyCardSpend(h: Household): Cents {
  * - `move_payment`: pay from checking and move the soonest movable debit behind the dip to the
  *   first day that works (`planCallTargets`). Left out when no movable payment or no day works.
  */
-export function buildOptions(h: Household, bill: Bill, opts: { fromDay?: Day } = {}): Option[] {
+export function buildOptions(h: Household, bill: BillInput, opts: { fromDay?: Day } = {}): Option[] {
   const fromDay = opts.fromDay ?? 0;
   const pay = billChange(h, bill);
   const withBill = lowestOf(h, [pay], fromDay);

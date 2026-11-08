@@ -22,7 +22,7 @@
     <rect x="0" y="12" width="14" height="14" rx="3.5" fill="#F24E2C"/><rect x="8" y="19" width="14" height="14" rx="3.5" fill="#FF8A3D" fill-opacity=".9"/><rect x="16" y="24" width="14" height="14" rx="3.5" fill="#F7AC33" fill-opacity=".9"/><rect x="25" y="14" width="14" height="14" rx="3.5" fill="#86C254" fill-opacity=".9"/><rect x="31" y="4" width="17" height="17" rx="4" fill="#1F9D5C"/>
     <text x="64" y="30" font-size="30" font-weight="700" style="font-size:30px;font-weight:700;letter-spacing:-0.5px">PacePay architecture</text>
   </g>
-  <text x="40" y="100" class="b">Nemotron decides. Code does all the math. Claude checks. GPT only speaks. Yoshua approves.</text>
+  <text x="40" y="100" class="b">Nemotron plans. Code does the math and judges every offer. Claude checks. OpenAI listens and speaks our lines. Yoshua approves.</text>
 
   <!-- Yoshua's iPhone -->
   <rect x="40" y="240" width="220" height="140" rx="14" fill="#fff" stroke="#8c887e" class="box"/>
@@ -80,8 +80,8 @@
 
   <rect x="800" y="406" width="215" height="98" rx="10" fill="#e4f1e9" stroke="#17794a" class="box"/>
   <text x="907" y="434" text-anchor="middle" class="h">Negotiator: decide()</text>
-  <text x="907" y="457" text-anchor="middle" class="b">Nemotron 3 Super</text>
-  <text x="907" y="478" text-anchor="middle" class="s">Offer in, reply out</text>
+  <text x="907" y="457" text-anchor="middle" class="b">Code reads the offer</text>
+  <text x="907" y="478" text-anchor="middle" class="s">Nemotron 3 Super as fallback</text>
 
   <!-- Money engine -->
   <rect x="565" y="526" width="450" height="112" rx="10" fill="#14130f"/>
@@ -123,10 +123,10 @@
 
   <rect x="1140" y="640" width="320" height="190" rx="14" fill="#ffe9d6" stroke="#c4560a" class="box"/>
   <text x="1300" y="676" text-anchor="middle" class="h">LiveKit + GPT realtime</text>
-  <text x="1300" y="700" text-anchor="middle" class="b">Hearing, speaking, turn-taking</text>
-  <text x="1300" y="732" text-anchor="middle" class="s">Never sees balances or limits.</text>
-  <text x="1300" y="752" text-anchor="middle" class="s">For each offer it asks decide()</text>
-  <text x="1300" y="772" text-anchor="middle" class="s">and says what comes back.</text>
+  <text x="1300" y="700" text-anchor="middle" class="b">Listens, then speaks our lines</text>
+  <text x="1300" y="732" text-anchor="middle" class="s">GPT realtime listens, OpenAI TTS speaks.</text>
+  <text x="1300" y="752" text-anchor="middle" class="s">Says only lines decide() wrote.</text>
+  <text x="1300" y="772" text-anchor="middle" class="s">Never sees balances or limits.</text>
   <text x="1300" y="800" text-anchor="middle" class="s">Discloses it is an AI on every call.</text>
 
   <!-- Arrows -->
@@ -150,11 +150,11 @@
   <path class="arrow2" d="M300 750 H260"/>
 
   <!-- Legend -->
-  <g transform="translate(40 880)">
+  <g transform="translate(40 870)">
     <text x="0" y="0" class="l">Who does what</text>
-    <rect x="0" y="14" width="18" height="18" rx="4" fill="#e4f1e9" stroke="#17794a"/><text x="28" y="28" class="s">Nemotron decides</text>
-    <rect x="0" y="40" width="18" height="18" rx="4" fill="#14130f"/><text x="28" y="54" class="s">Code does the math</text>
-    <rect x="200" y="14" width="18" height="18" rx="4" fill="#fbf0d8" stroke="#c98700"/><text x="228" y="28" class="s">Claude checks</text>
-    <rect x="200" y="40" width="18" height="18" rx="4" fill="#ffe9d6" stroke="#c4560a"/><text x="228" y="54" class="s">GPT only speaks</text>
+    <rect x="0" y="12" width="18" height="18" rx="4" fill="#e4f1e9" stroke="#17794a"/><text x="28" y="26" class="s">Nemotron plans</text>
+    <rect x="0" y="36" width="18" height="18" rx="4" fill="#14130f"/><text x="28" y="50" class="s">Code does the math</text>
+    <rect x="0" y="60" width="18" height="18" rx="4" fill="#fbf0d8" stroke="#c98700"/><text x="28" y="74" class="s">Claude checks</text>
+    <rect x="0" y="84" width="18" height="18" rx="4" fill="#ffe9d6" stroke="#c4560a"/><text x="28" y="98" class="s">OpenAI listens and speaks</text>
   </g>
 </svg>

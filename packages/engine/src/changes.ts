@@ -24,30 +24,48 @@ export function cardAccounts(h: Household): Account[] {
   return h.accounts.filter((x) => x.kind === 'credit_card');
 }
 
-/** The day after an item's first occurrence, in its own rhythm. */
-function nextOccurrence(h: Household, item: ScheduledItem): Day | null {
-  if (!item.every) return null;
-  return 'days' in item.every ? item.day + item.every.days : addMonths(h, item.day, item.every.months);
+/** The k-th scheduled date of a recurring item (k = 0 is `item.day`). */
+function nthOccurrence(h: Household, item: ScheduledItem, k: number): Day {
+  if (!item.every) return item.day;
+  return 'days' in item.every ? item.day + k * item.every.days : addMonths(h, item.day, k * item.every.months);
 }
 
 /**
- * Moving a payment moves only its next occurrence (`item.day`), the way a lender moves one due date.
- * A recurring item keeps its schedule from the following occurrence on; the moved one becomes a
- * one-off item with the id `<id>@<toDay>`.
+ * Moving a payment moves one occurrence, the way a lender moves one due date: the last one due on or
+ * before the new date (or the first one, when moving earlier). So on day 0 "move the car payment to
+ * Friday" moves Tuesday's payment, and after the clock jumps to day 11 the same request moves
+ * December's.
+ *
+ * A recurring item is split so every other occurrence still posts on its date: earlier occurrences
+ * become one-offs (`<id>#<day>`), the moved one becomes `<id>@<toDay>`, and the series restarts at
+ * the following occurrence under the original id.
  */
 function moveItem(h: Household, itemId: string, toDay: Day): void {
   const idx = h.scheduled.findIndex((s) => s.id === itemId);
   if (idx < 0) return;
   const item = h.scheduled[idx] as ScheduledItem;
-  const next = nextOccurrence(h, item);
-  if (next === null) {
+  if (!item.every) {
     item.day = toDay;
     return;
   }
-  const moved: ScheduledItem = { ...item, id: `${item.id}@${toDay}`, day: toDay };
-  delete moved.every;
-  item.day = next;
-  h.scheduled.splice(idx + 1, 0, moved);
+  let k = 0;
+  while (nthOccurrence(h, item, k + 1) <= toDay) k += 1;
+
+  const oneOff = (id: string, day: Day): ScheduledItem => {
+    const copy: ScheduledItem = { ...item, id, day };
+    delete copy.every;
+    return copy;
+  };
+  const inserted: ScheduledItem[] = [];
+  for (let j = 0; j < k; j += 1) {
+    const d = nthOccurrence(h, item, j);
+    inserted.push(oneOff(`${item.id}#${d}`, d));
+  }
+  inserted.push(oneOff(`${item.id}@${toDay}`, toDay));
+
+  // Restart the series at the occurrence after the moved one.
+  item.day = nthOccurrence(h, item, k + 1);
+  h.scheduled.splice(idx, 0, ...inserted);
 }
 
 function moneyMove(

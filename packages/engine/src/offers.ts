@@ -72,16 +72,18 @@ export function checkOffer(h: Household, offer: OfferInput, ctx: OfferContext): 
 export const CALL_SEARCH_DAYS = 14;
 
 /**
- * Every business day within two weeks after the payment's due date that passes `checkOffer`
- * with no fee, and the first of them as the target. `targetDay` is -1 when none works.
+ * Every business day within two weeks after the payment's next due date (on or after `fromDay`)
+ * that passes `checkOffer` with no fee, and the first of them as the target. `targetDay` is -1
+ * when none works.
  */
 export function planCallTargets(h: Household, itemId: string, ctx: OfferContext): Pick<CallPlan, 'targetDay' | 'acceptableDays' | 'feeLimit'> {
+  const fromDay = ctx.fromDay ?? 0;
   const base = applyChanges(h, ctx.baseChanges);
   const item = base.scheduled.find((s) => s.id === itemId);
   const acceptableDays: Day[] = [];
-  if (item) {
-    const due = postingDay(h, item.day);
-    for (let d = due + 1; d <= due + CALL_SEARCH_DAYS; d += 1) {
+  const due = item ? postingDays(base, item, fromDay + 400).find((d) => d >= fromDay) : undefined;
+  if (due !== undefined) {
+    for (let d = Math.max(due + 1, fromDay); d <= due + CALL_SEARCH_DAYS; d += 1) {
       if (isWeekend(h, d)) continue;
       if (checkOffer(h, { itemId, newDay: d, fee: 0 }, ctx).pass) acceptableDays.push(d);
     }

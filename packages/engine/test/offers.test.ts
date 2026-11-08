@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkOffer, planCallTargets, shortDate } from '../src/index';
+import { checkOffer, forecast, planCallTargets, shortDate } from '../src/index';
 import { $, h, payRepair, WEEK } from './helpers';
 
 const ctx = { baseChanges: [payRepair] };
@@ -66,6 +66,22 @@ describe('offer.unknownItem', () => {
   it('rejects an item the household does not have', () => {
     const c = checkOffer(h, { itemId: 'nope', newDay: WEEK.fri, fee: 0 }, ctx);
     expect(c).toMatchObject({ pass: false, reasons: ['UNKNOWN_ITEM'] });
+  });
+});
+
+describe('clock jump (day 11, the CD alert)', () => {
+  it('moving the car payment after the jump moves December\'s, and November\'s still posted', () => {
+    const fc = forecast(h, { days: 60, changes: [{ type: 'move_item', itemId: 'auto_payment', toDay: 34 }] });
+    const carDays = fc.days.filter((d) => d.items.some((i) => i.itemId.startsWith('auto_payment'))).map((d) => d.day);
+    expect(carDays).toEqual([WEEK.tue, 34]); // Tue, Nov 10 as scheduled; Thu, Dec 10 moved to Fri, Dec 11
+    expect(shortDate(h, 34)).toBe('Fri, Dec 11');
+  });
+
+  it('call targets start after the next due date (Thu, Dec 10), never in the past', () => {
+    const t = planCallTargets(h, 'auto_payment', { baseChanges: [], fromDay: 11 });
+    expect(t.acceptableDays.length).toBeGreaterThan(0);
+    expect(t.acceptableDays.every((d) => d > 33)).toBe(true);
+    expect(shortDate(h, 33)).toBe('Thu, Dec 10');
   });
 });
 

@@ -24,7 +24,7 @@ export interface ForecastOptions {
  */
 export function forecast(h: Household, opts: ForecastOptions = {}): Forecast {
   const fromDay = opts.fromDay ?? 0;
-  const days = opts.days ?? CHART_HORIZON_DAYS;
+  const days = Math.max(1, Math.floor(opts.days ?? CHART_HORIZON_DAYS));
   const applied = applyChanges(h, opts.changes ?? []);
   const accountId = opts.accountId ?? checkingAccount(applied).id;
   const floor = applied.rules.checkingFloor;

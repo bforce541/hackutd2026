@@ -28,3 +28,12 @@ Each file has one owner (a build stream). Edit only your own files. `lib/view-mo
 - The engine is real and tested (Yoshua's `packages/engine`; how-to in its README). Demo mode builds from `fixtures` and calls `simulate`, `buildOptions`, `checkOffer` and the rest directly. Still call it inside hooks or memoized functions, not at module scope, so `next build` stays fast and static.
 - `next build` must not need the server: no fetches at build time, and the page stays a client component.
 - No new dependencies. Check your work with `pnpm --filter @pacepay/dashboard typecheck` and `pnpm --filter @pacepay/dashboard build`.
+
+## Update (Nov 7, after the handoff)
+
+The dashboard is Yoshua's now and was redesigned (see UI.md "Design v2"). Two rules above changed:
+
+- **Motion is allowed where it explains a change** (UI.md rule 10); `lib/motion.ts` has the helpers and everything respects `prefers-reduced-motion`.
+- **Fonts and tokens:** Instrument Sans and DM Mono, Light and Night themes, all in `app/globals.css`. Components still use only tokens (`bg-page`, `text-ink`, `text-green`, `bg-coral`, ...). The spectrum (`coral`, `orange`, `amber`, `lime`, `leaf`) is for fills; use `text-green` / `text-vermilion` for text.
+
+`lib/view-model.ts` (the contract with the server) is unchanged.

@@ -15,17 +15,31 @@ How PacePay looks and behaves, based on usability research, accessibility standa
 7. **Alert only when it matters**, meaning the forecast crosses your minimum or $0. Use one thread per problem.
 8. **The person decides,** twice: an OK on the limits before PacePay calls, then an OK on the deal, even mid-call.
 9. **Show evidence, not reasoning.** Show before/after numbers, not the model's explanation.
-10. **Calm and still.** Light theme on warm neutrals, one typeface, three accent colors, no decorative motion.
+10. **Calm, and motion only when it explains.** A warm light theme (plus Night), two typefaces, and the spectrum as the one color idea. Nothing moves for decoration; every animation shows a change (a number moved, a plan changed, a step advanced). All of it is off for people who ask for reduced motion.
 11. **Look made, not generated.** Skip the template defaults: a grid of cards, pill badges, KPI tiles with progress bars, Inter on slate gray, dark navy with neon accents.
+
+## Design v2 (Nov 7): what changed and why
+
+The first version was correct but plain. This pass keeps every behavior and rebuilds the look around one idea: **the logo is the interface.** The logo's five translucent tiles (coral, orange, amber, lime, leaf) become the chart, the case stepper and the health meters. The spectrum only ever means "how safe is this."
+
+- **The pace line is a field of day tiles.** Each day is a translucent tile standing on the $0 line: leaf when safe, amber near your minimum, coral hanging below $0 (and hatched, so color is never the only cue). Hover or arrow-key along it to read any day; a callout names what causes the dip ("Mortgage + Car payment").
+- **The agent card's top is five tiles,** one per step (Heads up, Limits, Call, Approve, Done). They light up coral to leaf as the case advances; the full spectrum means done.
+- **Health stats have five-tile meters** instead of numbers alone: one tile is far from the goal, five means it is met. No gauges, no grades.
+- **Two themes on one token set.** Light is the default; Night is one click (the moon in the header). Presenter mode compacts the page to fit a 1440 × 800 screen.
+- **Motion, only where it explains:** the balance counts up on load; tiles rise in a wave; tiles glide and re-color when the plan changes (a deal landing turns the dip green, left to right); steps ease in; the lowest point pulses twice; the plan's checks draw themselves. Curves: `--ease-out` (expo-out) for things that arrive or morph, a gentle ease for color.
+- **Messages is a phone** showing the iMessage thread, with tappable questions. **Activity** is a flight recorder: every step and log row carries the model that did it. **Accounts** is net worth plus six category cards. **Arena** is a field of 50 tiles.
+
+Source of truth for the values is `apps/dashboard/app/globals.css`; where this section and the older text below disagree, this section wins.
 
 ## Look and feel
 
 **Type**
-- One family, IBM Plex Sans (fallback: system UI), in weights 400, 500 and 600. Use tabular figures (`font-variant-numeric: tabular-nums`) for every amount. Big numbers use 500, not bold.
+- Two families: **Instrument Sans** (display and UI, weights 400, 500 and 600, the same as the wordmark) and **DM Mono** (the small uppercase labels above sections). Use tabular figures (`font-variant-numeric: tabular-nums`) for every amount. Big numbers use 500 with tight tracking (−0.045em), not bold. Loaded with `next/font/google`.
 - **Sizes:**
-  - balance: 40px
-  - panel headline: 26px
-  - health stat values: 26px
+  - balance: 64px
+  - panel headline: 30px
+  - health stat values: 28px
+  - micro labels (DM Mono, uppercase, 0.08em): 11px
   - body: 16px
   - labels: 14px
   - chart labels: 13px

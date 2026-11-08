@@ -1,15 +1,62 @@
-# HackUTD 2026
+# PacePay
 
-## Team
+**See what you can afford. Get more time if you need it.**
 
-- Yoshua
-- Ram
+PacePay is a money assistant you text like a friend. It sees all your accounts, forecasts the next 60 days, warns you before money gets tight, and, with your OK, calls whoever you owe to ask for more time. Built at HackUTD 2026 (ZeroDay) for the PNC, NVIDIA and Photon tracks.
 
-## Docs
+**Try it:** [www.pacepay.work](https://www.pacepay.work) (the dashboard; the live demo runs on the presenter's laptop, so the site opens in demo mode unless it's connected). [Devpost write-up](docs/devpost.md) · [Negotiation arena transcripts](docs/arena-transcripts.md)
 
-- [v2.md](v2.md): what we're building and why
-- [SPEC.md](SPEC.md): how we're building it
-- [UI.md](UI.md): how it looks and behaves, based on research
+## The idea in one scene
+
+The shop quotes $650 for brakes. You text PacePay a photo of the quote. It reads the bill and sends a chart: paying today puts checking at **−$300 on Tuesday**, because the mortgage and the car payment land before Thursday's paycheck. It texts three options and a pick. You choose "ask the lender to move the car payment," and set your limits ($100 checking floor, $1,500 savings floor, $25 max in fees).
+
+PacePay calls the lender, says it's an AI assistant calling with your permission, and negotiates. The lender offers Wednesday, still before payday, so it asks for Friday without saying why. They settle on **Friday for $20**. Mid-call your phone buzzes with the exact terms, you reply YES, and only then does PacePay confirm out loud. The forecast turns green.
+
+Every offer is judged by code against your limits, and the voice on the call never sees your balances.
+
+## How it works
+
+![PacePay architecture](docs/architecture.png)
+
+- **The money engine is plain code** ([`packages/engine`](packages/engine)): forecast, health scores, what-ifs and offer checks. Deterministic, 60 unit tests, and it runs in the browser too. No model ever calculates a number.
+- **Nemotron decides:** Nemotron 3 Ultra plans each event, Nemotron 3 Super runs the tools and decides every reply on a call, and Nemotron Nano 2 VL reads bill photos.
+- **Claude checks:** Claude Opus 5.5 gives a second opinion on the call plan, cross-checks the bill, and grades the negotiation arena.
+- **GPT only speaks:** OpenAI GPT realtime handles hearing and speaking over LiveKit, on a Photon number.
+- **Photon 2.0** carries the iMessage conversation and the phone line.
+- **Code enforces the gates:** no call without your pick and your OK on the limits, no deal without your YES.
+
+## Repo map
+
+| Path | What's in it |
+|---|---|
+| [`packages/engine`](packages/engine) | The money engine and the demo household |
+| [`packages/shared`](packages/shared) | Types, schemas and message templates shared by every app |
+| [`apps/dashboard`](apps/dashboard) | The Next.js dashboard: pace line, health scores, what-if, Messages, Activity, Accounts, Arena |
+| [`apps/server`](apps/server) | The agent, negotiator, Photon bridge and tools (Hono, TypeScript) |
+| [`apps/voice`](apps/voice) | The LiveKit voice worker for phone calls |
+| [`design/`](design) | Logo, brand files and the printed repair-quote prop |
+| [v2.md](v2.md) · [SPEC.md](SPEC.md) · [UI.md](UI.md) | The product plan, the build spec and the design notes |
+
+## Run it
+
+You can run the dashboard by itself with no keys. It runs the engine in the browser and walks you through the whole repair case step by step.
+
+```bash
+pnpm install
+pnpm --filter @pacepay/dashboard dev     # http://localhost:3000, demo mode
+pnpm -r test                             # engine, shared, server and dashboard tests
+pnpm -r typecheck
+```
+
+Press **Ask my lender**, then **Call now**, and step through the call. Then **Skip to Wed, Nov 18** to see the unprompted CD alert. **Presenter** compacts the page for a projector, and the moon switches to Night.
+
+The full system (real texts and calls) needs API keys that stay on the presenter's machine: Photon, LiveKit, OpenAI and the model gateways. Setup is below. Without the paid keys the server runs in NVIDIA mode, with every Nemotron role on a shared NVIDIA key.
+
+## The team
+
+Yoshua ([bforce541](https://github.com/bforce541)) built the money engine, the dashboard and the brand. Ram ([ramsarma21](https://github.com/ramsarma21)) built the agent, the negotiator, the voice and the Photon bridge.
+
+---
 
 ## Deploy
 

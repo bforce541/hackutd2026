@@ -1,0 +1,107 @@
+{
+  "_about": "The demo video's single source of timing. Every scene renders to exactly its window; recordings drop into their slots. Seconds from the start of the video. Total 1:58, hard cap 2:00.",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "total": 118,
+  "scenes": [
+    {
+      "id": "desk",
+      "start": 0, "end": 10,
+      "source": "recording",
+      "file": "recordings/desk.mov",
+      "what": "Yoshua at the laptop: email with the $650 quote, frustration, forehead slap, the line, then he picks up his phone and raises it toward the camera.",
+      "audio": "the clip's own audio (his line)",
+      "caption": "Six-fifty? I don't get paid till Thursday.",
+      "caption_at": [2.5, 6.0]
+    },
+    {
+      "id": "texts",
+      "start": 10, "end": 22,
+      "source": "render",
+      "page": "imessage.html",
+      "segment": "precall",
+      "speed": "fit",
+      "transition_in": "push into the raised phone, then cut to the generated screen",
+      "what": "Photo sent, PacePay reply, chart, three options with the -$300 line highlighted, he replies 1, OKs the $25 fee limit, Calling your lender now.",
+      "audio": "message sounds"
+    },
+    {
+      "id": "call",
+      "start": 22, "end": 62,
+      "source": "render",
+      "page": "call-card.html",
+      "overlays": ["offer-checker", "imessage approve segment, inset, when the approval text arrives"],
+      "what": "Call thread UI over the real call audio, jump-cut at each lender turn. Offer checker rows: Wed no fee (no), Fri $35 (no, over the fee limit), Fri $20 (works).",
+      "audio": "recordings/call.m4a, cut to 40s by the cue list made after the take"
+    },
+    {
+      "id": "done",
+      "start": 62, "end": 66,
+      "source": "render",
+      "page": "imessage.html",
+      "segment": "done",
+      "transition_out": "the Done text pushes into the dashboard; the red dip sweeps green",
+      "what": "Done. Car payment is now Fri, Nov 13 ($20). Then the dashboard forecast going green."
+    },
+    {
+      "id": "whatitis",
+      "start": 66, "end": 80,
+      "source": "render",
+      "page": "dash-scenes.html",
+      "segment": "home",
+      "what": "Dashboard Home, slow camera move. Track tags fade in one by one: PNC, NVIDIA, Photon.",
+      "audio": "recordings/yoshua-vo.m4a",
+      "voice": { "who": "Yoshua", "max_seconds": 13, "line": "That's PacePay. Most people don't overdraw because they're broke. They overdraw because the timing's off. PacePay watches all your money, catches it before it happens, and fixes it for you, by text or by phone." }
+    },
+    {
+      "id": "health",
+      "start": 80, "end": 88,
+      "source": "render",
+      "page": "dash-scenes.html",
+      "segment": "health",
+      "what": "Camera moves to the four health scores; each one lifts as it's named.",
+      "audio": "recordings/ram-health.m4a",
+      "voice": { "who": "Ram", "max_seconds": 7, "line": "Here's the whole picture: eight accounts, four health scores, sixty days ahead." }
+    },
+    {
+      "id": "whatif",
+      "start": 88, "end": 96,
+      "source": "render",
+      "page": "dash-scenes.html",
+      "segment": "whatif",
+      "what": "Try a purchase: 900 types in, the forecast line redraws below zero, checking goes red.",
+      "audio": "recordings/ram-whatif.m4a",
+      "voice": { "who": "Ram", "max_seconds": 7, "line": "Thinking about buying something? Type it in. Nine hundred dollars would overdraw checking." }
+    },
+    {
+      "id": "activity",
+      "start": 96, "end": 104,
+      "source": "render",
+      "page": "dash-scenes.html",
+      "segment": "activity",
+      "what": "Activity tab. Camera settles on one step and holds about 3s on its Nemotron model label.",
+      "audio": "recordings/ram-activity.m4a",
+      "voice": { "who": "Ram", "max_seconds": 7, "line": "Every step PacePay takes shows up here, labeled with the Nemotron model that did it." }
+    },
+    {
+      "id": "arena",
+      "start": 104, "end": 112,
+      "source": "render",
+      "page": "dash-scenes.html",
+      "segment": "arena",
+      "what": "Arena grid of 50 runs fills in; the stats count up: 0 limit violations, 0 disclosures.",
+      "audio": "recordings/ram-arena.m4a",
+      "voice": { "who": "Ram", "max_seconds": 7, "line": "We tested it against fifty simulated lenders. It never broke a limit and never leaked a balance." }
+    },
+    {
+      "id": "close",
+      "start": 112, "end": 118,
+      "source": "render",
+      "page": "close.html",
+      "what": "Clean logo card: the mark, pacepay wordmark, tagline, pacepay.work."
+    }
+  ],
+  "audio_mix": { "call": 1.0, "voice": 0.85, "music": 0.12, "duck_music_under_voice": true, "loudness_lufs": -16 },
+  "captions": { "burn_in": ["desk", "whatitis", "health", "whatif", "activity", "arena"], "off_during": ["call"] }
+}

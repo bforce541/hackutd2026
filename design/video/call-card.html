@@ -103,36 +103,47 @@
 </head>
 <body>
 <div class="stage" id="stage">
-  <div class="backdrop-note">STAND-IN BACKDROP · FOOTAGE GOES HERE</div>
   <div class="chip"><span class="dot"></span><span>Live call</span><span class="clock" id="clock">00:00</span></div>
   <div class="thread" id="thread"></div>
 </div>
 
+<script src="call-placeholder.js"></script>
+<script src="call.js" onerror="void 0"></script>
 <script>
 // The lender as shown on screen. NOTE: the product's fixture calls the lender
 // "Lone Star Auto Finance" (packages/engine/fixtures/household.ts); swap here if needed.
 const LENDER = { name: 'Northside Auto Service', initials: 'NA' };
 
-// Placeholder lines in the order the lender script runs. Swap in the server transcript
-// of the take we use (speaker, text, start/end seconds lined up to the recorded audio).
-const LINES = [
-  { who: 'pacepay', start: 0.0,  end: 4.4,  text: "Hi, I'm PacePay, an AI assistant calling for Yoshua." },
-  { who: 'lender',  start: 5.0,  end: 7.4,  text: `${LENDER.name}, how can I help?` },
-  { who: 'pacepay', start: 8.0,  end: 12.4, text: "Could we move the Nov 10 payment to Friday, Nov 13?" },
-  { who: 'lender',  start: 13.0, end: 14.6, text: "I can do Wednesday." },
-  { who: 'pacepay', start: 15.2, end: 18.6, text: "Wednesday won't work. Is Friday possible?" },
-  { who: 'lender',  start: 19.2, end: 22.4, text: "Friday works, but there's a thirty-five dollar fee." },
-  { who: 'pacepay', start: 23.0, end: 26.4, text: "Could you waive that fee, or bring it down?" },
-  { who: 'lender',  start: 27.0, end: 28.6, text: "Okay, twenty dollars." },
-  { who: 'pacepay', start: 29.2, end: 32.4, text: "Friday the 13th with a twenty-dollar fee?" },
-  { who: 'lender',  start: 33.0, end: 33.8, text: "Yes." },
-  { who: 'pacepay', start: 34.4, end: 37.0, text: "Let me check with Yoshua. One moment." },
-  { who: 'lender',  start: 37.6, end: 38.8, text: "Take your time." },
-  { who: 'pacepay', start: 40.0, end: 46.0, text: "Yoshua approved. Friday, November 13th, twenty-dollar fee. Do you have a reference number?" },
-  { who: 'lender',  start: 46.6, end: 50.2, text: "Your reference number is A, 1, B, 2, C, 3." },
-  { who: 'pacepay', start: 50.8, end: 53.4, text: "A1B2C3. Thanks, goodbye." },
-];
-const LOOP = 57;
+// The call: window.CALL from call.js (scripts/video/align-call.mjs, the real take: server
+// transcript lines timed to the cut audio), else the placeholder. Times are seconds of the
+// cut call (0 to CALL.length); cuts map cut time back to real call time for the clock.
+const CALL = (window.CALL && window.CALL.lines && window.CALL.lines.length) ? window.CALL : window.CALL_PLACEHOLDER;
+const LINES = CALL.lines;
+const LOOP = CALL.length || 40;
+const CUTS = CALL.cuts || [{ in: 0, out: LOOP }];
+
+// Real call time for a cut time: the clock jumps forward at each cut, so it stays honest.
+function rawTime(t) {
+  let off = 0;
+  for (const c of CUTS) {
+    const len = c.out - c.in;
+    if (t < off + len) return c.in + (t - off);
+    off += len;
+  }
+  const last = CUTS[CUTS.length - 1];
+  return last.out + (t - off);
+}
+
+// The approval moment: the thread slides left so the iMessage approve inset fits on the right.
+// From CALL.inset if set, else from PacePay's "let me check with Yoshua" line to its "approved" line.
+const INSET = (() => {
+  if (CALL.inset) return CALL.inset;
+  const a = LINES.find((l) => l.who === 'pacepay' && /check with|one moment|let me (check|confirm)|hold on/i.test(l.text));
+  const b = LINES.find((l) => l.who === 'pacepay' && /approved|confirmed|go ahead/i.test(l.text) && (!a || l.start > a.start));
+  return a ? { start: a.start, end: b ? b.start + 1.0 : a.end + 4.5 } : null;
+})();
+const INSET_SHIFT = 380, INSET_EASE = 0.45;
+window.CALL_TIMES = { length: LOOP, inset: INSET, placeholder: !!CALL.placeholder };
 
 const SPEAKERS = {
   pacepay: {
@@ -220,8 +231,15 @@ function drawWave(turn, tt, speaking) {
 
 function render(t) {
   const tt = t % LOOP;
-  const sec = Math.floor(tt);
+  const sec = Math.floor(rawTime(tt));
   $('clock').textContent = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+
+  // lender cards slide left while the approve inset is up (they're on their own rows, so no collision)
+  let shift = 0;
+  if (INSET) {
+    const inP = ease((tt - INSET.start) / INSET_EASE), outP = ease((tt - INSET.end) / INSET_EASE);
+    shift = INSET_SHIFT * (tt < INSET.start ? 0 : inP) * (tt < INSET.end ? 1 : 1 - outP);
+  }
 
   const n = LINES.filter((l) => tt >= l.start).length;          // turns that have started
   const newest = turns[n - 1];
@@ -234,7 +252,8 @@ function render(t) {
     el.style.visibility = 'visible';
     const arrive = ease((tt - line.start) / SLIDE);
     const y = FIRST_Y + i * STEP - scroll + (1 - arrive) * 28;  // new turns rise in a little
-    el.style.transform = `translateY(${y.toFixed(1)}px)`;
+    const x = line.who === 'lender' ? -shift : 0;
+    el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     // older turns dim a step each time a new one arrives (the top fade does the rest)
     const DIM = [1, 0.8, 0.62, 0.5];
     const age = n - 1 - i, dim = (k) => DIM[Math.min(Math.max(k, 0), DIM.length - 1)];

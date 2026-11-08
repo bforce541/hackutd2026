@@ -32,3 +32,7 @@ next-env.d.ts
 # stress/test run outputs
 scripts/stress/out/
 scripts/voice-test/out/
+
+# Demo video: raw recordings and rendered output (large, local only)
+design/video/recordings/
+design/video/out/

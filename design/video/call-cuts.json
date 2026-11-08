@@ -1,0 +1,14 @@
+{
+  "_about": "The cut list for the call scene: which stretches of the raw call recording (recordings/call.m4a) make the 40s the video uses. Each cut is { in, out } in seconds of the RAW recording, played in order. Cut at lender turns and dead air (the AI disclosure's tail, the read-back pauses, the wait while Yoshua approves, the reference spelled out slowly). The cuts must add up to the call scene's length in timeline.json (40s); align-call.mjs warns if they don't. PLACEHOLDER: these numbers are a guess for a ~90s call and must be redone by ear against the real take (listen in QuickTime or Audacity, note in/out times). Then run: node scripts/video/align-call.mjs",
+  "placeholder": true,
+  "source": "recordings/call.m4a",
+  "length": 40,
+  "fade": 0.03,
+  "cuts": [
+    { "in": 2.0,  "out": 9.5,  "note": "PacePay's greeting and disclosure, from 'Hi, I'm PacePay' (trim the long middle if needed)" },
+    { "in": 14.0, "out": 26.5, "note": "the ask, Northside's greeting, 'I can do Wednesday', PacePay pushes back" },
+    { "in": 30.0, "out": 37.5, "note": "'Friday works, but there's a thirty-five dollar fee', PacePay asks to lower it, 'Okay, twenty'" },
+    { "in": 61.0, "out": 66.0, "note": "the read-back, 'Yes', 'Let me check with Yoshua', 'Take your time'" },
+    { "in": 79.0, "out": 86.5, "note": "'Yoshua approved', the reference A1B2C3, goodbye" }
+  ]
+}

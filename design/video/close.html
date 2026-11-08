@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Close card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@500&display=swap" rel="stylesheet">
+<style>
+  /* The video's 6s close: the mark's five tiles step in (the dip, then the climb), the wordmark,
+     the tagline, pacepay.work. Everything is settled by 3.6s and holds still to 6s.
+     Light ground to follow the light-theme dashboard scenes. Same conventions as the other video
+     pages: deterministic render(t), window.hold = t to freeze, ?t= for a frozen frame, ?bg=none. */
+  :root {
+    --ground: #f4f2ec;
+    --ink: #14130f;
+    --muted: #6b675e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+  .stage {
+    position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+    transform-origin: center; overflow: hidden; background: var(--ground);
+  }
+  .stage.nobg { background: transparent; }
+
+  .lockup {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .logo { display: flex; align-items: center; gap: 44px; }
+  .mark { width: 224px; height: 200px; overflow: visible; display: block; }
+  .word {
+    font: 500 168px/1 'Instrument Sans', sans-serif; letter-spacing: -0.03em; color: var(--ink);
+    padding-bottom: 14px; /* optical: sit on the mark's baseline */
+  }
+  .tagline {
+    margin-top: 56px; color: var(--ink);
+    font: 500 46px/1.2 'Instrument Sans', sans-serif; letter-spacing: -0.01em;
+  }
+  .url {
+    margin-top: 26px; color: var(--muted);
+    font: 400 30px/1 'DM Mono', monospace; letter-spacing: .04em;
+  }
+  .fadeup { will-change: opacity, transform; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="lockup">
+    <div class="logo">
+      <!-- design/brand/pacepay-mark.svg (light-ground colors), one <rect> per tile -->
+      <svg class="mark" viewBox="0 0 64 57" aria-label="PacePay">
+        <rect class="tile" x="2"  y="16" width="20" height="20" rx="4.5" fill="#F24E2C"/>
+        <rect class="tile" x="11" y="25" width="20" height="20" rx="4.5" fill="#FF8A3D" fill-opacity=".9"/>
+        <rect class="tile" x="20" y="31" width="20" height="20" rx="4.5" fill="#F7AC33" fill-opacity=".9"/>
+        <rect class="tile" x="30" y="20" width="20" height="20" rx="4.5" fill="#86C254" fill-opacity=".9"/>
+        <rect class="tile" x="38" y="6"  width="24" height="24" rx="5.5" fill="#1F9D5C"/>
+      </svg>
+      <div class="word fadeup" id="word">pacepay</div>
+    </div>
+    <div class="tagline fadeup" id="tagline">See what's left. Buy time if you need it.</div>
+    <div class="url fadeup" id="url">pacepay.work</div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const stage = $('stage');
+const params = new URLSearchParams(location.search);
+if (params.get('bg') === 'none') stage.classList.add('nobg');
+
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+const LENGTH = 6;
+const tiles = [...document.querySelectorAll('.tile')];
+const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+const back = (x) => { x = Math.min(1, Math.max(0, x)); const c = 1.4; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+
+// Tiles step in left to right: the first three drop into the dip, the last two climb out of it.
+// Only position and opacity move; the tiles themselves get no effects (design/brand/README.md).
+const TILE_AT = 0.25, TILE_GAP = 0.16, TILE_DUR = 0.5;
+const FROM = [-7, -7, -7, 7, 7];     // viewBox units: the first three drop in from above, the last two rise from below
+
+function fade(el, t, at, dur = 0.6, dy = 18) {
+  const p = ease((t - at) / dur);
+  el.style.opacity = p.toFixed(3);
+  el.style.transform = `translateY(${((1 - p) * dy).toFixed(1)}px)`;
+}
+
+function render(t) {
+  tiles.forEach((tile, i) => {
+    const local = (t - TILE_AT - i * TILE_GAP) / TILE_DUR;
+    const p = back(local), o = ease(local * 1.6);
+    tile.setAttribute('opacity', (local <= 0 ? 0 : o).toFixed(3));
+    tile.setAttribute('transform', `translate(0 ${((1 - p) * FROM[i]).toFixed(2)})`);
+  });
+  fade($('word'), t, 1.15, 0.6, 0);
+  $('word').style.transform = `translateX(${((1 - ease((t - 1.15) / 0.6)) * -16).toFixed(1)}px)`;
+  fade($('tagline'), t, 2.0);
+  fade($('url'), t, 2.5);
+}
+
+const frozen = params.get('t');
+if (frozen !== null) {
+  document.fonts.ready.then(() => render(parseFloat(frozen)));
+} else {
+  const t0 = performance.now();
+  const tick = () => { render(window.hold ?? ((performance.now() - t0) / 1000) % (LENGTH + 1)); requestAnimationFrame(tick); };
+  document.fonts.ready.then(tick);
+}
+</script>
+</body>
+</html>

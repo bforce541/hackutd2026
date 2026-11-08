@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Compose</title>
+<style>
+  /* Layer compositor for the video build. Each layer is one of the design/video pages in an
+     iframe; window.hold = t drives every layer's own window.hold through a time map.
+     Served over http (same origin) by scripts/video/build.mjs, never opened from file://. */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0b0c; }
+  iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; background: transparent; }
+</style>
+</head>
+<body>
+<script>
+/*
+  window.SPEC = { bg: '#0b0b0c', layers: [{
+    src: 'call-card.html',          // page in design/video
+    bg: 'none',                     // pass ?bg=none (transparent page)
+    start: 0, end: 40,              // visible window, in compose time
+    map: [[0, 40, 0, 40]],          // [composeStart, composeEnd, pageStart, pageEnd] pieces (linear in each)
+    box: [x, y, w, h],              // where the 1920x1080 page lands (default full frame)
+    keys: [{ t, opacity, scale, x, y }]  // optional keyframes, eased, applied on top of box
+  }] }
+*/
+const frames = [];
+let spec = null;
+
+window.setSpec = async (s) => {
+  spec = s;
+  document.body.style.background = s.bg || '#0b0b0c';
+  await Promise.all(s.layers.map((L, k) => new Promise((res) => {
+    const f = document.createElement('iframe');
+    f.src = L.src + (L.bg === 'none' ? (L.src.includes('?') ? '&' : '?') + 'bg=none' : '');
+    f.style.zIndex = String(k);
+    f.addEventListener('load', async () => {
+      try {
+        // a transparent layer must not paint its page background over the layers below
+        if (L.bg === 'none') {
+          const st = f.contentWindow.document.createElement('style');
+          st.textContent = 'html,body{background:transparent!important}';
+          f.contentWindow.document.head.appendChild(st);
+        }
+        await f.contentWindow.document.fonts.ready;
+      } catch {}
+      res();
+    });
+    document.body.appendChild(f);
+    frames[k] = f;
+  })));
+};
+
+const ease = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : p * p * (3 - 2 * p));
+
+function pageTime(L, t) {
+  for (const [a, b, pa, pb] of L.map || [[L.start, L.end, 0, L.end - L.start]]) {
+    if (t >= a && t <= b) return pa + ((t - a) / (b - a || 1)) * (pb - pa);
+  }
+  const last = (L.map || [])[L.map.length - 1];
+  return last ? last[3] : 0;
+}
+
+function keyAt(keys, t, prop, dflt) {
+  const ks = (keys || []).filter((k) => k[prop] !== undefined);
+  if (!ks.length) return dflt;
+  if (t <= ks[0].t) return ks[0][prop];
+  for (let i = 1; i < ks.length; i++) {
+    if (t <= ks[i].t) {
+      const p = ease((t - ks[i - 1].t) / (ks[i].t - ks[i - 1].t));
+      return ks[i - 1][prop] + (ks[i][prop] - ks[i - 1][prop]) * p;
+    }
+  }
+  return ks[ks.length - 1][prop];
+}
+
+function render(t) {
+  if (!spec) return;
+  spec.layers.forEach((L, k) => {
+    const f = frames[k];
+    const on = t >= L.start && t < L.end;
+    f.style.visibility = on ? 'visible' : 'hidden';
+    if (!on) return;
+    try { f.contentWindow.hold = pageTime(L, t); } catch {}
+    const [x, y, w, h] = L.box || [0, 0, 1920, 1080];
+    const s = w / 1920;
+    const sc = keyAt(L.keys, t, 'scale', 1), ox = keyAt(L.keys, t, 'x', 0), oy = keyAt(L.keys, t, 'y', 0);
+    // scale around the box centre
+    const cx = x + w / 2, cy = y + h / 2;
+    f.style.transform = `translate(${cx + ox}px, ${cy + oy}px) scale(${s * sc}) translate(-960px, -540px)`;
+    f.style.opacity = keyAt(L.keys, t, 'opacity', 1);
+  });
+}
+
+// every layer has drawn its current hold when two of its animation frames have passed
+window.layersReady = () => Promise.all(frames.map((f) => new Promise((r) => {
+  try { f.contentWindow.requestAnimationFrame(() => f.contentWindow.requestAnimationFrame(() => r())); } catch { r(); }
+})));
+
+const tick = () => { if (window.hold !== undefined) render(window.hold); requestAnimationFrame(tick); };
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

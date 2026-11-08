@@ -1,0 +1,355 @@
+// Build the demo video from design/video/timeline.json.
+//
+//   node scripts/video/build.mjs            render what changed, then assemble out/pacepay-demo.mp4
+//   node scripts/video/build.mjs --force    re-render every clip
+//   node scripts/video/build.mjs --only call   render just one part (desk|texts|call|rest|close)
+//
+// Recordings come from design/video/recordings/ (see docs/video-recording-sheet.md). Anything
+// missing gets a labelled placeholder (a slate, or silence), so the whole cut can be watched
+// before anything is recorded. Rendered clips are cached in design/video/out/clips/.
+import { createServer } from 'node:http';
+import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import path from 'node:path';
+import { openPage, renderFrames, browser, closeBrowser } from './render.mjs';
+
+const run = promisify(execFile);
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const DESIGN = path.join(ROOT, 'design');
+const VIDEO = path.join(DESIGN, 'video');
+const REC = path.join(VIDEO, 'recordings');
+const OUT = path.join(VIDEO, 'out');
+const CLIPS = path.join(OUT, 'clips');
+const args = process.argv.slice(2);
+const FORCE = args.includes('--force');
+const ONLY = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
+
+const TL = JSON.parse(await readFile(path.join(VIDEO, 'timeline.json'), 'utf8'));
+const FPS = TL.fps;
+const scene = (id) => TL.scenes.find((s) => s.id === id);
+const log = (...a) => console.log('[video]', ...a);
+
+// ---------- helpers ----------
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.webp': 'image/webp' };
+function serve(dir) {
+  return new Promise((res) => {
+    const srv = createServer(async (req, resp) => {
+      const p = path.join(dir, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+      if (!p.startsWith(dir)) { resp.writeHead(403).end(); return; }
+      try { const body = await readFile(p); resp.writeHead(200, { 'content-type': MIME[path.extname(p)] || 'application/octet-stream' }).end(body); }
+      catch { resp.writeHead(404).end(); }
+    });
+    srv.listen(0, '127.0.0.1', () => res(srv));
+  });
+}
+
+async function findRecording(base) {
+  if (!existsSync(REC)) return null;
+  const f = (await readdir(REC)).find((n) => path.parse(n).name === base);
+  return f ? path.join(REC, f) : null;
+}
+
+async function duration(file) {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]);
+  return parseFloat(stdout);
+}
+async function hasAudio(file) {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', file]);
+  return stdout.trim().length > 0;
+}
+const ff = (a) => run('ffmpeg', ['-y', '-loglevel', 'error', ...a], { maxBuffer: 1 << 26 });
+
+/** Cache key: the spec plus the contents of every file it depends on. */
+async function keyOf(spec, files) {
+  const h = createHash('sha1').update(JSON.stringify(spec));
+  for (const f of files) if (existsSync(f)) h.update(await readFile(f));
+  return h.digest('hex');
+}
+async function cached(name, spec, files, make) {
+  const out = path.join(CLIPS, name);
+  const key = await keyOf(spec, files);
+  const keyFile = out + '.key';
+  if (!FORCE && existsSync(out) && existsSync(keyFile) && (await readFile(keyFile, 'utf8')) === key) { log(`${name}: cached`); return out; }
+  log(`${name}: rendering`);
+  const t0 = Date.now();
+  await make(out);
+  await writeFile(keyFile, key);
+  log(`${name}: done in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  return out;
+}
+const pageFiles = (...names) => names.flatMap((n) => [path.join(VIDEO, n)]).concat(
+  ['thread.js', 'call.js', 'call.json', 'call-cuts.json'].map((n) => path.join(VIDEO, n)));
+
+/** A still PNG from inline HTML (slates and captions). */
+async function still(html, out, { alpha = true } = {}) {
+  const b = await browser();
+  const page = await b.newPage({ viewport: { width: 1920, height: 1080 } });
+  await page.setContent(html, { waitUntil: 'networkidle' });
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ path: out, omitBackground: alpha });
+  await page.close();
+}
+const FONTS = `<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">`;
+const slateHtml = (title, sub) => `<!doctype html>${FONTS}<body style="margin:0;width:1920px;height:1080px;display:grid;place-items:center;background:#16181b;font-family:'Instrument Sans',sans-serif;color:#f5f4f0">
+  <div style="text-align:center"><div style="font:400 26px 'DM Mono',monospace;letter-spacing:.14em;color:#9b988f;text-transform:uppercase">Placeholder</div>
+  <div style="font-size:84px;font-weight:600;letter-spacing:-.02em;margin-top:18px">${title}</div>
+  <div style="font:400 30px 'DM Mono',monospace;color:#9b988f;margin-top:22px">${sub}</div></div></body>`;
+const captionHtml = (text) => `<!doctype html>${FONTS}<body style="margin:0;width:1920px;height:1080px;background:transparent;position:relative">
+  <div style="position:absolute;left:50%;bottom:64px;transform:translateX(-50%);max-width:1360px;padding:14px 28px;border-radius:14px;background:rgba(11,11,12,.72);
+  color:#fff;font:500 40px/1.3 'Instrument Sans',sans-serif;letter-spacing:-.01em;text-align:center">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div></body>`;
+
+async function segmentsOf(base, page) {
+  const p = await openPage(`${base}/video/${page}`);
+  await p.waitForFunction(() => window.SEGMENTS && Object.keys(window.SEGMENTS).length, null, { timeout: 15000 }).catch(() => {});
+  const segs = await p.evaluate(() => window.SEGMENTS || {});
+  await p.close();
+  return segs;
+}
+
+/** Map a page segment into a window: play at 1x, speeding up only if the segment is longer than the window. */
+function fit(seg, dur) {
+  const len = seg.end - seg.start;
+  const speed = Math.max(1, len / dur);
+  return { from: seg.start, speed, end: seg.end };
+}
+
+async function renderPageClip(base, page, out, { from, speed, end, dur }) {
+  const p = await openPage(`${base}/video/${page}`);
+  await renderFrames(p, { out, frames: Math.round(dur * FPS), fps: FPS, timeAt: (i) => Math.min(end ?? Infinity, from + (i / FPS) * speed) });
+  await p.close();
+}
+
+async function renderCompose(base, spec, out, dur) {
+  const p = await openPage(`${base}/video/compose.html`);
+  await p.evaluate((s) => window.setSpec(s), spec);
+  await renderFrames(p, { out, frames: Math.round(dur * FPS), fps: FPS, timeAt: (i) => i / FPS });
+  await p.close();
+}
+
+async function readJs(name, globalName) {
+  const f = path.join(VIDEO, name);
+  if (!existsSync(f)) return null;
+  const src = await readFile(f, 'utf8');
+  const m = src.match(/=\s*([\s\S]*?);?\s*$/);
+  try { return m ? JSON.parse(m[1]) : null; } catch { return null; }
+}
+
+// ---------- the parts ----------
+await mkdir(CLIPS, { recursive: true });
+const srv = await serve(DESIGN);
+const BASE = `http://127.0.0.1:${srv.address().port}`;
+const parts = {};
+const want = (k) => !ONLY || ONLY === k;
+
+try {
+  // 1. desk (10s + 0.5s handle for the push into the phone)
+  const desk = scene('desk');
+  const deskLen = desk.end - desk.start + 0.5;
+  const deskRec = await findRecording('desk');
+  if (want('desk') || want('texts')) {
+    parts.desk = await cached('desk.mp4', { deskLen, deskRec }, deskRec ? [deskRec] : [], async (out) => {
+      if (deskRec) {
+        await ff(['-i', deskRec, '-t', String(deskLen), '-vf', `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=${FPS},tpad=stop_mode=clone:stop_duration=${deskLen}`,
+          '-an', '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', '-t', String(deskLen), out]);
+      } else {
+        const png = path.join(CLIPS, 'slate-desk.png');
+        await still(slateHtml('Desk clip', 'recordings/desk.mov · 10s · Yoshua, the bill, phone up'), png, { alpha: false });
+        await ff(['-loop', '1', '-i', png, '-t', String(deskLen), '-r', String(FPS), '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', out]);
+      }
+    });
+  }
+
+  // 2. texts: the iMessage screen up to "Calling your lender now"
+  const texts = scene('texts');
+  if (want('texts')) {
+    const segs = await segmentsOf(BASE, 'imessage.html');
+    const f = fit(segs.precall, texts.end - texts.start);
+    parts.texts = await cached('texts.mp4', { f, dur: texts.end - texts.start }, pageFiles('imessage.html'), (out) =>
+      renderPageClip(BASE, 'imessage.html', out, { ...f, dur: texts.end - texts.start }));
+    // desk pushes into the phone
+    parts.open = await cached('open.mp4', { a: parts.desk, b: parts.texts, v: 2, phone: TL.desk_phone_at }, [parts.desk, parts.texts], (out) =>
+      // push in on the last 0.7s of the desk clip (toward where the phone is raised), then crossfade
+      ff(['-i', parts.desk, '-i', parts.texts, '-filter_complex',
+        `[0]zoompan=z='if(gte(on,${Math.round((deskLen - 0.7) * FPS)}),1+pow((on-${Math.round((deskLen - 0.7) * FPS)})/${Math.round(0.7 * FPS)},2)*0.8,1)':d=1:` +
+        `x='iw*${TL.desk_phone_at?.[0] ?? 0.5}-(iw/zoom/2)':y='ih*${TL.desk_phone_at?.[1] ?? 0.5}-(ih/zoom/2)':s=1920x1080:fps=${FPS},settb=1/${FPS}[a];[1]settb=1/${FPS}[b];` +
+        `[a][b]xfade=transition=fade:duration=0.5:offset=${deskLen - 0.5}[v]`,
+        '-map', '[v]', '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', out]));
+  }
+
+  // 3. call: call thread + offer checker + the approval text inset
+  const call = scene('call');
+  const callLen = call.end - call.start;
+  if (want('call')) {
+    const segs = await segmentsOf(BASE, 'imessage.html');
+    const ap = segs.approve;
+    // the call card slides the lender cards left during the approval; the phone goes in the freed right side
+    const cc = await openPage(`${BASE}/video/call-card.html`);
+    await cc.waitForFunction(() => window.CALL_TIMES, null, { timeout: 15000 }).catch(() => {});
+    const inset = await cc.evaluate(() => window.CALL_TIMES?.inset || null);
+    await cc.close();
+    const layers = [{ src: 'call-card.html', start: 0, end: callLen, map: [[0, callLen, 0, callLen]] }];
+    if (existsSync(path.join(VIDEO, 'offer-checker.html'))) layers.push({ src: 'offer-checker.html', bg: 'none', start: 0, end: callLen, map: [[0, callLen, 0, callLen]] });
+    if (ap && inset) {
+      // where the phone sits on the iMessage stage, so it can be placed at the target rect
+      const im = await openPage(`${BASE}/video/imessage.html?bg=none`);
+      await im.evaluate((t) => new Promise((r) => { window.hold = t; requestAnimationFrame(() => requestAnimationFrame(r)); }), ap.start + 0.5);
+      const ph = await im.evaluate(() => { const r = document.getElementById('phone').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+      await im.close();
+      const target = TL.call_inset_phone || { h: 528, right: 72 }; // about 244x528, right edge 72px in, centred vertically
+      const s = target.h / ph.h;
+      const px = 1920 - target.right - ph.w * s, py = (1080 - target.h) / 2;
+      const box = [px - ph.x * s, py - ph.y * s, 1920 * s, 1080 * s];
+      const a = inset.start, b = inset.end, len = ap.end - ap.start;
+      layers.push({ src: 'imessage.html', bg: 'none', start: a, end: b, box,
+        map: [[a, Math.min(b, a + len), ap.start, ap.start + Math.min(len, b - a)], [Math.min(b, a + len), b, ap.end, ap.end]],
+        keys: [{ t: a, opacity: 0, y: 24 }, { t: a + 0.45, opacity: 1, y: 0 }, { t: b - 0.4, opacity: 1, y: 0 }, { t: b, opacity: 0, y: 0 }] });
+    }
+    parts.call = await cached('call.mp4', { layers, callLen }, pageFiles('call-card.html', 'offer-checker.html', 'imessage.html', 'compose.html'), (out) =>
+      renderCompose(BASE, { bg: '#0b0b0c', layers }, out, callLen));
+  }
+
+  // 4. rest: the Done text, into the dashboard, through the Arena (62s to 112s)
+  const doneS = scene('done'), restEnd = scene('arena').end, restLen = restEnd - doneS.start;
+  if (want('rest')) {
+    const msgSegs = await segmentsOf(BASE, 'imessage.html');
+    const layers = [];
+    const dashOk = existsSync(path.join(VIDEO, 'dash-scenes.html'));
+    if (dashOk) {
+      const ds = await segmentsOf(BASE, 'dash-scenes.html');
+      const rel = (id) => [scene(id).start - doneS.start, scene(id).end - doneS.start];
+      // a segment longer than its window plays faster to fit; a shorter one plays at 1x and holds its last frame
+      const piece = (seg, [a, b]) => {
+        const s = ds[seg];
+        if (!s) return [];
+        const len = s.end - s.start, win = b - a;
+        if (len >= win) return [[a, b, s.start, s.end]];
+        return [[a, a + len, s.start, s.end], [a + len, b, s.end, s.end]];
+      };
+      const greenAt = 2.0;
+      const map = [piece('green', [greenAt, rel('done')[1]]), piece('home', rel('whatitis')), piece('health', rel('health')),
+        piece('whatif', rel('whatif')), piece('activity', rel('activity')), piece('arena', rel('arena'))].flat();
+      layers.push({ src: 'dash-scenes.html', start: greenAt, end: restLen, map });
+    }
+    if (msgSegs.done) {
+      const d = msgSegs.done, len = 2.6;
+      layers.push({ src: 'imessage.html', start: 0, end: len, map: [[0, len, d.start, Math.min(d.end, d.start + len)]],
+        keys: [{ t: 0, opacity: 1, scale: 1 }, { t: 1.9, opacity: 1, scale: 1 }, { t: len, opacity: 0, scale: 1.18 }] });
+    }
+    parts.rest = await cached('rest.mp4', { layers, restLen }, pageFiles('imessage.html', 'dash-scenes.html', 'compose.html').concat(
+      existsSync(path.join(VIDEO, 'media/dash')) ? (await readdir(path.join(VIDEO, 'media/dash'))).map((n) => path.join(VIDEO, 'media/dash', n)) : []), (out) =>
+      renderCompose(BASE, { bg: '#f4f2ec', layers }, out, restLen));
+  }
+
+  // 5. close
+  const close = scene('close');
+  if (want('close')) {
+    const len = close.end - close.start;
+    parts.close = await cached('close.mp4', { len }, pageFiles('close.html'), async (out) => {
+      if (existsSync(path.join(VIDEO, 'close.html'))) await renderPageClip(BASE, 'close.html', out, { from: 0, speed: 1, dur: len });
+      else {
+        const png = path.join(CLIPS, 'slate-close.png');
+        await still(slateHtml('pacepay', 'close card'), png, { alpha: false });
+        await ff(['-loop', '1', '-i', png, '-t', String(len), '-r', String(FPS), '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', out]);
+      }
+    });
+  }
+
+  if (ONLY) { log(`rendered ${ONLY}; run without --only to assemble`); process.exit(0); }
+
+  // ---------- captions ----------
+  const cues = [];
+  if (desk.caption) cues.push({ start: desk.caption_at?.[0] ?? 2.5, end: desk.caption_at?.[1] ?? 6, text: desk.caption });
+  const voiceFiles = {};
+  for (const s of TL.scenes.filter((s) => s.voice)) {
+    const rec = await findRecording(path.parse(s.audio.replace('recordings/', '')).name);
+    voiceFiles[s.id] = rec;
+    const start = s.start + 0.3;
+    const len = rec ? Math.min(await duration(rec), s.end - start) : s.voice.max_seconds;
+    // break the line into short chunks at sentence or comma ends, timed by length
+    const chunks = [];
+    for (const piece of s.voice.line.match(/[^.?!]+[.?!]?/g).map((x) => x.trim()).filter(Boolean)) {
+      if (piece.length <= 64) { chunks.push(piece); continue; }
+      let cur = '';
+      for (const w of piece.split(/(?<=,)\s+/)) { if ((cur + ' ' + w).trim().length > 64 && cur) { chunks.push(cur.trim()); cur = w; } else cur = (cur + ' ' + w).trim(); }
+      if (cur) chunks.push(cur);
+    }
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    let t = start;
+    for (const c of chunks) { const d = (len * c.length) / total; cues.push({ start: +t.toFixed(2), end: +(t + d).toFixed(2), text: c }); t += d; }
+  }
+  const capPngs = [];
+  for (const [i, c] of cues.entries()) {
+    const png = path.join(CLIPS, `cap-${i}.png`);
+    await still(captionHtml(c.text), png);
+    capPngs.push({ ...c, png });
+  }
+
+  // ---------- audio ----------
+  const aIn = [], aFilt = [], voiceLabels = [], mainLabels = [];
+  const addInput = (file) => { aIn.push('-i', file); return aIn.filter((x) => x === '-i').length; }; // 1-based after the video input
+  if (deskRec && (await hasAudio(deskRec))) {
+    const k = addInput(deskRec);
+    aFilt.push(`[${k}:a]atrim=0:${desk.end - desk.start},asetpts=PTS-STARTPTS,volume=1.0[desk]`); voiceLabels.push('[desk]');
+  }
+  const callRec = await findRecording('call');
+  if (callRec) {
+    const k = addInput(callRec);
+    const cutsFile = path.join(VIDEO, 'call-cuts.json');
+    let cuts = existsSync(cutsFile) ? JSON.parse(await readFile(cutsFile, 'utf8')) : null;
+    cuts = Array.isArray(cuts) ? cuts : cuts?.cuts;
+    if (!cuts?.length) cuts = [{ in: 0, out: callLen }];
+    cuts.forEach((c, j) => aFilt.push(`[${k}:a]atrim=${c.in}:${c.out},asetpts=PTS-STARTPTS[c${j}]`));
+    aFilt.push(`${cuts.map((_, j) => `[c${j}]`).join('')}concat=n=${cuts.length}:v=0:a=1,atrim=0:${callLen},adelay=${call.start * 1000}:all=1,volume=${TL.audio_mix.call}[call]`);
+    voiceLabels.push('[call]');
+  }
+  for (const s of TL.scenes.filter((s) => s.voice)) {
+    const rec = voiceFiles[s.id];
+    if (!rec) continue;
+    const k = addInput(rec);
+    aFilt.push(`[${k}:a]atrim=0:${s.end - s.start - 0.3},asetpts=PTS-STARTPTS,adelay=${Math.round((s.start + 0.3) * 1000)}:all=1,volume=${TL.audio_mix.voice}[v_${s.id}]`);
+    voiceLabels.push(`[v_${s.id}]`);
+  }
+  const music = await findRecording('music');
+  let audioOut = null;
+  if (voiceLabels.length || music) {
+    aFilt.push(`anullsrc=r=48000:cl=stereo,atrim=0:${TL.total}[sil]`);
+    aFilt.push(`[sil]${voiceLabels.join('')}amix=inputs=${voiceLabels.length + 1}:normalize=0:duration=first[voices]`);
+    if (music) {
+      const k = addInput(music);
+      aFilt.push(`[voices]asplit[vo1][vo2]`);
+      aFilt.push(`[${k}:a]aloop=loop=-1:size=2e9,atrim=0:${TL.total},volume=${TL.audio_mix.music}[mus]`);
+      aFilt.push(`[mus][vo2]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[duck]`);
+      aFilt.push(`[vo1][duck]amix=inputs=2:normalize=0:duration=first[mix]`);
+    } else aFilt.push(`[voices]anull[mix]`);
+    aFilt.push(`[mix]loudnorm=I=${TL.audio_mix.loudness_lufs}:TP=-1.5:LRA=11,aresample=48000[aout]`);
+    audioOut = '[aout]';
+  }
+
+  // ---------- assemble ----------
+  const seq = [parts.open, parts.call, parts.rest, parts.close];
+  const vIn = seq.flatMap((f) => ['-i', f]);
+  const capIn = capPngs.flatMap((c) => ['-loop', '1', '-t', String(TL.total), '-i', c.png]);
+  const nV = seq.length, nCap = capPngs.length;
+  const vf = [`${seq.map((_, i) => `[${i}:v]`).join('')}concat=n=${nV}:v=1:a=0,fps=${FPS},format=yuv420p[base0]`];
+  capPngs.forEach((c, j) => vf.push(`[base${j}][${nV + j}:v]overlay=0:0:enable='between(t,${c.start},${c.end})'[base${j + 1}]`));
+  // audio inputs come after video + caption inputs: renumber
+  const offset = nV + nCap - 1;
+  const aFix = aFilt.map((f) => f.replace(/\[(\d+):a\]/g, (_, k) => `[${Number(k) + offset}:a]`));
+  const out = path.join(OUT, 'pacepay-demo.mp4');
+  const filter = [...vf, ...aFix].join(';');
+  await ff([...vIn, ...capIn, ...aIn, '-filter_complex', filter, '-map', `[base${nCap}]`, ...(audioOut ? ['-map', audioOut] : []),
+    '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p', ...(audioOut ? ['-c:a', 'aac', '-b:a', '192k'] : []),
+    '-t', String(TL.total), '-movflags', '+faststart', out]);
+  const d = await duration(out);
+  log(`wrote ${path.relative(ROOT, out)} (${d.toFixed(2)}s${d > 120 ? ' — OVER 2:00' : ''})`);
+  const missing = ['desk', 'call', 'yoshua-vo', 'ram-health', 'ram-whatif', 'ram-activity', 'ram-arena'];
+  const have = await Promise.all(missing.map(findRecording));
+  const still_missing = missing.filter((_, i) => !have[i]);
+  if (still_missing.length) log(`placeholders used for: ${still_missing.join(', ')}`);
+} finally {
+  await closeBrowser();
+  srv.close();
+}

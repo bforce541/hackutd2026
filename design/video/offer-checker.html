@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offer checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Overlay for the call beat: the three offers the lender makes, checked as they come in.
+     Sits in the top band, right-aligned, level with the call screen's LIVE CALL chip (which is top-left),
+     above the thread's top fade, so it never touches a call card.
+     Cue times come from the call lines (call.js, else the placeholder): the end of the lender line that makes
+     each offer, matched by keyword. Same conventions as the other video pages:
+     ?bg=none for alpha, window.hold = t to freeze, deterministic render(t). ?with=call shows the call screen
+     underneath (preview only, for checking collisions). */
+  :root {
+    --card: rgba(11, 11, 12, 0.78);
+    --line: rgba(245, 244, 240, 0.16);
+    --ink: #f5f4f0;
+    --muted: #9b988f;
+    --no: #ff5a36;
+    --yes: #2fbf71;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+  .stage {
+    position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+    transform-origin: center; overflow: hidden;
+    background: linear-gradient(180deg, #16181b 0%, #0b0b0c 100%);
+  }
+  .stage.nobg { background: transparent; }
+  .under { position: absolute; inset: 0; width: 1920px; height: 1080px; border: 0; }
+
+  .checker {
+    position: absolute; top: 48px; right: 72px; z-index: 2;
+    display: flex; align-items: center; gap: 14px;
+    font: 400 22px/1 'DM Mono', monospace;
+  }
+  .checker .title {
+    color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-right: 6px;
+  }
+  .row {
+    display: inline-flex; align-items: center; gap: 14px;
+    padding: 12px 18px; border-radius: 10px;
+    background: var(--card); border: 1.5px solid var(--line);
+    color: var(--ink); white-space: nowrap; will-change: opacity, transform;
+  }
+  .row .verdict { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); }
+  .row .mark {
+    width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
+    font: 500 17px/1 'DM Mono', monospace; color: #0b0b0c;
+  }
+  .row.no .mark { background: var(--no); }
+  .row.yes .mark { background: var(--yes); }
+  .row.yes { border-color: rgba(47, 191, 113, .55); }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="checker" id="checker">
+    <span class="title" id="title">Offer check</span>
+  </div>
+</div>
+
+<script src="call-placeholder.js"></script>
+<script src="call.js" onerror="void 0"></script>
+<script>
+const CALL = (window.CALL && window.CALL.lines && window.CALL.lines.length) ? window.CALL : window.CALL_PLACEHOLDER;
+const LENGTH = CALL.length || 40;
+
+// The three offers, in the order the lender script makes them. `match` finds the lender line that makes it.
+const THIRTY_FIVE = /thirty[\s-]?five|\$?\b35\b/i;
+const OFFERS = [
+  { key: 'wed',   label: 'Wed, no fee', verdict: 'overdrawn',            ok: false, match: (t) => /wednesday/i.test(t) },
+  { key: 'fee35', label: 'Fri, $35',    verdict: 'over your fee limit',  ok: false, match: (t) => THIRTY_FIVE.test(t) },
+  { key: 'fee20', label: 'Fri, $20',    verdict: 'works',                ok: true,  match: (t) => /\btwenty\b|\$?\b20\b/i.test(t) && !THIRTY_FIVE.test(t) },
+];
+const AFTER = 0.35;   // the check lands just after the lender finishes the line
+
+// Cue = end of the first matching lender line, each one after the previous cue. CALL.cues overrides by key.
+let prev = -1;
+const CUES = OFFERS.map((o) => {
+  const manual = CALL.cues && CALL.cues[o.key];
+  if (manual != null) { prev = manual; return manual; }
+  const line = CALL.lines.find((l) => l.who === 'lender' && l.start > prev && o.match(l.text));
+  const at = line ? line.end + AFTER : null;
+  if (at != null) prev = line.start;
+  return at;
+});
+window.OFFER_CUES = Object.fromEntries(OFFERS.map((o, i) => [o.key, CUES[i] == null ? null : +CUES[i].toFixed(2)]));
+
+const $ = (id) => document.getElementById(id);
+const stage = $('stage'), checker = $('checker');
+const params = new URLSearchParams(location.search);
+if (params.get('bg') === 'none') stage.classList.add('nobg');
+let under = null;
+if (params.get('with') === 'call') {
+  under = document.createElement('iframe');
+  under.className = 'under'; under.src = 'call-card.html?bg=none';
+  stage.prepend(under);
+}
+
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+const rows = OFFERS.map((o) => {
+  const el = document.createElement('div');
+  el.className = `row ${o.ok ? 'yes' : 'no'}`;
+  el.innerHTML = `<span>${o.label}</span><span class="verdict"><span class="mark">${o.ok ? '✓' : '✗'}</span><span>${o.verdict}</span></span>`;
+  checker.appendChild(el);
+  return { el, verdict: el.querySelector('.verdict') };
+});
+
+const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+
+function render(t) {
+  if (under && under.contentWindow) under.contentWindow.hold = t;
+  const first = CUES.find((c) => c != null);
+  $('title').style.opacity = first == null ? 0 : ease((t - first + 0.2) / 0.4).toFixed(3);
+  rows.forEach((r, i) => {
+    const cue = CUES[i];
+    if (cue == null || t < cue) { r.el.style.opacity = 0; r.el.style.transform = 'translateY(-10px)'; return; }
+    const p = ease((t - cue) / 0.35);
+    r.el.style.opacity = p.toFixed(3);
+    r.el.style.transform = `translateY(${((1 - p) * -10).toFixed(1)}px)`;
+    // the verdict lands a beat after the row
+    const v = ease((t - cue - 0.25) / 0.3);
+    r.verdict.style.opacity = (t < cue + 0.25 ? 0 : v).toFixed(3);
+  });
+}
+
+const frozen = params.get('t');
+if (frozen !== null) {
+  document.fonts.ready.then(() => render(parseFloat(frozen)));
+} else {
+  const t0 = performance.now();
+  const tick = () => { render(window.hold ?? ((performance.now() - t0) / 1000) % LENGTH); requestAnimationFrame(tick); };
+  document.fonts.ready.then(tick);
+}
+</script>
+</body>
+</html>

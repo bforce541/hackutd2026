@@ -88,7 +88,7 @@
       "voice": {
         "who": "Yoshua",
         "max_seconds": 13,
-        "line": "That's PacePay. Most people don't overdraw because they're broke. They overdraw because the timing's off. PacePay watches all your money, catches it before it happens, and fixes it for you, by text or by phone."
+        "line": "That's PacePay. Most overdrafts come down to timing. PacePay sees every account, catches the shortfall early, and fixes it by text or phone. We built it for the PNC, NVIDIA and Photon tracks."
       }
     },
     {
@@ -98,12 +98,12 @@
       "source": "render",
       "page": "dash-scenes.html",
       "segment": "health",
-      "what": "Camera moves to the four health scores; each one lifts as it's named.",
+      "what": "The eight accounts rise in under the scores as they are named (accounts.html), then clear; the four scores light up in turn.",
       "audio": "recordings/ram-health.m4a",
       "voice": {
         "who": "Ram",
         "max_seconds": 7,
-        "line": "Here's the whole picture: eight accounts, four health scores, sixty days ahead."
+        "line": "Eight accounts, and four health scores: emergency fund, card use, debt versus income, and net worth."
       }
     },
     {
@@ -133,7 +133,7 @@
       "voice": {
         "who": "Ram",
         "max_seconds": 7,
-        "line": "Every step PacePay takes shows up here, labeled with the Nemotron model that did it."
+        "line": "Every step PacePay takes shows up here, labeled with the NVIDIA Nemotron model that did it."
       }
     },
     {
@@ -148,7 +148,7 @@
       "voice": {
         "who": "Ram",
         "max_seconds": 7,
-        "line": "We tested it against fifty simulated lenders. It never broke a limit and never leaked a balance."
+        "line": "We tested it against fifty simulated lenders. It never broke a limit or leaked a balance."
       }
     },
     {
@@ -163,9 +163,10 @@
   "audio_mix": {
     "call": 1,
     "voice": 0.85,
-    "music": 0.12,
+    "music": 0.24,
     "duck_music_under_voice": true,
-    "loudness_lufs": -16
+    "loudness_lufs": -16,
+    "_music_note": "music.wav is about -20.6 LUFS; 0.24 puts it near -33 LUFS under the -16 LUFS voices, more in the boost windows, ducked under speech"
   },
   "captions": {
     "burn_in": [
@@ -183,5 +184,30 @@
   "desk_phone_at": [
     0.4,
     0.53
-  ]
+  ],
+  "call_inset_phone": {
+    "h": 880,
+    "right": 44
+  },
+  "music": {
+    "file": "recordings/music.wav (made by scripts/video/make-music.mjs)",
+    "boost": [
+      [
+        10,
+        22,
+        1.7
+      ],
+      [
+        62,
+        66,
+        1.4
+      ],
+      [
+        112,
+        118,
+        1.8
+      ]
+    ]
+  },
+  "accounts_at": 0.85
 }

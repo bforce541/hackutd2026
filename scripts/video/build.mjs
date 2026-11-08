@@ -97,9 +97,11 @@ const slateHtml = (title, sub) => `<!doctype html>${FONTS}<body style="margin:0;
   <div style="text-align:center"><div style="font:400 26px 'DM Mono',monospace;letter-spacing:.14em;color:#9b988f;text-transform:uppercase">Placeholder</div>
   <div style="font-size:84px;font-weight:600;letter-spacing:-.02em;margin-top:18px">${title}</div>
   <div style="font:400 30px 'DM Mono',monospace;color:#9b988f;margin-top:22px">${sub}</div></div></body>`;
+// captions: a light card in the brand style (warm off-white, ink text, soft shadow), bottom centre
 const captionHtml = (text) => `<!doctype html>${FONTS}<body style="margin:0;width:1920px;height:1080px;background:transparent;position:relative">
-  <div style="position:absolute;left:50%;bottom:64px;transform:translateX(-50%);max-width:1360px;padding:14px 28px;border-radius:14px;background:rgba(11,11,12,.72);
-  color:#fff;font:500 40px/1.3 'Instrument Sans',sans-serif;letter-spacing:-.01em;text-align:center">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div></body>`;
+  <div style="position:absolute;left:50%;bottom:72px;transform:translateX(-50%);max-width:1180px;width:max-content;padding:16px 30px 17px;border-radius:16px;
+  background:rgba(250,249,245,.92);box-shadow:0 10px 34px rgba(20,19,15,.18),0 1px 0 rgba(255,255,255,.6) inset;border:1px solid rgba(20,19,15,.06);
+  color:#14130f;font:500 38px/1.28 'Instrument Sans',sans-serif;letter-spacing:-.015em;text-align:center;text-wrap:balance">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div></body>`;
 
 async function segmentsOf(base, page) {
   const p = await openPage(`${base}/video/${page}`);
@@ -232,13 +234,18 @@ try {
       const map = [piece('green', [greenAt, rel('done')[1]]), piece('home', rel('whatitis')), piece('health', rel('health')),
         piece('whatif', rel('whatif')), piece('activity', rel('activity')), piece('arena', rel('arena'))].flat();
       layers.push({ src: 'dash-scenes.html', start: greenAt, end: restLen, map });
+      // "eight accounts": the account row rises in under the health scores as the line starts
+      if (existsSync(path.join(VIDEO, 'accounts.html'))) {
+        const a = rel('health')[0] + (TL.accounts_at ?? 0.25);
+        layers.push({ src: 'accounts.html', bg: 'none', start: a, end: a + 4.0, map: [[a, a + 4.0, 0, 4.0]] });
+      }
     }
     if (msgSegs.done) {
       const d = msgSegs.done, len = 2.6;
       layers.push({ src: 'imessage.html', start: 0, end: len, map: [[0, len, d.start, Math.min(d.end, d.start + len)]],
         keys: [{ t: 0, opacity: 1, scale: 1 }, { t: 1.9, opacity: 1, scale: 1 }, { t: len, opacity: 0, scale: 1.18 }] });
     }
-    parts.rest = await cached('rest.mp4', { layers, restLen }, pageFiles('imessage.html', 'dash-scenes.html', 'compose.html').concat(
+    parts.rest = await cached('rest.mp4', { layers, restLen }, pageFiles('imessage.html', 'dash-scenes.html', 'accounts.html', 'compose.html').concat(
       existsSync(path.join(VIDEO, 'media/dash')) ? (await readdir(path.join(VIDEO, 'media/dash'))).map((n) => path.join(VIDEO, 'media/dash', n)) : []), (out) =>
       renderCompose(BASE, { bg: '#f4f2ec', layers }, out, restLen));
   }
@@ -265,11 +272,9 @@ try {
   else if (desk.caption) cues.push({ start: desk.caption_at?.[0] ?? 2.5, end: desk.caption_at?.[1] ?? 6, text: desk.caption });
   const voiceFiles = {};
   for (const s of TL.scenes.filter((s) => s.voice)) {
-    const rec = await findRecording(path.parse(s.audio.replace('recordings/', '')).name);
-    voiceFiles[s.id] = rec;
+    const raw = await findRecording(path.parse(s.audio.replace('recordings/', '')).name);
     const start = s.start + 0.3;
-    const len = rec ? Math.min(await duration(rec), s.end - start) : s.voice.max_seconds;
-    // break the line into short chunks at sentence or comma ends, timed by length
+    // break the line into short chunks at sentence or comma ends
     const chunks = [];
     for (const piece of s.voice.line.match(/[^.?!]+[.?!]?/g).map((x) => x.trim()).filter(Boolean)) {
       if (piece.length <= 64) { chunks.push(piece); continue; }
@@ -277,9 +282,47 @@ try {
       for (const w of piece.split(/(?<=,)\s+/)) { if ((cur + ' ' + w).trim().length > 64 && cur) { chunks.push(cur.trim()); cur = w; } else cur = (cur + ' ' + w).trim(); }
       if (cur) chunks.push(cur);
     }
-    const total = chunks.reduce((n, c) => n + c.length, 0);
-    let t = start;
-    for (const c of chunks) { const d = (len * c.length) / total; cues.push({ start: +t.toFixed(2), end: +(t + d).toFixed(2), text: c }); t += d; }
+    if (!raw) {
+      // no recording yet: time the chunks by length across the window
+      const len = s.voice.max_seconds, total = chunks.reduce((n, c) => n + c.length, 0);
+      let t = start;
+      for (const c of chunks) { const d = (len * c.length) / total; cues.push({ start: +t.toFixed(2), end: +(t + d).toFixed(2), text: c }); t += d; }
+      continue;
+    }
+    // trim the silence at both ends and clean it lightly, so speech starts right on the cue
+    const vo = await cached(`${s.id}.vo.wav`, { v: 1 }, [raw], (out) => ff(['-i', raw, '-af',
+      'silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.08,areverse,silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.15,areverse,highpass=f=80,afftdn=nf=-55:nr=10',
+      '-ar', '48000', '-ac', '2', out]));
+    voiceFiles[s.id] = vo;
+    const len = Math.min(await duration(vo), s.end - start);
+    if (len > s.end - start - 0.05) log(`${s.id}: recording runs past its window by ${(await duration(vo) - (s.end - start)).toFixed(2)}s, the end is cut`);
+    // caption timing from the words actually spoken (whisper), else by length
+    let words = null;
+    try {
+      const wj = await cached(`${s.id}.words.json`, { v: 1 }, [vo], async (out) => {
+        const w16 = out + '.wav';
+        await ff(['-i', vo, '-ar', '16000', '-ac', '1', w16]);
+        const model = process.env.WHISPER_MODEL || path.join(process.env.HOME, 'Documents/ChatGPT/AP-animations/edit/dialogue/ggml-small.en.bin');
+        await run('whisper-cli', ['-m', model, '-f', w16, '-ml', '1', '-sow', '-oj', '-of', out.replace(/\.json$/, '')], { maxBuffer: 1 << 24 });
+      });
+      const j = JSON.parse(await readFile(wj, 'utf8'));
+      words = j.transcription.map((x) => ({ w: x.text.toLowerCase().replace(/[^a-z0-9]/g, ''), s: x.offsets.from / 1000, e: x.offsets.to / 1000 })).filter((x) => x.w);
+    } catch { words = null; }
+    const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const total = chunks.reduce((n, c) => n + norm(c).length, 0);
+    const wTot = words?.reduce((n, x) => n + x.w.length, 0) || 0;
+    const timeAt = (frac) => {
+      if (!words?.length) return frac * len;
+      let acc = 0;
+      for (const x of words) { const f0 = acc / wTot, f1 = (acc + x.w.length) / wTot; if (frac <= f1) return x.s + ((frac - f0) / (f1 - f0 || 1)) * (x.e - x.s); acc += x.w.length; }
+      return words[words.length - 1].e;
+    };
+    let acc = 0;
+    chunks.forEach((c, i) => {
+      const a0 = timeAt(acc / total); acc += norm(c).length;
+      const a1 = i === chunks.length - 1 ? Math.min(len, timeAt(1) + 0.4) : timeAt(acc / total);
+      cues.push({ start: +(start + Math.max(0, a0 - 0.1)).toFixed(2), end: +(start + a1).toFixed(2), text: c });
+    });
   }
   const capPngs = [];
   for (const [i, c] of cues.entries()) {
@@ -321,15 +364,19 @@ try {
   let audioOut = null;
   if (voiceLabels.length || music) {
     aFilt.push(`anullsrc=r=48000:cl=stereo,atrim=0:${TL.total}[sil]`);
-    aFilt.push(`[sil]${voiceLabels.join('')}amix=inputs=${voiceLabels.length + 1}:normalize=0:duration=first[voices]`);
+    aFilt.push(`[sil]${voiceLabels.join('')}amix=inputs=${voiceLabels.length + 1}:normalize=0:duration=first[vraw]`);
+    // voices are loudness-normalized on their own; the music then sits under them at a fixed level
+    aFilt.push(`[vraw]loudnorm=I=${TL.audio_mix.loudness_lufs}:TP=-2:LRA=11,aresample=48000[voices]`);
     if (music) {
       const k = addInput(music);
       aFilt.push(`[voices]asplit[vo1][vo2]`);
-      aFilt.push(`[${k}:a]aloop=loop=-1:size=2e9,atrim=0:${TL.total},volume=${TL.audio_mix.music}[mus]`);
+      // swell where nobody is talking (timeline music.boost: [start, end, gain]), easing over 1.5s each side
+      const boost = (TL.music?.boost || []).map(([a, b, g]) => `${(g - 1).toFixed(2)}*clip(min((t-${a})/1.5\\,(${b}-t)/1.5)\\,0\\,1)`).join('+') || '0';
+      aFilt.push(`[${k}:a]aloop=loop=-1:size=2e9,atrim=0:${TL.total},volume='${TL.audio_mix.music}*(1+${boost})':eval=frame[mus]`);
       aFilt.push(`[mus][vo2]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[duck]`);
       aFilt.push(`[vo1][duck]amix=inputs=2:normalize=0:duration=first[mix]`);
     } else aFilt.push(`[voices]anull[mix]`);
-    aFilt.push(`[mix]loudnorm=I=${TL.audio_mix.loudness_lufs}:TP=-1.5:LRA=11,aresample=48000[aout]`);
+    aFilt.push(`[mix]alimiter=limit=0.89:level=false,aresample=48000[aout]`);
     audioOut = '[aout]';
   }
 
@@ -339,7 +386,10 @@ try {
   const capIn = capPngs.flatMap((c) => ['-loop', '1', '-t', String(TL.total), '-i', c.png]);
   const nV = seq.length, nCap = capPngs.length;
   const vf = [`${seq.map((_, i) => `[${i}:v]`).join('')}concat=n=${nV}:v=1:a=0,fps=${FPS},format=yuv420p[base0]`];
-  capPngs.forEach((c, j) => vf.push(`[base${j}][${nV + j}:v]overlay=0:0:enable='between(t,${c.start},${c.end})'[base${j + 1}]`));
+  capPngs.forEach((c, j) => {
+    vf.push(`[${nV + j}:v]format=rgba,fade=t=in:st=${c.start}:d=0.18:alpha=1,fade=t=out:st=${(c.end - 0.18).toFixed(2)}:d=0.18:alpha=1[cap${j}]`);
+    vf.push(`[base${j}][cap${j}]overlay=0:0:enable='between(t,${c.start},${c.end})'[base${j + 1}]`);
+  });
   // audio inputs come after video + caption inputs: renumber
   const offset = nV + nCap - 1;
   const aFix = aFilt.map((f) => f.replace(/\[(\d+):a\]/g, (_, k) => `[${Number(k) + offset}:a]`));

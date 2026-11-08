@@ -142,7 +142,7 @@ const INSET = (() => {
   const b = LINES.find((l) => l.who === 'pacepay' && /approved|confirmed|go ahead/i.test(l.text) && (!a || l.start > a.start));
   return a ? { start: a.start, end: b ? b.start + 1.0 : a.end + 4.5 } : null;
 })();
-const INSET_SHIFT = 380, INSET_EASE = 0.45;
+const INSET_SHIFT = 470, INSET_EASE = 0.45;
 window.CALL_TIMES = { length: LOOP, inset: INSET, placeholder: !!CALL.placeholder };
 
 const SPEAKERS = {

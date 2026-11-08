@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eight accounts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  /* Overlay for the health beat: Yoshua's eight accounts rise in as "eight accounts" is said, then
+     clear so the health scores carry the rest of the line. Same conventions as the other pages:
+     1920x1080 stage, render(t), window.hold, ?bg=none. About 4s long. */
+  :root { --ink: #14130f; --muted: #6b675e; --hair: #e7e4db; --panel: #ffffff; --green: #1f9d5c; --coral: #f24e2c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #f4f2ec; overflow: hidden; }
+  .stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center; }
+  .stage.nobg { background: transparent; }
+  .row { position: absolute; left: 96px; right: 96px; top: 718px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 16px; }
+  .acct {
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 16px; padding: 18px 20px 17px;
+    box-shadow: 0 10px 28px rgba(20, 19, 15, .08); opacity: 0;
+  }
+  .acct .k { display: flex; align-items: center; gap: 8px; font: 400 15px/1 'DM Mono', monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .acct .k i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .acct .n { margin-top: 12px; font: 500 25px/1.15 'Instrument Sans', sans-serif; letter-spacing: -.015em; color: var(--ink); white-space: nowrap; }
+  .acct .b { margin-top: 8px; font: 400 21px/1 'DM Mono', monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .acct.owe .b { color: var(--muted); }
+  .count { position: absolute; left: 96px; top: 684px; font: 500 17px/1 'DM Mono', monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); opacity: 0; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="count" id="count">8 accounts</div>
+  <div class="row" id="row"></div>
+</div>
+<script>
+// Yoshua's accounts, from the product fixture (packages/engine/fixtures/household.ts)
+const ACCOUNTS = [
+  { kind: 'Checking', name: 'Checking', bal: '$1,950' },
+  { kind: 'Savings', name: 'Savings', bal: '$1,800' },
+  { kind: 'CD', name: '12-month CD', bal: '$5,000' },
+  { kind: 'IRA', name: 'Roth IRA', bal: '$14,200' },
+  { kind: 'Loan', name: 'Auto loan', bal: '$13,400 owed', owe: true },
+  { kind: 'Loan', name: 'Personal loan', bal: '$3,100 owed', owe: true },
+  { kind: 'Card', name: 'Credit card', bal: '$2,800 owed', owe: true },
+  { kind: 'Mortgage', name: 'Mortgage', bal: '$128,000 owed', owe: true },
+];
+const IN = 0.15, STEP = 0.09, RISE = 0.45, OUT = 3.4, OUT_LEN = 0.5;
+window.SEGMENTS = { accounts: { start: 0, end: OUT + OUT_LEN + 0.1 } };
+
+const $ = (id) => document.getElementById(id);
+const stage = $('stage');
+if (new URLSearchParams(location.search).get('bg') === 'none') stage.classList.add('nobg');
+const fit = () => { const s = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = `translate(-50%, -50%) scale(${s})`; };
+addEventListener('resize', fit); fit();
+
+$('row').innerHTML = ACCOUNTS.map((a) => `<div class="acct${a.owe ? ' owe' : ''}"><div class="k"><i style="background:${a.owe ? 'var(--coral)' : 'var(--green)'}"></i>${a.kind}</div><div class="n">${a.name}</div><div class="b">${a.bal}</div></div>`).join('');
+const cards = [...document.querySelectorAll('.acct')];
+const ease = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.pow(1 - p, 3));
+
+function render(t) {
+  const out = ease((t - OUT) / OUT_LEN);
+  const c = ease((t - IN) / 0.35) * (1 - out);
+  $('count').style.opacity = c;
+  cards.forEach((el, i) => {
+    const p = ease((t - IN - i * STEP) / RISE);
+    el.style.opacity = p * (1 - out);
+    el.style.transform = `translateY(${(1 - p) * 26 - out * 10}px)`;
+  });
+}
+
+const frozen = new URLSearchParams(location.search).get('t');
+if (frozen !== null) document.fonts.ready.then(() => render(parseFloat(frozen)));
+else {
+  const t0 = performance.now();
+  const tick = () => { render(window.hold ?? ((performance.now() - t0) / 1000) % 5); requestAnimationFrame(tick); };
+  document.fonts.ready.then(tick);
+}
+</script>
+</body>
+</html>

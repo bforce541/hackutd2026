@@ -33,11 +33,11 @@ Quiet room, phone close to your mouth, one take per file (record a few, keep the
 
 | File | Who | Window | Line |
 |---|---|---|---|
-| `yoshua-vo.m4a` | Yoshua | 13s max | "That's PacePay. Most people don't overdraw because they're broke. They overdraw because the timing's off. PacePay watches all your money, catches it before it happens, and fixes it for you, by text or by phone." |
-| `ram-health.m4a` | Ram | 7s max | "Here's the whole picture: eight accounts, four health scores, sixty days ahead." |
+| `yoshua-vo.m4a` | Yoshua | 13s max | "That's PacePay. Most overdrafts come down to timing. PacePay sees every account, catches the shortfall early, and fixes it by text or phone. We built it for the PNC, NVIDIA and Photon tracks." |
+| `ram-health.m4a` | Ram | 7s max | "Eight accounts, and four health scores: emergency fund, card use, debt versus income, and net worth." |
 | `ram-whatif.m4a` | Ram | 7s max | "Thinking about buying something? Type it in. Nine hundred dollars would overdraw checking." |
-| `ram-activity.m4a` | Ram | 7s max | "Every step PacePay takes shows up here, labeled with the Nemotron model that did it." |
-| `ram-arena.m4a` | Ram | 7s max | "We tested it against fifty simulated lenders. It never broke a limit and never leaked a balance." |
+| `ram-activity.m4a` | Ram | 7s max | "Every step PacePay takes shows up here, labeled with the NVIDIA Nemotron model that did it." |
+| `ram-arena.m4a` | Ram | 7s max | "We tested it against fifty simulated lenders. It never broke a limit or leaked a balance." |
 
 ## Where each recording lands (1:58)
 

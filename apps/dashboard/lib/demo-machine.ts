@@ -16,6 +16,7 @@
  * demo-engine.ts. If the engine throws, the page falls back to the static still in demo-data.ts.
  */
 import { useMemo, useState } from 'react';
+import { resetLive } from '../components/arena/live-store';
 import {
   ackText,
   callingText,
@@ -578,7 +579,10 @@ export function useDemoDashboard(): UseDashboard {
       setWhatIf: (key, on) => ui((u) => ({ whatIf: { ...u.whatIf, [key]: on } })),
 
       skipClock: () => act(skipClock),
-      reset: () => act((m) => initialMachine({ presenter: m.ui.presenter })),
+      reset: () => {
+        resetLive();
+        act((m) => initialMachine({ presenter: m.ui.presenter }));
+      },
       injectBillPhoto: () => act((m) => ({ ...initialMachine({ presenter: m.ui.presenter, rules: m.rules }), ui: { ...m.ui, whatIfOpen: false, whatIf: NO_WHAT_IF, cdDismissed: false } })),
 
       sendMessage: (text) => act((m) => sendMessage(m, text)),

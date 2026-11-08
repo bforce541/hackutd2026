@@ -480,6 +480,10 @@ export interface LiveArena {
 
 let liveArena: LiveArena | null = null;
 export const getLiveArena = (): LiveArena | null => liveArena;
+/** Demo reset clears the last "Run 3 live" (a run still going keeps going, but its tiles start over). */
+export function clearLiveArena(): void {
+  liveArena = null;
+}
 
 /** Each live slot draws its persona from one group, so the three tiles show a range (deal, deal on terms, refusal or ID check). */
 const LIVE_SLOT_PERSONAS: ArenaPersona[][] = [

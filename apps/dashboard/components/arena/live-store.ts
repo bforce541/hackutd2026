@@ -66,6 +66,12 @@ const subscribe = (f: () => void) => {
   return () => subs.delete(f);
 };
 
+/** Demo reset: drop the last "Run 3 live" tiles so the arena starts clean. */
+export function resetLive() {
+  clearAll();
+  set(null);
+}
+
 export function useLiveRuns(): LiveView | null {
   return useSyncExternalStore(subscribe, () => view, () => null);
 }

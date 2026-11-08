@@ -58,6 +58,7 @@ import {
 } from '@pacepay/shared';
 import { apiGet, apiPost, apiPut, ServerError } from './api';
 import { openEventStream } from './events';
+import { resetLive } from '../components/arena/live-store';
 import type {
   Actions,
   CallView,
@@ -906,6 +907,7 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
           },
           onEvent: (e) => {
             if (e.event === 'reset') {
+              resetLive();
               if (e.seq > (rawRef.current?.floor ?? 0)) void refresh(true);
               return;
             }
@@ -1020,6 +1022,7 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
         }, 'Could not move the clock');
       },
       reset: () => {
+        resetLive();
         setUi((u) => ({ ...u, whatIfOpen: false, whatIf: NO_WHAT_IF, statOpen: null, cdDismissed: false }));
         void run(() => apiPost(API.demo.reset), 'Could not reset the demo');
       },

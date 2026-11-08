@@ -14,6 +14,7 @@
  * response types from @pacepay/shared/api, and errors with apiError().
  */
 import { Hono } from 'hono';
+import { clearLiveArena } from '../agent/arena';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +35,7 @@ export function demoRoutes(ctx: ServerContext): Hono {
 
   r.post('/demo/reset', (c) => {
     ctx.store.reset(ctx.loadHousehold());
+    clearLiveArena();
     ctx.bus.emit({ type: 'demo.reset', model: 'code', title: 'Reset the demo to day 0' });
     ctx.bus.publish({ event: 'reset', data: { day: ctx.store.day() } });
     publishForecast(ctx, { title: 'Reloaded the forecast after the reset' });

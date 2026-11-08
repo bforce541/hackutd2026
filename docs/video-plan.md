@@ -2,15 +2,24 @@
 
 Supersedes `video-storyboard.md`. Target length **2:50** (hard cap 3:00). 16:9, 1080p.
 
+> **This is a starting point, not a spec.** Whoever edits it is free to change anything: the order, the timing, the graphics, the transitions, the voiceover wording, the music, even the structure, if it makes a better video. The only things that have to hold are in "Must hold" below.
+
+## Must hold
+
+- 3:00 or less.
+- The real phone call is the centerpiece.
+- The dashboard is shown, and the Nemotron model labels are visible somewhere.
+- Everything on screen is real (real texts, real call, real dashboard) and every number matches the product.
+- No keys, PINs or personal numbers readable on screen.
+
 ## The idea in one line
 
 Lead with one real moment a judge feels in two seconds ("a $650 bill, payday's Thursday, you'd overdraw"), let the **phone call** be the hero, then zoom out so each track sees its own criteria on screen: PNC (the whole picture, the what-if), NVIDIA (Nemotron doing the work, labeled), Photon (texts and calls, in and out).
 
-Rules for every shot:
-- One idea every 8 to 10 seconds. If a shot needs more, cut it.
-- Show it working before you explain it. Real phone, real call, real numbers.
-- Captions burned in, so it works on mute. Music is low and never covers the call audio.
-- Be honest on screen: a small tag "Demo household. The lender is played by a teammate." once, at the start of the call.
+Suggestions that tend to work:
+- One idea every 8 to 10 seconds.
+- Show it working before explaining it.
+- Captions burned in, so it works on mute. Music low, never over the call audio.
 
 ## Beat sheet
 
@@ -116,11 +125,11 @@ These are the same captures I make with a script for the gallery, so rerunning i
 
 **Export:** MP4, H.264, 1080p, 30 fps, under 3:00, plus a 3:2 thumbnail. Upload to YouTube as unlisted, then paste the link into Devpost.
 
-## If something fails on the day
+## If something fails (suggestions)
 
 - **The call drops or sounds bad:** use the best take. The lender console text mode also works; show it as "if the call drops, it falls back to text," which scores as a safety feature.
 - **Inbound call flakes:** cut beat 7 to the paycheck-late texts: PacePay noticed Friday leans on Thursday's paycheck, and Yoshua texts "my paycheck is going to be late."
-- **Real footage runs long:** drop beat 5's CD alert first, then beat 7. Never cut the call, the dashboard going green, or the Nemotron labels.
+- **Real footage runs long:** drop beat 5's CD alert first, then beat 7. Keep the call, the dashboard going green, and the Nemotron labels.
 - **Arena numbers aren't final:** say "fifty simulated lenders, graded by Claude" and keep the numbers out of the voiceover.
 
 ## Checklist before rendering
@@ -128,6 +137,5 @@ These are the same captures I make with a script for the gallery, so rerunning i
 - [ ] Call audio is clear, and the transcript matches it
 - [ ] Arena numbers are final (or the line is trimmed)
 - [ ] Yoshua's voiceover is recorded in a quiet room
-- [ ] The honesty tag appears once ("Demo household. The lender is played by a teammate.")
 - [ ] No key, PIN sheet or personal phone number is readable on screen. The PacePay number may show only if Ram says it's safe to publish.
 - [ ] Length is 3:00 or less

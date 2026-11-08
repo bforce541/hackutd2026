@@ -413,7 +413,7 @@ export const fixtures: { household: Household };                    // the v2.md
 | Credit use | Card balances ÷ card limits. Green under 30%, yellow 30–50%, red over 50%. |
 | Debt-to-income | Monthly debt payments (including the card minimum) ÷ gross monthly income. Green under 36%, yellow 36–43%, red over 43%. |
 | Options for a bill | `card` (charge it; monthly interest, credit use before/after), `savings` (transfer the shortfall plus floor; savings after; emergency months before/after; violations), `move_payment` (move the soonest movable debit that causes the low to `planCallTargets().targetDay`). |
-| CD options | `cd_renew` (interest earned in a year) and `cd_payoff_card` (pay off the card's **projected balance on the CD's maturity day**, put the rest in savings; interest saved in a year, emergency months after, credit use after = the card's projected balance after the payoff ÷ limit). |
+| CD options | `cd_renew` (interest earned in a year) and `cd_payoff_card` (pay off the card's **projected balance on the CD's maturity day**, put the rest in savings; interest saved in a year, emergency months after, credit use after = one month of card spending ÷ limit, about 14%, as v2.md states). |
 | Rounding | Interest rounds to the cent. Displays round months to one decimal and percentages to whole numbers, except debt-to-income (one decimal). |
 
 **Unit tests** (`packages/engine/test`). Expected values come from `v2.md`. Each test names the `v2.md` line it encodes, so a fix to `v2.md` maps to one test.

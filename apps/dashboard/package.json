@@ -1,0 +1,46 @@
+{
+  "name": "@pacepay/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@pacepay/engine": "workspace:*",
+    "@pacepay/shared": "workspace:*",
+    "@radix-ui/react-checkbox": "^1.4.1",
+    "@radix-ui/react-slider": "^1.6.1",
+    "@radix-ui/react-switch": "^1.4.1",
+    "@radix-ui/react-tabs": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.4.1",
+    "@visx/axis": "^4.0.0",
+    "@visx/curve": "^4.0.0",
+    "@visx/event": "^4.0.0",
+    "@visx/group": "^4.0.0",
+    "@visx/pattern": "^4.0.0",
+    "@visx/scale": "^4.0.0",
+    "@visx/shape": "^4.0.0",
+    "@visx/tooltip": "^4.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "next": "^16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

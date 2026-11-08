@@ -1,0 +1,735 @@
+{
+  "version": 1,
+  "bills": [
+    {
+      "id": "bill-01",
+      "merchant": "Lone Star Auto Repair",
+      "category": "auto repair quote",
+      "totalCents": 82150,
+      "dueDate": "2026-11-14",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Front brake pads and rotors",
+          "amountCents": 48500
+        },
+        {
+          "description": "Labor 2.5 hrs",
+          "amountCents": 31250
+        },
+        {
+          "description": "Shop supplies",
+          "amountCents": 2400
+        }
+      ]
+    },
+    {
+      "id": "bill-02",
+      "merchant": "Plano Transmission Works",
+      "category": "auto repair quote",
+      "totalCents": 99900,
+      "dueDate": null,
+      "dueNote": "due at pickup",
+      "photoStyle": "crumpled",
+      "lineItems": [
+        {
+          "description": "Transmission fluid flush",
+          "amountCents": 18900
+        },
+        {
+          "description": "Replace torque converter solenoid",
+          "amountCents": 42000
+        },
+        {
+          "description": "Labor 3 hrs",
+          "amountCents": 37500
+        },
+        {
+          "description": "Disposal fee",
+          "amountCents": 1500
+        }
+      ]
+    },
+    {
+      "id": "bill-03",
+      "merchant": "Oncor Electric Delivery",
+      "category": "utility bill",
+      "totalCents": 13813,
+      "dueDate": "2026-11-21",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Energy charge 912 kWh",
+          "amountCents": 9120
+        },
+        {
+          "description": "Delivery charge",
+          "amountCents": 3475
+        },
+        {
+          "description": "Taxes and fees",
+          "amountCents": 1218
+        }
+      ]
+    },
+    {
+      "id": "bill-04",
+      "merchant": "North Texas Water District",
+      "category": "utility bill",
+      "totalCents": 8625,
+      "dueDate": "2026-11-28",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Water usage 7,400 gal",
+          "amountCents": 3860
+        },
+        {
+          "description": "Sewer service",
+          "amountCents": 2915
+        },
+        {
+          "description": "Trash and recycling",
+          "amountCents": 1850
+        }
+      ]
+    },
+    {
+      "id": "bill-05",
+      "merchant": "Atmos Energy",
+      "category": "utility bill",
+      "totalCents": 6642,
+      "dueDate": "2026-12-02",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Gas usage 38 CCF",
+          "amountCents": 4332
+        },
+        {
+          "description": "Customer charge",
+          "amountCents": 1900
+        },
+        {
+          "description": "Pipeline safety fee",
+          "amountCents": 410
+        }
+      ]
+    },
+    {
+      "id": "bill-06",
+      "merchant": "Frontier Fiber Internet",
+      "category": "internet bill",
+      "totalCents": 9587,
+      "dueDate": "2026-11-18",
+      "dueNote": null,
+      "photoStyle": "low light",
+      "lineItems": [
+        {
+          "description": "Fiber 1 Gig plan",
+          "amountCents": 7000
+        },
+        {
+          "description": "Router rental",
+          "amountCents": 1500
+        },
+        {
+          "description": "Taxes and fees",
+          "amountCents": 1087
+        }
+      ]
+    },
+    {
+      "id": "bill-07",
+      "merchant": "Mint Wireless",
+      "category": "phone bill",
+      "totalCents": 8520,
+      "dueDate": "2026-11-25",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Unlimited plan 2 lines",
+          "amountCents": 6000
+        },
+        {
+          "description": "Device protection",
+          "amountCents": 1400
+        },
+        {
+          "description": "Regulatory fees",
+          "amountCents": 623
+        },
+        {
+          "description": "Taxes",
+          "amountCents": 497
+        }
+      ]
+    },
+    {
+      "id": "bill-08",
+      "merchant": "Richardson Family Medicine",
+      "category": "medical copay",
+      "totalCents": 5700,
+      "dueDate": null,
+      "dueNote": "due on receipt",
+      "photoStyle": "thermal receipt",
+      "lineItems": [
+        {
+          "description": "Office visit copay",
+          "amountCents": 3500
+        },
+        {
+          "description": "Lab draw fee",
+          "amountCents": 2200
+        }
+      ]
+    },
+    {
+      "id": "bill-09",
+      "merchant": "Texas Health Urgent Care",
+      "category": "medical bill",
+      "totalCents": 38700,
+      "dueDate": "2026-12-05",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Urgent care visit level 3",
+          "amountCents": 18500
+        },
+        {
+          "description": "X-ray, 2 views",
+          "amountCents": 9500
+        },
+        {
+          "description": "Splint supply",
+          "amountCents": 3200
+        },
+        {
+          "description": "Facility fee",
+          "amountCents": 7500
+        }
+      ]
+    },
+    {
+      "id": "bill-10",
+      "merchant": "Park Cities Pediatrics",
+      "category": "medical copay",
+      "totalCents": 4000,
+      "dueDate": null,
+      "dueNote": "due on receipt",
+      "photoStyle": "thermal receipt",
+      "lineItems": [
+        {
+          "description": "Well child visit copay",
+          "amountCents": 2500
+        },
+        {
+          "description": "Flu vaccine admin fee",
+          "amountCents": 1500
+        }
+      ]
+    },
+    {
+      "id": "bill-11",
+      "merchant": "Dallas Imaging Center",
+      "category": "medical bill",
+      "totalCents": 62500,
+      "dueDate": "2026-12-12",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "MRI knee without contrast",
+          "amountCents": 42000
+        },
+        {
+          "description": "Radiologist read fee",
+          "amountCents": 8500
+        },
+        {
+          "description": "Facility fee",
+          "amountCents": 12000
+        }
+      ]
+    },
+    {
+      "id": "bill-12",
+      "merchant": "Preston Hollow Animal Hospital",
+      "category": "vet bill",
+      "totalCents": 20000,
+      "dueDate": null,
+      "dueNote": "due at pickup",
+      "photoStyle": "thermal receipt",
+      "lineItems": [
+        {
+          "description": "Annual exam",
+          "amountCents": 6500
+        },
+        {
+          "description": "Rabies vaccine",
+          "amountCents": 3500
+        },
+        {
+          "description": "Heartworm test",
+          "amountCents": 4800
+        },
+        {
+          "description": "Flea and tick 3 month",
+          "amountCents": 5200
+        }
+      ]
+    },
+    {
+      "id": "bill-13",
+      "merchant": "Paws and Claws Veterinary",
+      "category": "vet bill",
+      "totalCents": 44200,
+      "dueDate": "2026-11-20",
+      "dueNote": null,
+      "photoStyle": "crumpled",
+      "lineItems": [
+        {
+          "description": "Emergency exam",
+          "amountCents": 9500
+        },
+        {
+          "description": "Bloodwork panel",
+          "amountCents": 14500
+        },
+        {
+          "description": "IV fluids",
+          "amountCents": 8500
+        },
+        {
+          "description": "Medication",
+          "amountCents": 4200
+        },
+        {
+          "description": "After hours fee",
+          "amountCents": 7500
+        }
+      ]
+    },
+    {
+      "id": "bill-14",
+      "merchant": "Reliable Rooter Plumbing",
+      "category": "plumbing invoice",
+      "totalCents": 44750,
+      "dueDate": "2026-11-30",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Clear main line blockage",
+          "amountCents": 22500
+        },
+        {
+          "description": "Camera inspection",
+          "amountCents": 9500
+        },
+        {
+          "description": "Labor 1.5 hrs",
+          "amountCents": 12750
+        }
+      ]
+    },
+    {
+      "id": "bill-15",
+      "merchant": "Mckinney Plumbing Co",
+      "category": "plumbing invoice",
+      "totalCents": 110300,
+      "dueDate": null,
+      "dueNote": "due on receipt",
+      "photoStyle": "low light",
+      "lineItems": [
+        {
+          "description": "Replace water heater 40 gal",
+          "amountCents": 64900
+        },
+        {
+          "description": "Install kit and fittings",
+          "amountCents": 8900
+        },
+        {
+          "description": "Haul away old unit",
+          "amountCents": 3500
+        },
+        {
+          "description": "Labor 3 hrs",
+          "amountCents": 33000
+        }
+      ]
+    },
+    {
+      "id": "bill-16",
+      "merchant": "Bright Smile Dental",
+      "category": "dental bill",
+      "totalCents": 42000,
+      "dueDate": "2026-12-08",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Routine cleaning",
+          "amountCents": 11500
+        },
+        {
+          "description": "Bitewing x-rays",
+          "amountCents": 6500
+        },
+        {
+          "description": "Composite filling 2 surface",
+          "amountCents": 24000
+        }
+      ]
+    },
+    {
+      "id": "bill-17",
+      "merchant": "Lakewood Orthodontics",
+      "category": "dental bill",
+      "totalCents": 37000,
+      "dueDate": "2026-11-15",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Monthly aligner adjustment",
+          "amountCents": 25000
+        },
+        {
+          "description": "Retainer replacement",
+          "amountCents": 12000
+        }
+      ]
+    },
+    {
+      "id": "bill-18",
+      "merchant": "Allstate Auto Insurance",
+      "category": "car insurance premium",
+      "totalCents": 21175,
+      "dueDate": "2026-11-27",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Liability coverage",
+          "amountCents": 9420
+        },
+        {
+          "description": "Collision coverage",
+          "amountCents": 7810
+        },
+        {
+          "description": "Comprehensive coverage",
+          "amountCents": 3245
+        },
+        {
+          "description": "Policy fee",
+          "amountCents": 700
+        }
+      ]
+    },
+    {
+      "id": "bill-19",
+      "merchant": "Progressive Insurance",
+      "category": "car insurance premium",
+      "totalCents": 21460,
+      "dueDate": "2026-12-10",
+      "dueNote": null,
+      "photoStyle": "crumpled",
+      "lineItems": [
+        {
+          "description": "Bodily injury liability",
+          "amountCents": 8650
+        },
+        {
+          "description": "Uninsured motorist",
+          "amountCents": 2940
+        },
+        {
+          "description": "Collision coverage",
+          "amountCents": 8120
+        },
+        {
+          "description": "Rental reimbursement",
+          "amountCents": 1250
+        },
+        {
+          "description": "Installment fee",
+          "amountCents": 500
+        }
+      ]
+    },
+    {
+      "id": "bill-20",
+      "merchant": "Cedar Ridge HOA",
+      "category": "HOA dues",
+      "totalCents": 57000,
+      "dueDate": "2026-12-01",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Quarterly dues",
+          "amountCents": 45000
+        },
+        {
+          "description": "Pool maintenance assessment",
+          "amountCents": 7500
+        },
+        {
+          "description": "Landscaping assessment",
+          "amountCents": 4500
+        }
+      ]
+    },
+    {
+      "id": "bill-21",
+      "merchant": "Willow Creek Community Association",
+      "category": "HOA dues",
+      "totalCents": 28000,
+      "dueDate": "2026-11-09",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Monthly dues",
+          "amountCents": 18500
+        },
+        {
+          "description": "Special assessment fence repair",
+          "amountCents": 9500
+        }
+      ]
+    },
+    {
+      "id": "bill-22",
+      "merchant": "Texas Appliance Doctors",
+      "category": "appliance repair",
+      "totalCents": 32900,
+      "dueDate": null,
+      "dueNote": "due at pickup",
+      "photoStyle": "crumpled",
+      "lineItems": [
+        {
+          "description": "Refrigerator compressor relay",
+          "amountCents": 14500
+        },
+        {
+          "description": "Diagnostic fee",
+          "amountCents": 8900
+        },
+        {
+          "description": "Labor 1 hr",
+          "amountCents": 9500
+        }
+      ]
+    },
+    {
+      "id": "bill-23",
+      "merchant": "Fix-It Fast Appliance Repair",
+      "category": "appliance repair",
+      "totalCents": 34923,
+      "dueDate": "2026-11-13",
+      "dueNote": null,
+      "photoStyle": "low light",
+      "lineItems": [
+        {
+          "description": "Washer drain pump",
+          "amountCents": 11800
+        },
+        {
+          "description": "Service call",
+          "amountCents": 7900
+        },
+        {
+          "description": "Labor 1.5 hrs",
+          "amountCents": 14250
+        },
+        {
+          "description": "Parts tax",
+          "amountCents": 973
+        }
+      ]
+    },
+    {
+      "id": "bill-24",
+      "merchant": "Mesa Heating and Air",
+      "category": "HVAC repair",
+      "totalCents": 70400,
+      "dueDate": "2026-12-14",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Capacitor replacement",
+          "amountCents": 18500
+        },
+        {
+          "description": "Refrigerant recharge 2 lbs",
+          "amountCents": 24000
+        },
+        {
+          "description": "Service call",
+          "amountCents": 8900
+        },
+        {
+          "description": "Labor 2 hrs",
+          "amountCents": 19000
+        }
+      ]
+    },
+    {
+      "id": "bill-25",
+      "merchant": "Spectrum Internet and TV",
+      "category": "internet bill",
+      "totalCents": 14641,
+      "dueDate": "2026-11-22",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Internet 500 Mbps",
+          "amountCents": 6999
+        },
+        {
+          "description": "TV Select package",
+          "amountCents": 4500
+        },
+        {
+          "description": "Broadcast TV fee",
+          "amountCents": 1800
+        },
+        {
+          "description": "Taxes and fees",
+          "amountCents": 1342
+        }
+      ]
+    },
+    {
+      "id": "bill-26",
+      "merchant": "Verizon Wireless",
+      "category": "phone bill",
+      "totalCents": 23007,
+      "dueDate": "2026-11-19",
+      "dueNote": null,
+      "photoStyle": "low light",
+      "lineItems": [
+        {
+          "description": "Plan 3 lines",
+          "amountCents": 15000
+        },
+        {
+          "description": "Device payment",
+          "amountCents": 5833
+        },
+        {
+          "description": "Taxes and surcharges",
+          "amountCents": 2174
+        }
+      ]
+    },
+    {
+      "id": "bill-27",
+      "merchant": "Frisco Tire and Lube",
+      "category": "auto repair quote",
+      "totalCents": 77799,
+      "dueDate": null,
+      "dueNote": "due at pickup",
+      "photoStyle": "thermal receipt",
+      "lineItems": [
+        {
+          "description": "Four tires 235/55R18",
+          "amountCents": 58000
+        },
+        {
+          "description": "Mount and balance",
+          "amountCents": 9600
+        },
+        {
+          "description": "Alignment",
+          "amountCents": 8999
+        },
+        {
+          "description": "Tire disposal",
+          "amountCents": 1200
+        }
+      ]
+    },
+    {
+      "id": "bill-28",
+      "merchant": "Legacy Pet Dental Clinic",
+      "category": "vet bill",
+      "totalCents": 55500,
+      "dueDate": "2026-12-15",
+      "dueNote": null,
+      "photoStyle": "flat scan",
+      "lineItems": [
+        {
+          "description": "Dental cleaning under anesthesia",
+          "amountCents": 32000
+        },
+        {
+          "description": "Pre-anesthetic bloodwork",
+          "amountCents": 9500
+        },
+        {
+          "description": "Tooth extraction x2",
+          "amountCents": 14000
+        }
+      ]
+    },
+    {
+      "id": "bill-29",
+      "merchant": "Greenway Pest Control",
+      "category": "pest control service",
+      "totalCents": 20000,
+      "dueDate": "2026-11-07",
+      "dueNote": null,
+      "photoStyle": "phone photo on a table at an angle",
+      "lineItems": [
+        {
+          "description": "Quarterly perimeter treatment",
+          "amountCents": 12500
+        },
+        {
+          "description": "Wasp nest removal",
+          "amountCents": 7500
+        }
+      ]
+    },
+    {
+      "id": "bill-30",
+      "merchant": "Texas Gas Service Plumbing Repair",
+      "category": "plumbing invoice",
+      "totalCents": 58500,
+      "dueDate": "2026-12-03",
+      "dueNote": null,
+      "photoStyle": "crumpled",
+      "lineItems": [
+        {
+          "description": "Gas line leak repair",
+          "amountCents": 27500
+        },
+        {
+          "description": "Pressure test",
+          "amountCents": 6500
+        },
+        {
+          "description": "Permit fee",
+          "amountCents": 4500
+        },
+        {
+          "description": "Labor 2 hrs",
+          "amountCents": 20000
+        }
+      ]
+    }
+  ]
+}

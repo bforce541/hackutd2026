@@ -1,0 +1,12 @@
+packages:
+  - packages/*
+  - apps/*
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  '@livekit/rtc-node': true
+  '@livekit/blingfire': true
+  '@livekit/local-inference': true
+  protobufjs: true
+  unrs-resolver: true

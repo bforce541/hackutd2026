@@ -19,3 +19,12 @@ data/
 
 # macOS
 .DS_Store
+
+# Build output and dependencies
+node_modules
+.next
+dist
+*.tsbuildinfo
+.vercel
+.turbo
+next-env.d.ts

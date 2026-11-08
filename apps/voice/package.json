@@ -1,0 +1,26 @@
+{
+  "name": "@pacepay/voice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/agent.ts dev",
+    "start": "tsx src/agent.ts start",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@livekit/agents": "1.9.5",
+    "@livekit/agents-plugin-openai": "1.9.5",
+    "@livekit/rtc-node": "^1.2.1",
+    "@pacepay/shared": "workspace:*",
+    "livekit-server-sdk": "^2.19.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

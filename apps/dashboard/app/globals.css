@@ -1,0 +1,126 @@
+/*
+ * PacePay design tokens (UI.md "Look and feel"). Owned by: dash-shell.
+ * Define every color and size once here; components use the Tailwind names below
+ * (bg-page, text-ink, border-hairline, text-green, ...) or var(--token) in SVG.
+ * Light theme only, on warm neutrals (UI.md rule 10).
+ */
+@import 'tailwindcss';
+
+:root {
+  /* Neutrals */
+  --page: #f2f1ed;
+  --panel: #ffffff;
+  --ink: #1c1b19;
+  --muted: #64615a;
+  --hairline: #e0ded7;
+  --grid: #e4e2db;
+  --zero-line: #7a766d; /* $0 line and bill markers */
+  --before-line: #8f8a80; /* "Before" / "Current plan" ghost line */
+  --label-ink: #3d3b37; /* chart labels */
+
+  /* Green (brand): forecast line, primary buttons, selected tab, paychecks, "Works", "On track" */
+  --green: #1c6b4a;
+  --green-tint: #e6f0ea;
+
+  /* Vermilion: overdrawn (below $0), and only that */
+  --vermilion: #b83a0b;
+  --hatch: #c2410c;
+  --hatch-bg: #fbe8df;
+
+  /* Ochre: your limits (minimum line, "Your limits", "Over limit") */
+  --ochre-line: #a36a00;
+  --ochre: #8a5a00;
+
+  /* shadcn/ui token names, pointed at the roles above */
+  --background: var(--page);
+  --foreground: var(--ink);
+  --card: var(--panel);
+  --card-foreground: var(--ink);
+  --primary: var(--green);
+  --primary-foreground: #ffffff;
+  --muted-foreground: var(--muted);
+  --border: var(--hairline);
+  --ring: var(--green);
+
+  /* Sizes (UI.md "Type"); presenter mode scales the root by 25% */
+  --size-hero: 2.5rem; /* 40px: the checking balance */
+  --size-headline: 1.625rem; /* 26px panel headline */
+  --size-stat: 1.625rem; /* 26px health stat values */
+  --size-body: 1rem; /* 16px */
+  --size-label: 0.875rem; /* 14px */
+  --size-chart: 0.8125rem; /* 13px */
+
+  --panel-shadow: 0 1px 2px rgb(28 27 25 / 0.06), 0 8px 24px rgb(28 27 25 / 0.06);
+  --page-pad: 2rem;
+  --gap-panel: 2.5rem;
+}
+
+html[data-presenter='true'] {
+  font-size: 125%;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-hairline: var(--hairline);
+  --color-grid: var(--grid);
+  --color-zero-line: var(--zero-line);
+  --color-before-line: var(--before-line);
+  --color-label-ink: var(--label-ink);
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-vermilion: var(--vermilion);
+  --color-hatch: var(--hatch);
+  --color-hatch-bg: var(--hatch-bg);
+  --color-ochre-line: var(--ochre-line);
+  --color-ochre: var(--ochre);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+
+  --text-hero: var(--size-hero);
+  --text-headline: var(--size-headline);
+  --text-stat: var(--size-stat);
+  --text-body: var(--size-body);
+  --text-label: var(--size-label);
+  --text-chart: var(--size-chart);
+
+  --shadow-panel: var(--panel-shadow);
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every amount uses tabular figures (UI.md). Add class "num" to amounts. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

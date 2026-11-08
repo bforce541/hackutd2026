@@ -89,7 +89,10 @@ function moneyMove(
     // Money arrives at `to`: an asset goes up; a liability goes down (less owed).
     counterAmount: to?.isLiability ? -amount : amount,
     day,
-    kind: 'transfer',
+    // A move between the customer's own accounts at the same bank is instant, weekends included,
+    // so it posts on its own day ('one_time') instead of rolling to Monday like an outside
+    // bank transfer. Otherwise a Saturday savings move would land after Monday's mortgage.
+    kind: 'one_time',
   };
 }
 

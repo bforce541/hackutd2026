@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildOptions, formatMonths, formatPercent, shortDate } from '../src/index';
+import { buildOptions, forecast, formatMonths, formatPercent, shortDate } from '../src/index';
 import { $, h, REPAIR, WEEK } from './helpers';
 
 const options = buildOptions(h, REPAIR);
@@ -34,6 +34,22 @@ describe('options.savings', () => {
     expect(formatMonths(o.tradeoffs.emergencyMonthsBefore!)).toBe('0.6 months');
     expect(formatMonths(o.tradeoffs.emergencyMonthsAfter!)).toBe('0.5 months');
     expect(o.lowest.amount).toBe($(100)); // the transfer covers the dip exactly
+  });
+});
+
+// Regression (integrator): a Saturday savings move used to roll to Monday and land after the
+// mortgage, so a $700 bill left checking at $50, under the $100 floor.
+describe('options.savings, any bill size', () => {
+  it.each([650, 700, 900, 1_200])('a $%i bill: the savings move keeps checking at or above the floor', (dollars) => {
+    const o = buildOptions(h, { amount: $(dollars), day: 0, label: 'Repair' }).find((x) => x.id === 'savings')!;
+    expect(o.lowest.amount).toBeGreaterThanOrEqual($(100));
+    expect(o.violations).not.toContain('BELOW_CHECKING_FLOOR');
+  });
+
+  it('the move posts the same day, even on a Saturday', () => {
+    const o = buildOptions(h, REPAIR).find((x) => x.id === 'savings')!;
+    const fc = forecast(h, { days: 3, changes: o.changes });
+    expect(fc.days[WEEK.sat]?.close).toBe($(1_950 - 650 + 400));
   });
 });
 

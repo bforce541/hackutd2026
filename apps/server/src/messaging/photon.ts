@@ -11,6 +11,7 @@
  *   { type: 'attachment', attachmentId } with NO metadata.
  * - fetchImage: GET /attachments/{id}/content.
  * - Read receipts: each of his messages is marked read (POST /messages/{id}/read) as soon as PacePay picks it up.
+ * - Typing bubble (POST /spaces/{id}/typing) from then until PacePay's next send (25 s cap).
  */
 import { randomUUID } from 'node:crypto';
 import type { InboundMessage, MessagingPort } from './port';
@@ -78,6 +79,7 @@ export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
   }
 
   async function postMessage(content: Record<string, unknown>): Promise<{ id: string }> {
+    stopTyping();
     const res = await fetch(`${project}/messages`, {
       method: 'POST',
       headers: headers({ 'content-type': 'application/json', 'idempotency-key': `pacepay:${randomUUID()}` }),
@@ -102,6 +104,39 @@ export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
         }
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * Typing bubble: on as soon as his message is picked up, refreshed every 5 s, off when PacePay sends
+   * anything or after 25 s (some messages get no reply). Fire and forget; never blocks a send.
+   */
+  const TYPING_REFRESH_MS = 5_000;
+  const TYPING_MAX_MS = 25_000;
+  let typingTimer: ReturnType<typeof setInterval> | undefined;
+  let typingUntil = 0;
+  function postTyping(on: boolean): void {
+    if (!opts.spaceId || !opts.senderId) return;
+    void fetch(`${BASE}/projects/${opts.projectId}/spaces/${encodeURIComponent(opts.spaceId)}/typing`, {
+      method: 'POST',
+      headers: headers({ 'content-type': 'application/json', 'idempotency-key': `pacepay-typing:${randomUUID()}` }),
+      body: JSON.stringify({ senderId: opts.senderId, typing: on }),
+    }).catch(() => undefined);
+  }
+  function startTyping(): void {
+    typingUntil = Date.now() + TYPING_MAX_MS;
+    postTyping(true);
+    if (typingTimer) return;
+    typingTimer = setInterval(() => {
+      if (Date.now() >= typingUntil) return stopTyping();
+      postTyping(true);
+    }, TYPING_REFRESH_MS);
+    typingTimer.unref?.();
+  }
+  function stopTyping(): void {
+    if (!typingTimer) return;
+    clearInterval(typingTimer);
+    typingTimer = undefined;
+    postTyping(false);
   }
 
   function toInbound(m: PhotonMessage): InboundMessage | null {
@@ -130,6 +165,7 @@ export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
             const inbound = toInbound(m);
             if (inbound) {
               markRead(m.id);
+              startTyping();
               await onInbound(inbound);
             }
           }

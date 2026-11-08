@@ -261,6 +261,10 @@ export interface Approval {
   requestedAt: ISOTimestamp;
   resolvedAt?: ISOTimestamp;
   timeoutMs?: number; // 60_000 for mid-call deals
+  /** Addition: deal re-approvals only (the lender changed the terms): what Yoshua approved or was asked before. */
+  previousTerms?: DealTerms;
+  /** Addition: deal re-approvals only: the lender's new terms this approval asks about. */
+  newTerms?: DealTerms;
 }
 
 export type Speaker = 'pacepay' | 'counterparty' | 'customer';
@@ -336,6 +340,43 @@ export interface Negotiation {
   referenceNumber?: string;
   /** Addition: the call carrying this negotiation, once place_call ran. */
   callId?: string;
+  /**
+   * Addition: the lender changed (or conditioned) terms PacePay was holding them to: during the
+   * hold for Yoshua's answer, or after he approved. Stays on the negotiation once set (the
+   * dashboard's "lender changed the terms" screen reads it). See negotiator.ts header.
+   */
+  termsChange?: TermsChange;
+  /** Addition: why the negotiation closed without a deal, in plain words (set on every no-deal close the negotiator can explain). */
+  closeReason?: string;
+}
+
+/** Addition: a day and a fee, as the lender offered them or Yoshua approved them. */
+export interface DealTerms {
+  newDay: Day;
+  fee: Cents;
+}
+
+/** Addition: the lender changed the terms (Negotiation.termsChange). */
+export interface TermsChange {
+  /** 'terms': a new day and/or fee; 'extra_fee': a fee added on top; 'condition': a non-money condition; 'walkback': took the offer back. */
+  kind: 'terms' | 'extra_fee' | 'condition' | 'walkback';
+  /** What PacePay holds the lender to: the terms Yoshua approved (or was being asked about). */
+  previousTerms: DealTerms;
+  /** The lender's new terms, when they named a day and fee. */
+  newTerms?: DealTerms;
+  /** Yoshua had already said yes to previousTerms when the lender changed them. */
+  afterApproval: boolean;
+  /**
+   * 'asking_lender': PacePay asked the lender to honor previousTerms;
+   * 'awaiting_yoshua': the lender insisted, newTerms are within limits, Yoshua got a fresh approval (approvalId);
+   * 'yoshua_approved' / 'yoshua_declined': his answer to that fresh approval;
+   * 'resolved': the lender went back to previousTerms;
+   * 'no_deal': PacePay closed without a deal because of the change (closeReason says why).
+   */
+  status: 'asking_lender' | 'awaiting_yoshua' | 'yoshua_approved' | 'yoshua_declined' | 'resolved' | 'no_deal';
+  /** The fresh deal approval sent to Yoshua for newTerms. */
+  approvalId?: string;
+  at: ISOTimestamp;
 }
 
 /** SPEC §4: the negotiator's answer to one counterparty utterance. */
@@ -343,6 +384,8 @@ export interface DecideResult {
   say: string; // the exact words to speak
   next: 'listen' | 'await_approval' | 'end_call';
   state: NegotiationState;
+  /** Addition: DTMF digits to send on the call (an IVR menu), when the transport can; send instead of speaking `say`. */
+  dtmf?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +420,7 @@ export type ModelRole =
   | 'nemotron-vision'
   | 'claude-opus'
   | 'gpt-realtime'
+  | 'negotiator'
   | 'engine'
   | 'code';
 

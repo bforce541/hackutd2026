@@ -36,6 +36,8 @@ export interface ChatRequest<S extends z.ZodTypeAny | undefined = undefined> {
   stepId?: string;
   /** One plain line for the feed, e.g. 'Nemotron 3 Ultra wrote the plan'. */
   title?: string;
+  /** Extra fields merged into the activity event's detail (e.g. { callId } for a question asked on a call). */
+  detail?: Record<string, unknown>;
   /** Image inputs for the vision job (bytes or URLs). */
   images?: { data: Buffer; contentType: string }[];
 }

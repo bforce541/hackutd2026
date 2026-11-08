@@ -42,6 +42,8 @@ import {
   formatWholeDollars,
   limitsText,
   movePaymentOptionText,
+  hasNoWord,
+  hasYesWord,
   normalizeReply,
   isPaycheckNews,
   parseReply,
@@ -81,7 +83,7 @@ import type { Agent } from './index';
 import { runTool, type ToolContext, type ToolScope } from '../tools/registry';
 import { CALL_STEP_KINDS, ultraTurn, writePlan } from './planner';
 import { assertCaseTransition, assertPlaceCallAllowed, caseApprovals, GateError, isOpen } from './machine';
-import { approvalOutcome, dealChanges, openingLine } from './negotiator';
+import { HUNG_UP_REASON, approvalOutcome, confirmedDeal, dealChanges, openingLine } from './negotiator';
 import { answerQuestion } from './qa';
 import { parseDay } from '../tools/simulate';
 import { needsBillCheck } from '../tools/read_bill';
@@ -906,8 +908,13 @@ export function createRealAgent(ctx: ToolContext): Agent {
     if (getCase(c.id).state !== 'SUMMARIZING') moveTo(c.id, 'SUMMARIZING');
     const neg = c.negotiationId ? ctx.store.getItem('negotiations', c.negotiationId) : undefined;
     const callId = neg?.callId ?? c.callId;
+    // The lender hung up before confirming anything: one honest text, written by code.
+    const hungUp = neg?.outcome === 'no_deal' && neg.closeReason === HUNG_UP_REASON;
     let sent = false;
-    if (callId) {
+    if (hungUp) {
+      await sendMessage(c, step, `${HUNG_UP_REASON} Want me to try again?`, {});
+      sent = true;
+    } else if (callId) {
       try {
         await runTool('post_call_summary', { callId }, ctx, scopeFor(c, step));
         sent = true;
@@ -922,12 +929,13 @@ export function createRealAgent(ctx: ToolContext): Agent {
         const label = itemFor(neg.itemId)?.label ?? 'Payment';
         await sendMessage(c, step, `Done. ${label} is now ${formatDate(offer.newDay, d0())} (${offer.fee ? formatMoney(offer.fee) : 'no fee'}).${neg.referenceNumber ? ` Ref ${neg.referenceNumber}.` : ''}`, facts);
       } else {
-        await sendMessage(c, step, "The call ended without a change. Nothing was agreed.", {});
+        await sendMessage(c, step, neg?.closeReason && neg.termsChange ? `${neg.closeReason} Want me to try again?` : 'The call ended without a change. Nothing was agreed.', {});
       }
     }
     doneStep(getCase(c.id), 'post_call_summary', neg?.outcome ? `Outcome: ${neg.outcome.replace('_', ' ')}` : undefined);
-    if (neg?.outcome === 'no_deal') {
-      const nb = nextBestText(getCase(c.id), "The lender wouldn't move it.");
+    // After a change of terms the summary already says what happened and offers to try again.
+    if (neg?.outcome === 'no_deal' && !neg.termsChange && !hungUp) {
+      const nb = nextBestText(getCase(c.id), neg.closeReason ? 'Meanwhile, you can still cover it another way.' : "The lender wouldn't move it.");
       await inlineStep(getCase(c.id), 'send_message', 'Text Yoshua the other options', 'code', 'post_call_summary', (s) => sendMessage(getCase(c.id), s, nb.text, nb.facts));
     }
     return 'continue';
@@ -1249,7 +1257,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
 
   async function onDealAnswer(c: Case, a: Approval, status: 'approved' | 'declined' | 'timeout'): Promise<void> {
     if (c.state === 'NEGOTIATING' || c.state === 'TEXT_NEGOTIATION') moveTo(c.id, 'AWAITING_APPROVAL');
-    if (getCase(c.id).state !== 'AWAITING_APPROVAL') return;
+    // CONFIRMING: Yoshua approved, then the lender changed the terms and he got a fresh approval.
+    const confirming = getCase(c.id).state === 'CONFIRMING';
+    if (getCase(c.id).state !== 'AWAITING_APPROVAL' && !confirming) return;
     const negId = a.negotiationId ?? c.negotiationId;
     const neg = negId ? ctx.store.getItem('negotiations', negId) : undefined;
     if (!neg) return;
@@ -1263,7 +1273,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
     }
 
     if (status === 'approved') {
-      moveTo(c.id, 'CONFIRMING');
+      // Nothing is committed yet: the forecast, the Done text and the paycheck text wait for the call
+      // to end with these terms undisputed (onCallEnded). A lender who changes them voids this yes.
+      if (!confirming) moveTo(c.id, 'CONFIRMING');
       let changes: Change[] = [];
       try {
         changes = dealChanges(ctx, neg.id);
@@ -1280,8 +1292,15 @@ export function createRealAgent(ctx: ToolContext): Agent {
         return;
       }
       dealOffers.set(c.id, { itemId: offer.itemId, newDay: offer.newDay, fee: offer.fee, postsOnDay: mv.toDay });
-      commit(c.id, changes, { title: `Moved the ${lower(itemFor(offer.itemId)?.label ?? 'payment')} to ${formatDate(mv.toDay, d0())}${fee ? ` with a ${formatMoney(fee.amount)} fee` : ''}` });
-      doneStep(getCase(c.id), 'confirm_deal', `Yoshua approved ${formatDate(offer.newDay, d0())}, ${offer.fee ? formatMoney(offer.fee) : 'no'} fee`);
+      void fee;
+      const s = findStep(getCase(c.id), 'confirm_deal');
+      if (s) patchStep(getCase(c.id), s.id, { note: `Yoshua approved ${formatDate(offer.newDay, d0())}, ${offer.fee ? formatMoney(offer.fee) : 'no'} fee; confirming with the lender` });
+      return;
+    }
+    if (confirming) {
+      // His answer to changed terms: the negotiator ends the call; nothing is committed.
+      if (status === 'declined') dealOffers.delete(c.id);
+      ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, title: status === 'declined' ? "Yoshua declined the lender's changed terms" : "No answer on the lender's changed terms" });
       return;
     }
     if (status === 'declined') {
@@ -1347,11 +1366,33 @@ export function createRealAgent(ctx: ToolContext): Agent {
       // The negotiation closed while the deal approval was still pending: stop waiting on it.
       for (const a of approvalsOf(getCase(c.id))) if (a.kind === 'deal' && a.status === 'pending') timeoutApproval(ctx, a.id);
     }
-    moveTo(c.id, 'SUMMARIZING');
     const neg = c.negotiationId ? ctx.store.getItem('negotiations', c.negotiationId) : undefined;
+    // The deal is committed only now: Yoshua approved it, the lender accepted it, and nothing disputes it
+    // at the end of the call (a change after his yes voids it).
+    const terms = neg ? confirmedDeal(ctx, neg.id) : null;
+    let changes: Change[] = [];
+    if (terms && neg) {
+      try {
+        changes = dealChanges(ctx, neg.id);
+      } catch {
+        changes = [];
+      }
+    }
+    const mv = changes.find((ch): ch is Extract<Change, { type: 'move_item' }> => ch.type === 'move_item');
+    if (terms && neg && mv) {
+      const fee = changes.find((ch): ch is Extract<Change, { type: 'add_fee' }> => ch.type === 'add_fee');
+      if (getCase(c.id).state === 'AWAITING_APPROVAL') moveTo(c.id, 'CONFIRMING');
+      dealOffers.set(c.id, { itemId: neg.itemId, newDay: terms.newDay, fee: terms.fee, postsOnDay: mv.toDay });
+      commit(c.id, changes, { title: `Moved the ${lower(itemFor(neg.itemId)?.label ?? 'payment')} to ${formatDate(mv.toDay, d0())}${fee ? ` with a ${formatMoney(fee.amount)} fee` : ''}` });
+      doneStep(getCase(c.id), 'confirm_deal', `Yoshua approved ${formatDate(terms.newDay, d0())}, ${terms.fee ? formatMoney(terms.fee) : 'no'} fee; the lender confirmed`);
+    } else {
+      dealOffers.delete(c.id);
+      if (neg?.closeReason) ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, level: 'warn', title: `No deal: ${neg.closeReason}` });
+    }
+    moveTo(c.id, 'SUMMARIZING');
     doneStep(getCase(c.id), 'negotiate', neg?.outcome ? `Outcome: ${neg.outcome.replace('_', ' ')}` : 'Ended');
     const cd = findStep(getCase(c.id), 'confirm_deal');
-    if (cd && cd.status !== 'done') skipStep(getCase(c.id), 'confirm_deal', 'No deal was approved');
+    if (cd && cd.status !== 'done') skipStep(getCase(c.id), 'confirm_deal', neg?.termsChange ? 'The lender changed the terms; no deal' : 'No deal was approved');
     // The forecast update and the night-before reminder happen even when the plan left them out.
     ensureStep(getCase(c.id), 'update_forecast', 'Update the forecast', 'engine', 'post_call_summary');
     if (dealOffers.has(c.id)) ensureStep(getCase(c.id), 'schedule_followup', 'Remind Yoshua the night before', 'code', 'update_forecast');
@@ -1512,6 +1553,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
   async function offerPaycheckWatch(c: Case): Promise<void> {
     const offer = dealOffers.get(c.id);
     if (!offer || lateCases.has(c.id)) return;
+    // Only after the call is over with a deal the lender kept (never on terms disputed after the yes).
+    const neg = c.negotiationId ? ctx.store.getItem('negotiations', c.negotiationId) : undefined;
+    if (!neg || neg.state !== 'closed' || neg.outcome !== 'deal') return;
     const s = paycheckScenario('');
     if (!s?.hit || s.payDay < today() || s.payDay > offer.postsOnDay) return;
     ctx.bus.emit({ type: 'step.completed', model: 'engine', caseId: c.id, title: `The new date leans on the ${formatDate(s.payDay, d0())} paycheck: late, checking hits ${formatMoney(s.hit.amount)} on ${formatDate(s.hit.day, d0())}` });
@@ -1529,6 +1573,11 @@ export function createRealAgent(ctx: ToolContext): Agent {
       return false;
     }
     const parsed = parseReply(text);
+    // "no wait yes" / "nah ok keep it": not sure which, so ask again (the watch stays on meanwhile).
+    if (parsed.kind !== 'no' && parsed.kind !== 'yes' && hasYesWord(text) && hasNoWord(text)) {
+      await sendCaseless('Just to check, should I keep watching for your paycheck? Reply NO to skip.', {});
+      return true;
+    }
     if (parsed.kind === 'no' || WATCH_NO.test(n)) {
       cancelPaycheckWatch('Yoshua said no');
       await sendCaseless(paycheckWatchCancelledText(), {});
@@ -1601,7 +1650,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     }
     // A side question while PacePay waits on him ("what's the fee?"): answer it, then re-ask in one line.
     const open = pendingApproval(ctx);
-    if (open) answer = `${answer}\n${reaskText(open.kind, open.optionIds?.length ?? open.choices.length)}`;
+    if (open) answer = `${answer}\n${reaskText(open.kind, open.optionIds?.length ?? open.choices.length, open.prompt)}`;
     await sendText(ctx, answer, { caseId, model: 'nemotron-super' });
     ctx.bus.emit({ type: 'step.completed', model: 'nemotron-super', caseId, title: "Answered Yoshua's question" });
   }

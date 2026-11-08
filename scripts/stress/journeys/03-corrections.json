@@ -1,0 +1,66 @@
+[
+  {
+    "id": "correct-700",
+    "category": "corrections",
+    "title": "Brake quote, then 'it's actually $700'",
+    "style": "Short.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "say": "its actually $700", "expect": "700" },
+      { "waitFor": "option_choice" },
+      { "say": "2" }
+    ],
+    "expect": { "calls": 0, "out": ["\\$700"] },
+    "judgeNotes": "PacePay updates the bill to $700, re-checks the week, and the new options use $700 (savings/card amounts change accordingly). No stale $650 numbers afterwards."
+  },
+  {
+    "id": "correct-after-options",
+    "category": "corrections",
+    "title": "Options already sent; Yoshua: 'wait the quote was 600 not 650'",
+    "style": "Casual, lowercase.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "wait the quote was $600 not 650", "expect": "600" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 0 } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1, "out": ["\\$600"] },
+    "judgeNotes": "Correction while options pending must recompute with $600 (not pick an option, not ignore it)."
+  },
+  {
+    "id": "correct-due-date",
+    "category": "corrections",
+    "title": "Yoshua corrects the due date: 'it's not due till next friday'",
+    "style": "Casual.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "say": "its not due today, they said i can pay next friday when i pick it up" },
+      { "yoshua": "respond naturally to whatever PacePay said" }
+    ],
+    "expect": {},
+    "judgeNotes": "A due-date correction should change the analysis (paying Fri Nov 13 after Thursday's paycheck may remove the shortfall) or at least be acknowledged honestly; ignoring it or treating it as an option choice is a fail."
+  },
+  {
+    "id": "correct-burst-amount",
+    "category": "corrections",
+    "title": "Burst: '1' immediately followed by 'wait its 700'",
+    "style": "Fast texter.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "burst": ["1", "wait its $700"], "gapMs": 300 },
+      { "yoshua": "respond naturally to PacePay's last message; if asked to OK call limits say ok; if given options pick 1" },
+      { "lender": { "fee": 20, "optional": true } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "out": ["700"] },
+    "judgeNotes": "The $700 correction must win over the instant '1'; the plan/limits must be based on $700."
+  }
+]

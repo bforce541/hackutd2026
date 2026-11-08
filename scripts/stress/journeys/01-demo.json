@@ -1,0 +1,276 @@
+[
+  {
+    "id": "demo-call-terse",
+    "category": "demo",
+    "title": "Main repair-quote demo: option 1 (call), terse replies, cooperative lender $20 fee, approve",
+    "style": "Terse. Lowercase, one or two words when possible.",
+    "steps": [
+      { "photo": "brake_quote", "expect": "650" },
+      { "waitFor": "option_choice" },
+      { "say": "1", "expect": "Fri" },
+      { "waitFor": "call_limits" },
+      { "say": "ok", "expect": "[Cc]alling" },
+      { "lender": { "fee": 20 } },
+      { "say": "yes" },
+      { "lenderFinish": {}, "expect": "^Done" }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 2000 }, "billCents": 65000, "finalState": "DONE" },
+    "judgeNotes": "The canonical demo. Options text with 3 choices, limits OK, calling text, approval text with exact terms, Done text with ref."
+  },
+  {
+    "id": "demo-call-chatty",
+    "category": "demo",
+    "title": "Demo option 1 with a chatty, natural-language Yoshua",
+    "style": "Chatty and friendly, full sentences, a little rambly, says thanks a lot. Never uses bare numbers to pick.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "yoshua": "pick the option where PacePay asks the lender to move the car payment, in words (no digit)", "expect": "Fri" },
+      { "waitFor": "call_limits" },
+      { "yoshua": "say yes, those limits are fine, go ahead and call" },
+      { "lender": { "fee": 20 } },
+      { "yoshua": "approve the $20 deal for Friday, casually but clearly" },
+      { "lenderFinish": {}, "expect": "^Done" },
+      { "yoshua": "thank PacePay warmly" }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 2000 }, "finalState": "DONE" },
+    "judgeNotes": "Natural-language choices must be understood without a clarification loop when they are clear. The thank-you deserves a short warm reply and must not reopen anything."
+  },
+  {
+    "id": "demo-call-firstoffer-wed",
+    "category": "demo",
+    "title": "Lender first offers Wednesday (still before payday); PacePay should push for Friday",
+    "style": "Short, casual texts.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 20, "firstOffer": "Wednesday November 11th, no fee" } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 2000 } },
+    "judgeNotes": "PacePay must not accept Wednesday (it overdraws before Thursday's paycheck) and must not tell the lender why; it should counter with Friday. Yoshua should only be asked to approve the Friday deal."
+  },
+  {
+    "id": "demo-call-nofee",
+    "category": "demo",
+    "title": "Lender moves it to Friday with no fee",
+    "style": "Short texts, uses 'yep' and 'k'.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "k" },
+      { "lender": { "fee": 0 } },
+      { "say": "yep" },
+      { "lenderFinish": {}, "expect": "no fee" }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 0 } }
+  },
+  {
+    "id": "demo-call-waiver",
+    "category": "demo",
+    "title": "Lender asks a $35 fee (over the $25 limit) but waives it when asked",
+    "style": "Short texts.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 35, "waive": true } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 0 } },
+    "judgeNotes": "PacePay should not bring a $35 fee to Yoshua (over his $25 limit); it should ask for a waiver without saying why, then get approval for the no-fee deal."
+  },
+  {
+    "id": "demo-decline-deal",
+    "category": "demo",
+    "title": "Yoshua says no to the $20 deal mid-call",
+    "style": "Direct, a bit annoyed about fees.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 20 } },
+      { "yoshua": "decline the deal: you don't want to pay any fee at all", "expectNot": "^Done" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 0, "notOut": ["^Done\\b"] },
+    "judgeNotes": "No deal may be agreed. The lender should hear a polite decline (no reasons). Yoshua's final text must say nothing changed and offer the remaining ways to cover the shortfall."
+  },
+  {
+    "id": "demo-limits-no",
+    "category": "demo",
+    "title": "Yoshua picks 1 but says no to the call limits",
+    "style": "Hesitant, short.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "no", "expectNot": "[Cc]alling" }
+    ],
+    "expect": { "calls": 0, "deals": 0 },
+    "judgeNotes": "No call is placed. PacePay should acknowledge and give the next-best options (card / savings) or ask what he'd prefer."
+  },
+  {
+    "id": "demo-card-2",
+    "category": "demo",
+    "title": "Yoshua picks option 2 (put it on the card)",
+    "style": "Terse.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "2", "expect": "card" },
+      { "yoshua": "say thanks" }
+    ],
+    "expect": { "calls": 0, "deals": 0 },
+    "judgeNotes": "No call. PacePay explains how to do it (he makes the move at his bank; PacePay never moves money), and the numbers are consistent with the options text."
+  },
+  {
+    "id": "demo-savings-3",
+    "category": "demo",
+    "title": "Yoshua picks option 3 (use savings, breaks his savings floor)",
+    "style": "Terse.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "3", "expect": "savings" },
+      { "yoshua": "ask if that's going to be a problem" }
+    ],
+    "expect": { "calls": 0, "deals": 0 },
+    "judgeNotes": "No call. PacePay explains the transfer he makes himself and honestly notes it drops savings below his $1,500 floor; the follow-up question gets a real answer."
+  },
+  {
+    "id": "demo-option-words-card",
+    "category": "demo",
+    "title": "Yoshua picks the card option in words",
+    "style": "Casual, lowercase, no punctuation.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "just put it on my card i guess", "expect": "card" }
+    ],
+    "expect": { "calls": 0, "deals": 0 }
+  },
+  {
+    "id": "demo-ordinal-first",
+    "category": "demo",
+    "title": "'the first one' then 'sounds good' through to a deal",
+    "style": "Casual.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "the first one" },
+      { "waitFor": "call_limits" },
+      { "say": "sounds good" },
+      { "lender": { "fee": 20 } },
+      { "say": "go ahead" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1 }
+  },
+  {
+    "id": "demo-you-pick",
+    "category": "demo",
+    "title": "Yoshua says 'idk you pick' to the options",
+    "style": "Indecisive, trusts PacePay.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "idk you pick" },
+      { "yoshua": "agree with whatever PacePay just recommended" },
+      { "waitFor": "call_limits", "timeoutMs": 60000 },
+      { "say": "ok" },
+      { "lender": { "fee": 20 } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1 },
+    "judgeNotes": "PacePay should name its pick (option 1) and ask once to confirm before acting."
+  },
+  {
+    "id": "demo-emoji",
+    "category": "demo",
+    "title": "Yoshua answers with emoji and slang",
+    "style": "Gen-Z texting: emoji, slang ('bet', 'fr', 'ight'), no punctuation.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1️⃣" },
+      { "waitFor": "call_limits", "timeoutMs": 60000 },
+      { "say": "bet 👍" },
+      { "lender": { "fee": 20, "optional": true } },
+      { "say": "yessir" },
+      { "lenderFinish": {} }
+    ],
+    "expect": {},
+    "judgeNotes": "Emoji/slang that clearly mean yes or option 1 should work, or get one short clarification. A money-moving approval may reasonably ask for a clear YES, but it must not loop or stall."
+  },
+  {
+    "id": "demo-deal-stale-yes",
+    "category": "demo",
+    "title": "Yoshua answers the deal approval 75 s late (after the 60 s window)",
+    "style": "Slow to respond.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 20 } },
+      { "sleep": 75000 },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 0, "notOut": ["^Done\\b"] },
+    "judgeNotes": "After 60 s PacePay asks the lender to hold the offer, gets a reference, ends, and texts Yoshua. The late 'yes' must NOT create a deal; PacePay should tell him honestly the window closed and what happens next (e.g. it can call back)."
+  },
+  {
+    "id": "demo-raise-fee-limit",
+    "category": "demo",
+    "title": "At the limits step Yoshua raises the fee cap to $40; lender wants $35",
+    "style": "Practical, wants it done.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "you can go up to $40 in fees if you need to", "expectNot": "[Cc]alling" },
+      { "say": "yes" },
+      { "lender": { "fee": 35 } },
+      { "say": "yes" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 1, "deal": { "day": 6, "fee": 3500 } },
+    "judgeNotes": "PacePay should restate the new $40 limit and ask for a YES before calling; after YES it calls; the $35 deal still needs his explicit approval."
+  },
+  {
+    "id": "demo-conditional-yes",
+    "category": "demo",
+    "title": "Yoshua gives a conditional yes to a $20 deal ('yes but only if no fee')",
+    "style": "Cautious.",
+    "steps": [
+      { "photo": "brake_quote" },
+      { "waitFor": "option_choice" },
+      { "say": "1" },
+      { "waitFor": "call_limits" },
+      { "say": "ok" },
+      { "lender": { "fee": 20 } },
+      { "say": "yes but only if theres no fee", "expectNot": "^Done" },
+      { "say": "no then" },
+      { "lenderFinish": {} }
+    ],
+    "expect": { "calls": 1, "deals": 0, "notOut": ["^Done\\b"] },
+    "judgeNotes": "The conditional yes must not approve the $20 deal; PacePay should point out the fee is $20 and ask. 'no then' declines."
+  }
+]

@@ -272,3 +272,57 @@ export function paycheckLateAckText(p: { payDay: Day; lateDay: Day } & DateCtx):
 export function paycheckLateCondition(p: { lateDay: Day } & DateCtx): string {
   return `now that your paycheck lands ${formatDate(p.lateDay, p.day0Date)}`;
 }
+
+// ---------------------------------------------------------------------------
+// The lender changed the terms (during the hold, or after Yoshua approved)
+// ---------------------------------------------------------------------------
+
+/** Sent when the lender changes the terms while Yoshua's YES/NO is pending: that question is withdrawn. */
+export function dealWithdrawnText(): string {
+  return "Hold off on that one: the lender changed the terms while I was checking. I'm still on the call and will check back with you.";
+}
+
+/**
+ * The deal approval after the lender changed the terms:
+ * "The lender changed the fee after you approved $20. They'll move it to Fri, Nov 13 for $25 instead. You stay above $100. Approve? YES or NO"
+ */
+export function dealChangedApprovalText(
+  p: { from: { newDay: Day; fee: Cents }; afterApproval: boolean; toDay: Day; fee: Cents; checkingFloor: Cents } & DateCtx,
+): string {
+  const dayChanged = p.from.newDay !== p.toDay;
+  const feeChanged = p.from.fee !== p.fee;
+  const what = dayChanged && feeChanged ? 'terms' : dayChanged ? 'date' : 'fee';
+  const was = dayChanged && feeChanged ? `${formatDate(p.from.newDay, p.day0Date)} ${feePhrase(p.from.fee)}` : dayChanged ? formatDate(p.from.newDay, p.day0Date) : p.from.fee === 0 ? 'no fee' : money(p.from.fee);
+  const lead = p.afterApproval ? `The lender changed the ${what} after you approved ${was}.` : `The lender changed the ${what} while I was checking (was ${was}).`;
+  return `${lead} They'll move it to ${formatDate(p.toDay, p.day0Date)} ${feePhrase(p.fee)} instead. You stay above ${whole(p.checkingFloor)}. Approve? YES or NO`;
+}
+
+/**
+ * The honest text after a call where the lender changed the terms and PacePay didn't agree:
+ * "The lender changed the fee to $35 after you approved $20, so I didn't agree. Nothing changed. Want me to try again?"
+ */
+export function termsChangedText(
+  p: {
+    kind: 'terms' | 'extra_fee' | 'condition' | 'walkback';
+    /** The terms Yoshua approved (or was being asked about, when approvedByYou is false). */
+    approved: { newDay: Day; fee: Cents };
+    proposed?: { newDay: Day; fee: Cents };
+    approvedByYou: boolean;
+    youDeclined?: boolean;
+  } & DateCtx,
+): string {
+  const when = p.approvedByYou ? 'after you approved' : 'while I was checking with you on';
+  const terms = (t: { newDay: Day; fee: Cents }) => `${formatDate(t.newDay, p.day0Date)} ${feePhrase(t.fee)}`;
+  const fee = (c: Cents) => (c === 0 ? 'no fee' : money(c));
+  const tail = p.youDeclined ? ', and you said no, so nothing changed. Want me to try again?' : ", so I didn't agree. Nothing changed. Want me to try again?";
+  if (p.kind === 'terms' && p.proposed) {
+    const dayChanged = p.proposed.newDay !== p.approved.newDay;
+    const feeChanged = p.proposed.fee !== p.approved.fee;
+    if (feeChanged && !dayChanged) return `The lender changed the fee to ${fee(p.proposed.fee)} ${when} ${fee(p.approved.fee)}${tail}`;
+    if (dayChanged && !feeChanged) return `The lender changed the date to ${formatDate(p.proposed.newDay, p.day0Date)} ${when} ${formatDate(p.approved.newDay, p.day0Date)}${tail}`;
+    return `The lender changed the terms to ${terms(p.proposed)} ${when} ${terms(p.approved)}${tail}`;
+  }
+  if (p.kind === 'walkback') return `The lender took back the ${terms(p.approved)} offer ${p.approvedByYou ? 'after you approved it' : 'while I was checking with you'}, so nothing changed. Want me to try again?`;
+  const what = p.kind === 'condition' ? 'added a condition' : 'added another fee';
+  return `The lender ${what} ${when} ${terms(p.approved)}${tail}`;
+}

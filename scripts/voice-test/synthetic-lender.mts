@@ -91,6 +91,29 @@ const SCENARIOS: Record<string, Step[]> = {
     { approve: 'yes', afterMs: 8_000 },
     { say: 'Okay uh, A 7 7 3 2.', after: /approved/i },
   ],
+  // Ram's Nov 7 rehearsal: a hedged yes, then a fee change after Yoshua approved. PacePay must not
+  // agree to $35 (over the $25 limit): it restates $20 and, if they insist, closes with no deal.
+  postapproval: [
+    { say: 'We can do Wednesday.' },
+    { say: 'Yes.' },
+    { say: "Friday works, but there's gonna be a twenty dollar fee." },
+    { say: 'Yeah, something like that.' },
+    { say: "Yeah, that's fine." },
+    { approve: 'yes', afterMs: 4_000 },
+    { say: 'Uh, actually, I want to make that thirty-five dollars.', after: /approved/i },
+    { say: "Uh, no, it's thirty-five now." },
+  ],
+  // A better offer while PacePay holds for Yoshua: it must not be lost behind "still checking".
+  holdoffer: [
+    { say: 'We can do Wednesday.' },
+    { say: 'Yes.' },
+    { say: "Friday works, but there's a twenty dollar fee." },
+    { say: 'Yes.' },
+    { say: 'Actually, you know what, I can do Friday with no fee.', after: /yoshua/i },
+    { say: 'Yes.' },
+    { approve: 'yes', afterMs: 6_000 },
+    { say: REF, after: /approved|reference/i },
+  ],
   // Yoshua calls in: a wrong PIN, the right one, a question, goodbye.
   inbound: [
     { say: 'Uh, one two three five.' },
@@ -168,6 +191,8 @@ const customer = (text: string) => api('POST', '/demo/customer-says', { text });
 // The test worker
 // ---------------------------------------------------------------------------------------------
 const workerLines: { at: number; text: string }[] = [];
+/** Worker timing marks (t:<name> <epoch ms>), same clock as this process. */
+const marks: { name: string; at: number; extra: string }[] = [];
 let workerReady!: () => void;
 const workerReadyP = new Promise<void>((r) => (workerReady = r));
 const worker: ChildProcess = spawn(join(VOICE, 'node_modules/.bin/tsx'), [WORKER_FILE, 'start'], {
@@ -181,8 +206,13 @@ const onWorker = (buf: Buffer) => {
     if (/registered worker/i.test(l)) workerReady();
     if (l.includes('[voice]')) {
       const text = l.replace(/^\S+ \[voice\] /, '');
+      const mk = /^t:(\w+) (\d+)\s*(.*)$/.exec(text);
+      if (mk) {
+        marks.push({ name: mk[1]!, at: Number(mk[2]), extra: mk[3] ?? '' });
+        continue;
+      }
       workerLines.push({ at: Date.now(), text });
-      if (process.env.VERBOSE || /say \(|turn \d+:|audio ready|rest of the line|opener|TTS|resuming|ignored|skipped|dropped|blocked|failed|error|ended/i.test(text)) say(`  [worker] ${text}`);
+      if (process.env.VERBOSE || /say \(|turn \d+:|audio ready|rest of the line|opener|TTS|resuming|ignored|skipped|dropped|waiting for|blocked|failed|error|ended/i.test(text)) say(`  [worker] ${text}`);
     } else if (process.env.VERBOSE || /"level":(4|5)0|error/i.test(l)) say(`  [worker-log] ${l.slice(0, 300)}`);
   }
 };
@@ -351,7 +381,7 @@ async function joinRoom(room: string, identity: string, attributes?: Record<stri
 // ---------------------------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------------------------
-const latencies: { after: string; ms: number }[] = [];
+const latencies: { after: string; ms: number; stoppedAt: number; onset: number }[] = [];
 let failed = '';
 let callId = '';
 let room = '';
@@ -440,7 +470,7 @@ try {
     await until('PacePay to respond', () => roomGone || segments.slice(seg0).some((s) => s.start > stoppedAt) || (!!cur && cur.start > stoppedAt), 60_000).catch((err) => say(`  !! ${err.message}`));
     const onset = [...segments.slice(seg0), ...(cur ? [cur] : [])].find((s) => s.start > stoppedAt)?.start;
     if (onset) {
-      latencies.push({ after: text, ms: onset - stoppedAt });
+      latencies.push({ after: text, ms: onset - stoppedAt, stoppedAt, onset });
       say(`  (PacePay started ${onset - stoppedAt} ms after the lender stopped)`);
     }
     const next = steps[steps.indexOf(step) + 1];
@@ -504,8 +534,27 @@ console.log(`  same line twice: ${dupes.length ? dupes.map((s) => `"${s.text}"`)
 console.log(`  "approved" line spoken ${approvalDupes} time(s)`);
 console.log(`  heard words not in any handed line: ${stray.length ? [...new Set(stray)].join(', ') : 'none'}`);
 console.log(`  blocked model replies: ${workerLines.filter((l) => /blocked a reply/.test(l.text)).length}`);
-console.log('\n== latency (lender stops -> PacePay audio starts)');
-for (const l of latencies) console.log(`  ${String(l.ms).padStart(5)} ms  after "${l.after}"`);
+console.log('\n== latency (lender stops -> PacePay audio starts), with where the time went');
+console.log('  total |  vad  trans  decide  audio  wire | after');
+const pct = (xs: number[], q: number) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]! : NaN;
+};
+for (const l of latencies) {
+  // The worker's marks for this turn: its end of turn, transcript, decision and first frame.
+  const after = (name: string, t: number) => marks.find((m) => m.name === name && m.at >= t && m.at <= l.onset + 50);
+  const vad = after('vad_end', l.stoppedAt - 300);
+  const tr = vad && after('transcript', vad.at);
+  const dec = tr && after('decided', tr.at);
+  const fr = dec && after('first_frame', dec.at);
+  const d = (a?: { at: number }, b?: { at: number }) => (a && b ? String(b.at - a.at) : '-');
+  const kind = fr ? fr.extra.split(' ')[0] : '';
+  console.log(
+    `  ${String(l.ms).padStart(5)} | ${d({ at: l.stoppedAt }, vad).padStart(4)} ${d(vad, tr).padStart(6)} ${d(tr, dec).padStart(7)} ${d(dec, fr).padStart(6)} ${d(fr, { at: l.onset }).padStart(5)} | "${l.after}"${kind && kind !== 'reply' ? ` (${kind})` : ''}`,
+  );
+}
+const ms = latencies.map((l) => l.ms);
+console.log(`  p50 ${pct(ms, 0.5)} ms, p90 ${pct(ms, 0.9)} ms over ${ms.length} turns`);
 if (failed) console.log(`\n[harness] FAILED: ${failed}`);
 
 worker.kill('SIGINT');

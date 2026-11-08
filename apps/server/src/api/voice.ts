@@ -37,7 +37,7 @@ import type { ServerContext } from '../context';
 import { env } from '../env';
 import { newId, nowIso } from '../ids';
 import { runTool } from '../tools/registry';
-import { accountReference, approvalOutcomeForCall, greetingLine } from '../agent/negotiator';
+import { accountReference, approvalOutcomeForCall, callHungUp, greetingLine } from '../agent/negotiator';
 import { answerQuestion } from '../agent/qa';
 import { roomForCall } from '../voice/dispatch';
 import { apiError, HttpError, localOnly, parseBody } from './http';
@@ -50,6 +50,25 @@ const PIN_GOODBYE_LINE = 'I could not verify the PIN, so I have to end the call.
 const MAX_PIN_TRIES = 3;
 /** If the model forgets end_call after the goodbye line, hang up anyway. */
 const PIN_HANGUP_DELAY_MS = 15_000;
+
+/** /ask gives up after this long and says ASK_SLOW_LINE (a call never waits on a slow model). */
+const ASK_DEADLINE_MS = 8_000;
+const ASK_SLOW_LINE = "Sorry, that's taking longer than it should. Ask me again in a moment.";
+/** What the transcript keeps instead of a spoken PIN. */
+export const PIN_REDACTED = '(said the PIN)';
+/** The PIN line's transcript may land just after verify-pin: still redacted within this window. */
+const PIN_REDACT_GRACE_MS = 2_000;
+const NUMBER_WORD = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b/i;
+const LOOSE_NUMBER_WORD = /\b(?:oh|o|won|to|too|for|fore|ate)\b/gi;
+/** A caller line that may hold PIN digits: any digit, any number word, or several sound-alikes ("to for to for"). */
+export function looksLikePin(text: string): boolean {
+  return /\d/.test(text) || NUMBER_WORD.test(text) || (text.match(LOOSE_NUMBER_WORD) ?? []).length >= 3;
+}
+/** "+12145518979" -> "•••8979" for the activity feed. */
+export const maskPhone = (p: string): string => {
+  const d = p.replace(/\D/g, '');
+  return d.length >= 4 ? `•••${d.slice(-4)}` : d ? '•••' : '';
+};
 
 const digitsOf = (s: string) => s.replace(/\D/g, '');
 /** Same phone number regardless of formatting: compare the last ten digits. */
@@ -64,6 +83,7 @@ export function voiceRoutes(ctx: ServerContext): Hono {
   r.use('*', localOnly);
   const { store, bus } = ctx;
   const pinFailures = new Map<string, number>();
+  const pinVerifiedAt = new Map<string, number>();
 
   function getCall(id: string): Call {
     const call = store.getItem('calls', id);
@@ -176,14 +196,29 @@ export function voiceRoutes(ctx: ServerContext): Hono {
       }
       case 'transcript': {
         if (!ev.text || !ev.speaker) throw new HttpError(400, 'bad_request', 'transcript needs speaker and text');
-        const line = { at: nowIso(), speaker: ev.speaker, text: ev.text };
+        // The spoken PIN is never stored or shown: on an inbound call, a caller line with digits or number
+        // words before (or just as) the PIN is verified becomes "(said the PIN)".
+        const pinWindow = !call.pinVerified || Date.now() - (pinVerifiedAt.get(call.id) ?? 0) < PIN_REDACT_GRACE_MS;
+        const text = call.direction === 'inbound' && ev.speaker === 'customer' && pinWindow && looksLikePin(ev.text) ? PIN_REDACTED : ev.text;
+        const line = { at: nowIso(), speaker: ev.speaker, text };
         store.patch('calls', call.id, { transcript: [...call.transcript, line] });
-        bus.emit({ type: 'call.transcript', model: 'gpt-realtime', caseId, title: `${ev.speaker}: ${ev.text}`, detail: { callId: call.id, ...line } });
+        // PacePay's lines are the negotiator's (code) voiced by OpenAI TTS; the realtime model only transcribes the lender.
+        const pacepay = ev.speaker === 'pacepay' && call.direction === 'outbound';
+        bus.emit({
+          type: 'call.transcript',
+          model: pacepay ? 'negotiator' : 'gpt-realtime',
+          caseId,
+          title: pacepay ? `PacePay said: "${ev.text}"` : call.direction === 'outbound' ? `Lender said (transcribed): "${ev.text}"` : `${ev.speaker}: ${text}`,
+          detail: { callId: call.id, ...line },
+        });
         publishCall(call.id);
         break;
       }
       case 'ended': {
         if (isOver(call)) break;
+        // The negotiator settles the end first (a change of terms left unsettled is no deal; a closed
+        // negotiation's CALL_ENDED was held for this moment), so the call's outcome below is final.
+        const settled = call.direction === 'outbound' && call.negotiationId ? callHungUp(ctx, call.negotiationId) : false;
         const neg = call.negotiationId ? store.getItem('negotiations', call.negotiationId) : undefined;
         const outcome = call.direction === 'inbound' ? 'qa' : neg?.outcome;
         store.patch('calls', call.id, {
@@ -194,7 +229,7 @@ export function voiceRoutes(ctx: ServerContext): Hono {
         });
         bus.emit({ type: 'call.ended', model: 'gpt-realtime', caseId, title: 'The call ended', detail: { callId: call.id, outcome } });
         publishCall(call.id);
-        if (call.direction === 'outbound') {
+        if (call.direction === 'outbound' && !settled) {
           // decide() already enqueued CALL_ENDED when it closed the negotiation; don't send a second one.
           if (neg?.outcome) {
             if (neg.state !== 'closed') ctx.enqueue({ id: newId('evt'), at: nowIso(), type: 'CALL_ENDED', callId: call.id, negotiationId: neg.id });
@@ -236,9 +271,10 @@ export function voiceRoutes(ctx: ServerContext): Hono {
       startedAt: nowIso(),
     };
     store.put('calls', call);
-    bus.emit({ type: 'call.answered', model: 'gpt-realtime', title: known ? 'Inbound call from Yoshua' : 'Inbound call from an unknown number', level: known ? 'info' : 'warn', detail: { callId: id, room: call.room } });
+    bus.emit({ type: 'call.answered', model: 'gpt-realtime', title: known ? 'Inbound call from Yoshua' : 'Inbound call from an unknown number', level: known ? 'info' : 'warn', detail: { callId: id, room: call.room, direction: 'inbound', callerKnown: known, caller: maskPhone(callerPhone) } });
     publishCall(id);
-    ctx.enqueue({ id: newId('evt'), at: nowIso(), type: 'INBOUND_CALL', callId: id, room: call.room, callerPhone });
+    // The feed shows this event ("Received INBOUND_CALL"): the caller's number only as its last 4 digits.
+    ctx.enqueue({ id: newId('evt'), at: nowIso(), type: 'INBOUND_CALL', callId: id, room: call.room, callerPhone: maskPhone(callerPhone) });
     const body: VoiceInboundResponse = { callId: id, greeting: known ? INBOUND_GREETING : ACCOUNT_HOLDER_LINE, requirePin: true };
     return c.json(body);
   });
@@ -255,7 +291,9 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     const callerOk = samePhone(call.phone, env('CUSTOMER_PHONE') ?? '');
     if (callerOk && pin && digitsOf(digits) === digitsOf(pin)) {
       pinFailures.delete(call.id);
+      pinVerifiedAt.set(call.id, Date.now());
       store.patch('calls', call.id, { pinVerified: true });
+      bus.emit({ type: 'call.transcript', model: 'code', level: 'info', title: 'PIN verified', detail: { callId: call.id, callerKnown: true, tries: fails + 1 } });
       publishCall(call.id);
       return c.json({ ok: true, say: PIN_OK_LINE });
     }
@@ -275,7 +313,17 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     const { question } = await parseBody(c, VoiceAskRequestSchema);
     // Numbers only on an inbound call whose caller ID is CUSTOMER_PHONE and whose PIN matched.
     if (call.direction !== 'inbound' || !call.pinVerified || !samePhone(call.phone, env('CUSTOMER_PHONE') ?? '')) return c.json({ say: ACCOUNT_HOLDER_LINE });
-    const say = await answerQuestion(ctx, question, { channel: 'voice', allowNumbers: true });
+    // Never longer than ASK_DEADLINE_MS: the caller hears a graceful line instead of dead air.
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<string>((res) => {
+      timer = setTimeout(() => {
+        bus.emit({ type: 'tool.result', model: 'code', level: 'warn', title: `Question on the call took over ${ASK_DEADLINE_MS / 1000} s; said a hold line`, detail: { callId: call.id, question } });
+        res(ASK_SLOW_LINE);
+      }, ASK_DEADLINE_MS);
+    });
+    const answer = answerQuestion(ctx, question, { channel: 'voice', allowNumbers: true, callId: call.id }).catch(() => "I couldn't check that just now. Try asking again in a moment.");
+    const say = await Promise.race([answer, late]);
+    clearTimeout(timer);
     return c.json({ say });
   });
 

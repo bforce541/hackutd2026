@@ -237,6 +237,8 @@ export const ApprovalSchema = z.object({
   requestedAt: TimestampSchema,
   resolvedAt: TimestampSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
+  previousTerms: z.object({ newDay: DaySchema, fee: CentsSchema }).optional(),
+  newTerms: z.object({ newDay: DaySchema, fee: CentsSchema }).optional(),
 }) satisfies z.ZodType<T.Approval>;
 
 export const TranscriptLineSchema = z.object({
@@ -287,12 +289,25 @@ export const NegotiationSchema = z.object({
   transcript: z.array(TranscriptLineSchema).optional(),
   referenceNumber: z.string().optional(),
   callId: z.string().optional(),
+  termsChange: z
+    .object({
+      kind: z.enum(['terms', 'extra_fee', 'condition', 'walkback']),
+      previousTerms: z.object({ newDay: DaySchema, fee: CentsSchema }),
+      newTerms: z.object({ newDay: DaySchema, fee: CentsSchema }).optional(),
+      afterApproval: z.boolean(),
+      status: z.enum(['asking_lender', 'awaiting_yoshua', 'yoshua_approved', 'yoshua_declined', 'resolved', 'no_deal']),
+      approvalId: z.string().optional(),
+      at: TimestampSchema,
+    })
+    .optional(),
+  closeReason: z.string().optional(),
 }) satisfies z.ZodType<T.Negotiation>;
 
 export const DecideResultSchema = z.object({
   say: z.string(),
   next: z.enum(['listen', 'await_approval', 'end_call']),
   state: NegotiationStateSchema,
+  dtmf: z.string().optional(),
 }) satisfies z.ZodType<T.DecideResult>;
 
 // ---------------------------------------------------------------------------

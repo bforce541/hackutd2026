@@ -1,0 +1,265 @@
+[
+  {
+    "persona": {
+      "id": "ram-bad-call",
+      "category": "fixture",
+      "title": "Ram's real bad call: hedge, then $20 -> $35 after approval",
+      "behavior": "Friday with $20 fee, hedges on read-back, raises to $35 after approval and insists.",
+      "asr_noise": 0,
+      "yoshua": {
+        "approval_reply": "text:Yes sounds good"
+      },
+      "expect": {
+        "outcome": "no_deal",
+        "deal_terms": null,
+        "must": [
+          "restates approved $20 or declines $35"
+        ],
+        "must_not": [
+          "agrees to $35",
+          "texts Done with $20"
+        ]
+      }
+    },
+    "ok": true,
+    "endReason": "negotiator_end",
+    "callStartAt": "2026-11-08T03:00:00.000Z",
+    "call": [
+      {
+        "who": "pacepay",
+        "text": "Hi, this is PacePay, an AI assistant calling on behalf of Yoshua about his auto loan ending 4417. This call is transcribed. I'd like to move his payment due Tuesday, November 10 to Friday, November 13. Is that possible?",
+        "t": 0,
+        "turn": 0,
+        "source": "greeting",
+        "kind": "greeting"
+      },
+      {
+        "who": "lender",
+        "text": "Friday works, but there's gonna be a $20 fee.",
+        "t": 10000,
+        "turn": 0,
+        "heard": "Friday works, but there's gonna be a $20 fee."
+      },
+      {
+        "who": "pacepay",
+        "text": "Just to confirm: Friday, November 13, with a $20 fee?",
+        "t": 14000,
+        "turn": 0,
+        "source": "decide",
+        "kind": "reply"
+      },
+      {
+        "who": "lender",
+        "text": "Yeah, something like that.",
+        "t": 20000,
+        "turn": 0,
+        "heard": "Yeah, something like that."
+      },
+      {
+        "who": "pacepay",
+        "text": "Sorry, I didn't catch that.",
+        "t": 23000,
+        "turn": 0,
+        "source": "decide",
+        "kind": "reply"
+      },
+      {
+        "who": "lender",
+        "text": "Yeah, that's fine.",
+        "t": 27000,
+        "turn": 0,
+        "heard": "Yeah, that's fine."
+      },
+      {
+        "who": "pacepay",
+        "text": "Thanks. One moment while I check with Yoshua.",
+        "t": 30000,
+        "turn": 0,
+        "source": "decide",
+        "kind": "hold"
+      },
+      {
+        "who": "pacepay",
+        "text": "Yoshua approved Friday, November 13 with the $20 fee. What's the reference number?",
+        "t": 41000,
+        "turn": 0,
+        "source": "approval",
+        "kind": "approval"
+      },
+      {
+        "who": "lender",
+        "text": "Uh, actually, I want to make that $35.",
+        "t": 46000,
+        "turn": 0,
+        "heard": "Uh, actually, I want to make that $35."
+      },
+      {
+        "who": "pacepay",
+        "text": "Sorry, could I get a reference number for that change?",
+        "t": 49000,
+        "turn": 0,
+        "source": "decide",
+        "kind": "reply"
+      },
+      {
+        "who": "lender",
+        "text": "Uh, no, it's $35 now.",
+        "t": 54000,
+        "turn": 0,
+        "heard": "Uh, no, it's $35 now."
+      },
+      {
+        "who": "pacepay",
+        "text": "That's fine. Thank you for taking care of that. Goodbye.",
+        "t": 57000,
+        "turn": 0,
+        "source": "decide",
+        "kind": "goodbye"
+      }
+    ],
+    "texts": [
+      {
+        "dir": "out",
+        "text": "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO",
+        "at": "2026-11-08T03:00:30.000Z",
+        "t": 30000
+      },
+      {
+        "dir": "in",
+        "text": "Yes sounds good",
+        "at": "2026-11-08T03:00:40.000Z",
+        "t": 40000,
+        "approvalReply": true
+      },
+      {
+        "dir": "out",
+        "text": "Done. Car payment is now Fri, Nov 13 ($20).",
+        "at": "2026-11-08T03:00:50.000Z",
+        "t": 50000
+      }
+    ],
+    "negotiation": {
+      "outcome": "deal",
+      "offers": []
+    },
+    "caseState": "DONE",
+    "approvals": [
+      {
+        "id": "a1",
+        "kind": "deal",
+        "status": "approved",
+        "prompt": "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO",
+        "requestedAt": "2026-11-08T03:00:30.000Z",
+        "resolvedAt": "2026-11-08T03:00:40.000Z"
+      }
+    ],
+    "acceptedChangesBefore": [],
+    "acceptedChanges": [
+      {
+        "type": "move_item",
+        "itemId": "loan",
+        "toDay": "2026-11-13"
+      }
+    ],
+    "timings": {
+      "setupMs": 0,
+      "callMs": 60000,
+      "postMs": 0,
+      "totalMs": 60000,
+      "lenderLlmMs": 0,
+      "decideMs": []
+    },
+    "grade": {
+      "pass": false,
+      "issues": [
+        {
+          "check": "agreed_after_change",
+          "severity": "critical",
+          "detail": "Lender said \"Uh, no, it's $35 now.\" (?day / $35); approved: Fri Nov 13 / $20. PacePay's reply sounds like agreement.",
+          "line": "That's fine. Thank you for taking care of that. Goodbye.",
+          "cause": "sounds like agreeing to unapproved terms",
+          "area": "negotiator",
+          "by": "rule"
+        },
+        {
+          "check": "ignored_change_after_approval",
+          "severity": "critical",
+          "detail": "After approval of Fri Nov 13 / $20, lender changed to ?day / $35: \"Uh, actually, I want to make that $35.\". PacePay did not restate the approved terms.",
+          "line": "Sorry, could I get a reference number for that change?",
+          "cause": "post-approval change not handled",
+          "area": "negotiator",
+          "by": "rule"
+        },
+        {
+          "check": "ignored_change_after_approval",
+          "severity": "high",
+          "detail": "After approval of Fri Nov 13 / $20, lender changed to ?day / $35: \"Uh, no, it's $35 now.\". PacePay did not restate the approved terms.",
+          "line": "That's fine. Thank you for taking care of that. Goodbye.",
+          "cause": "post-approval change not handled",
+          "area": "negotiator",
+          "by": "rule"
+        },
+        {
+          "check": "deal_on_disputed_terms",
+          "severity": "critical",
+          "detail": "Deal committed on Fri Nov 13 / $20 but the lender last stated Fri Nov 13 / $35 (\"Uh, no, it's $35 now.\").",
+          "line": "Done. Car payment is now Fri, Nov 13 ($20).",
+          "cause": "outcome ignores the lender's last change",
+          "area": "texts",
+          "by": "rule"
+        },
+        {
+          "check": "done_text_before_call_end",
+          "severity": "high",
+          "detail": "Done text at 50 s; call ended at 58 s.",
+          "line": "Done. Car payment is now Fri, Nov 13 ($20).",
+          "cause": "Done texted mid-call",
+          "area": "texts",
+          "by": "rule"
+        },
+        {
+          "check": "false_didnt_catch",
+          "severity": "high",
+          "detail": "Said it didn't catch an intelligible turn: heard \"Yeah, something like that.\".",
+          "line": "Sorry, I didn't catch that.",
+          "cause": "\"didn't catch\" on intelligible speech",
+          "area": "negotiator",
+          "by": "rule"
+        },
+        {
+          "check": "no_final_text",
+          "severity": "high",
+          "detail": "No text to Yoshua after the call ended (end=negotiator_end, outcome=deal).",
+          "cause": "no final text to Yoshua",
+          "area": "texts",
+          "by": "rule"
+        },
+        {
+          "check": "agreeing_closing",
+          "severity": "critical",
+          "detail": "Closing sounds like agreement while terms were disputed (lender Fri Nov 13 / $35 vs approved Fri Nov 13 / $20).",
+          "line": "That's fine. Thank you for taking care of that. Goodbye.",
+          "cause": "closing sounds like agreement",
+          "area": "negotiator",
+          "by": "rule"
+        }
+      ],
+      "facts": {
+        "endReason": "negotiator_end",
+        "outcome": "deal",
+        "committed": true,
+        "approved": "Fri Nov 13 / $20",
+        "approvals": [
+          "approved:Fri Nov 13 / $20"
+        ],
+        "lenderLast": "Fri Nov 13 / $35",
+        "disputed": true,
+        "doneTexts": [
+          "Done. Car payment is now Fri, Nov 13 ($20)."
+        ],
+        "moved": true,
+        "caseState": "DONE"
+      }
+    }
+  }
+]

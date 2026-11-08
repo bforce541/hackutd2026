@@ -37,15 +37,42 @@
  *   reference number (outcome set, state still 'listening'), captures it however it's spoken, asks
  *   once more if none came, then closes. A reference given early is kept and said back at the end.
  *   The approval outcome line goes out on a call exactly once (decide or the worker's poll).
- * - The confirmed deal's changes are NOT added to acceptedChanges here: the orchestrator's
- *   confirm_deal step does that (dealChanges() below gives it the exact list).
+ * - The confirmed deal's changes are NOT added to acceptedChanges here: the orchestrator commits
+ *   them on CALL_ENDED, and only when confirmedDeal() says the deal stands (dealChanges() gives the list).
+ *
+ * The safety contract (code, not the model):
+ * - PacePay agrees only to the exact day + fee Yoshua approved. Hedged answers ("yeah, something like
+ *   that", "I think so", "about twenty") get the exact terms read back; only a clear yes confirms.
+ * - A change after Yoshua's yes (or during the hold) voids it: PacePay restates the approved terms and
+ *   asks the lender to honor them. If they insist on new terms within limits (check_offer passes), the
+ *   old approval is withdrawn and Yoshua gets a fresh one (dealChangedApprovalText) while PacePay holds;
+ *   over limits, a condition, or a walk-back: a neutral goodbye that says nothing was agreed, no deal.
+ * - On a live call CALL_ENDED waits for the worker's 'ended' event (callHungUp); a change said during
+ *   the goodbye still voids the deal. The Done text, the forecast and the paycheck text follow only a
+ *   deal that is undisputed when the call ends; otherwise post_call_summary sends termsChangedText.
+ *
+ * Dashboard fields ("the lender changed the terms" screen), all add-only in @pacepay/shared:
+ * - Negotiation.termsChange?: { kind: 'terms' | 'extra_fee' | 'condition' | 'walkback',
+ *     previousTerms: { newDay, fee }  // what Yoshua approved (or was being asked about)
+ *     newTerms?: { newDay, fee }      // the lender's new terms, when named
+ *     afterApproval: boolean          // true when Yoshua had already said yes to previousTerms
+ *     status: 'asking_lender' | 'awaiting_yoshua' | 'yoshua_approved' | 'yoshua_declined' | 'resolved' | 'no_deal'
+ *     approvalId?: string             // the fresh deal approval sent for newTerms
+ *     at: ISO timestamp }
+ * - Negotiation.closeReason?: string  // plain words, set on every explained no-deal close, e.g.
+ *     "The lender changed the fee to $35 after Yoshua approved $20. PacePay didn't agree. Nothing changed."
+ * - Approval.previousTerms? / Approval.newTerms?: { newDay, fee } on the re-approval only.
+ *   A withdrawn approval has status 'timeout' and answer 'withdrawn'.
+ * - DecideResult.dtmf?: string  // digits for an IVR menu (situations.ts); send instead of speaking `say`.
  */
 import { z } from 'zod';
 import {
   DEAL_APPROVAL_TIMEOUT_MS,
   dealApprovalText,
+  dealChangedApprovalText,
   dollarsToCents,
   findDollarAmount,
+  formatDate,
   formatMoney,
   formatShortDate,
   formatWeekdayLong,
@@ -67,6 +94,8 @@ import {
 import { newId } from '../ids';
 import { loadPrompt } from '../prompts/load';
 import { runTool, type ToolContext, type ToolScope } from '../tools/registry';
+import { timeoutApproval } from '../approvals';
+import { detectSituation, type SituationPhase } from './situations';
 import { DEFAULT_TIMEOUTS, type ChatMessage } from '../models';
 import { isScriptedNegotiation, openingLine as scriptedOpeningLine, scriptedApprovalOutcome, scriptedDecide } from './stub';
 
@@ -84,7 +113,7 @@ const TEXT_DECIDE_TIMEOUT_MS = 15_000;
 const LINES = {
   checkingWithYoshua: [
     'Let me confirm that with Yoshua.',
-    'Great, let me run that by Yoshua real quick.',
+    'Thanks, let me run that by Yoshua real quick.',
     "Okay, I'll check with Yoshua. Bear with me.",
     "Thanks. Let me get Yoshua's okay on that.",
   ],
@@ -110,14 +139,14 @@ const LINES = {
   lowerFee: ['Is there any way to bring that fee down?', 'Could you lower the fee at all?', 'Is there any flexibility on the fee?'],
   whatFee: ['Okay. How much would the fee be?', 'Got it. What would the fee be?', 'Sure. And how much is the fee?'],
   noDeal: [
-    "Thanks for checking. I'll let Yoshua know, and Yoshua can follow up with you directly. Goodbye.",
-    "Okay, thanks for looking into it. I'll pass that along to Yoshua, who can follow up with you directly. Goodbye.",
-    "I appreciate you checking. I'll let Yoshua know, and Yoshua will follow up directly. Take care, goodbye.",
+    "Thanks for checking. Nothing is agreed today, so the payment stays as it is. Yoshua can follow up with you directly. Goodbye.",
+    "Thanks for looking into it. We haven't agreed to anything today, and Yoshua can follow up with you directly. Goodbye.",
+    "I appreciate you checking. Nothing is agreed today; Yoshua will follow up with you directly. Take care, goodbye.",
   ],
   refusal: [
-    "I understand. Thank you for your time. I'll let Yoshua know. Goodbye.",
-    "Okay, I understand. Thanks for your time, I'll let Yoshua know. Goodbye.",
-    "Got it, thanks for your time today. I'll pass that along to Yoshua. Goodbye.",
+    "I understand. So nothing changes today. Thank you for your time; I'll let Yoshua know. Goodbye.",
+    "Understood, so nothing changes today. Thanks for your time, I'll let Yoshua know. Goodbye.",
+    "Got it, nothing changes today. Thanks for your time; I'll pass that along to Yoshua. Goodbye.",
   ],
   verification: [
     "I understand. I can't verify on Yoshua's behalf, so Yoshua will contact you directly. Could I get a reference number for this request?",
@@ -127,27 +156,22 @@ const LINES = {
     "I wasn't able to reach Yoshua just now. Could you hold that offer and give me a reference number? Yoshua will call you back.",
     "Sorry, I couldn't reach Yoshua just yet. Could you hold that offer and give me a reference number? Yoshua will call you back.",
   ],
-  waitForReference: ["Sure, I'll wait for the reference number.", "No rush, I'll hang on for the reference number.", "Of course, I'll wait for the reference number."],
+  waitForReference: ["I'll wait for the reference number.", "No rush, I'll hang on for the reference number.", "Take your time, I'll wait for the reference number."],
   askReferenceAgain: [
     'Sorry, could I get a reference number for that change?',
     'And is there a reference number for that?',
     'Before I go, could I get a reference number?',
   ],
-  closeDealNoReference: [
-    "Okay, no problem. Thanks so much for your help today. Goodbye.",
-    "That's fine. Thank you for taking care of that. Goodbye.",
-    'Alright, thanks again for your help. Have a good one, goodbye.',
-  ],
   closeNoReference: [
-    'Thank you for your help. Yoshua will follow up. Goodbye.',
-    "That's okay, thanks for your help. Yoshua will follow up. Goodbye.",
-    'No problem, thanks again. Yoshua will follow up. Goodbye.',
+    'Thank you for your help. Nothing has been changed yet, and Yoshua will follow up. Goodbye.',
+    'Thanks for your help. Nothing is changed for now; Yoshua will follow up. Goodbye.',
   ],
   modelFailed: ["Sorry, let me check on that and call you back. Thank you, goodbye."],
   ended: ['This conversation has ended. Thank you.'],
   privateDetails: ["I'm not able to share details about Yoshua's finances.", "I'm sorry, I can't share anything about Yoshua's finances.", "That's not something I can share on Yoshua's behalf."],
-  takeYourTime: ['Sure, take your time.', "No problem, I'll hold.", 'Of course, take your time.'],
-  sayAgain: ['Sorry, could you say that again?', "Sorry, I didn't catch that. Could you say it again?"],
+  takeYourTime: ['Take your time.', "I'll hold.", "Take your time, I'm here."],
+  /** Only for a turn with no usable words; a turn with words gets the pending question again instead. */
+  sayAgain: ['Sorry, could you say that again?'],
   areYouAPerson: [
     "I'm an AI assistant contacting you on Yoshua's behalf, with Yoshua's permission, and this conversation is transcribed.",
     "I'm an AI assistant, reaching out with Yoshua's permission, and this conversation is transcribed.",
@@ -163,6 +187,10 @@ const opener = (s: string) => s.toLowerCase().split(/\s+/).slice(0, 3).join(' ')
  * used does a wording come back.
  */
 function vary(n: Negotiation, options: readonly string[]): string {
+  return varyLine(n, options);
+}
+
+function varyLine(n: Negotiation, options: readonly string[]): string {
   const said = (n.transcript ?? []).filter((l) => l.speaker === 'pacepay').map((l) => l.text);
   const turn = Math.max(0, said.length - 1);
   const order = options.map((_, i) => options[(turn + i) % options.length]!);
@@ -170,6 +198,7 @@ function vary(n: Negotiation, options: readonly string[]): string {
   return (
     order.find((o) => !said.some((s) => s.includes(o)) && !openers.has(opener(o))) ??
     order.find((o) => !said.some((s) => s.includes(o))) ??
+    order.find((o) => o !== said[said.length - 1]) ??
     order[0]!
   );
 }
@@ -427,7 +456,8 @@ export function extractReference(text: string, exclude: readonly string[] = []):
     else if (/^[a-z]$/i.test(core)) kind = 'letter';
     else if (/^[a-z0-9][a-z0-9-]*$/i.test(core) && /\d/.test(core)) kind = 'alnum';
     else if (REF_WORDS.has(lw)) kind = 'key';
-    toks.push({ s: core, kind, stop: /[.!?]/.test(post), tight: post === '' || post === '-' });
+    // "one... one... nine... four": a reference read slowly; an ellipsis doesn't end the run.
+    toks.push({ s: core, kind, stop: /[!?]/.test(post) || (/\./.test(post) && !/\.\.|\u2026/.test(post)), tight: post === '' || post === '-' });
   }
   // "oh" is a zero only right next to other digits ("seven oh two"), not "Oh, okay".
   toks.forEach((k, i) => {
@@ -503,6 +533,50 @@ interface Memory {
   askLines: readonly string[] | null;
   /** PacePay already asked the lender to repeat a garbled line (asked once, then silence until a real turn). */
   saidSayAgain: boolean;
+  /** Hedged answers ("yeah, something like that") to the pending read-back; after one, only a clear yes confirms. */
+  hedges: number;
+  /** The lender changed or conditioned terms PacePay is holding them to (see Dispute). */
+  dispute: Dispute | null;
+  /** The terms Yoshua last approved (the deal PacePay may confirm), once he says yes. */
+  approved: Terms | null;
+  /** The terms of a deal approval that was withdrawn or voided by a change: the next approval text says what changed. */
+  changedFrom: { terms: Terms; afterApproval: boolean } | null;
+  /** The outstanding deal approval asks Yoshua about terms the lender changed after he approved others. */
+  reapproval: boolean;
+  /** Why the call ended without a deal after the lender changed terms (Yoshua's honest text). */
+  note: CallNote | null;
+}
+
+type Terms = { newDay: Day; fee: Cents };
+
+/**
+ * The lender changed terms PacePay is holding them to, or added a condition:
+ * - phase 'approved': after Yoshua approved (outcome cleared until they honor the approved terms);
+ * - phase 'hold': while Yoshua's answer is pending (his question stays open until they insist);
+ * - phase 'readback': a condition attached to a read-back or a counter before anything was checked.
+ */
+interface Dispute {
+  phase: 'approved' | 'hold' | 'readback';
+  kind: TermChange['kind'] | 'unclear';
+  /** The terms PacePay asks the lender to honor. */
+  basis: Terms;
+  /** The lender's new terms, when they named them. */
+  proposed?: Terms;
+  /** Times PacePay asked the lender to honor the basis. */
+  asks: number;
+  /** PacePay asked for the total fee ("plus a processing fee" with no amount). */
+  awaitFee?: boolean;
+  /** PacePay asked "what would be different?" after a bare no. */
+  askedWhat?: boolean;
+}
+
+/** What Yoshua is told when a call ends without a deal because the lender changed terms. */
+export interface CallNote {
+  kind: 'terms' | 'extra_fee' | 'condition' | 'walkback';
+  approved: Terms;
+  proposed?: Terms;
+  approvedByYou: boolean;
+  youDeclined?: boolean;
 }
 
 const memory = new Map<string, Memory>();
@@ -529,6 +603,12 @@ function mem(n: Negotiation): Memory {
       pushbacks: 0,
       askLines: null,
       saidSayAgain: false,
+      hedges: 0,
+      dispute: null,
+      approved: null,
+      changedFrom: null,
+      reapproval: false,
+      note: null,
     };
     memory.set(n.id, m);
   }
@@ -633,13 +713,42 @@ function close(ctx: ToolContext, id: string, lines: string | readonly string[], 
     title: `Negotiation ended: ${outcome.replace(/_/g, ' ')}${n.referenceNumber ? ` (ref ${n.referenceNumber})` : ''}`,
     detail: { negotiationId: id, outcome, referenceNumber: n.referenceNumber },
   });
-  ctx.enqueue({ id: newId('evt'), at: ctx.clock.now(), type: 'CALL_ENDED', callId: n.callId ?? '', negotiationId: id });
+  const call = n.callId ? ctx.store.getItem('calls', n.callId) : undefined;
+  if (n.channel === 'voice' && call && ['ringing', 'active', 'holding_for_approval'].includes(call.status)) {
+    // On a live call the case moves on (summary, Done text, forecast) only once the call has really
+    // ended: the voice worker's 'ended' event calls callEnded(). A lender who objects during the
+    // goodbye can still void the deal (lateLenderLine). The timer is a backstop if 'ended' never comes.
+    const t = setTimeout(() => sendCallEnded(ctx, id), CALL_END_BACKSTOP_MS);
+    t.unref?.();
+    endTimers.set(id, t);
+  } else {
+    ctx.enqueue({ id: newId('evt'), at: ctx.clock.now(), type: 'CALL_ENDED', callId: n.callId ?? '', negotiationId: id });
+  }
   return { say, next: 'end_call', state: 'closed' };
+}
+
+/** The goodbye plays out (up to ~16 s) and the worker hangs up; CALL_ENDED waits for that, at most this long. */
+const CALL_END_BACKSTOP_MS = 25_000;
+const endTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Enqueues the CALL_ENDED that close() held for a live call (once). */
+function sendCallEnded(ctx: ToolContext, id: string): boolean {
+  const t = endTimers.get(id);
+  if (!t) return false;
+  clearTimeout(t);
+  endTimers.delete(id);
+  const n = load(ctx, id);
+  ctx.enqueue({ id: newId('evt'), at: ctx.clock.now(), type: 'CALL_ENDED', callId: n.callId ?? '', negotiationId: id });
+  return true;
 }
 
 /** PacePay says a line and keeps listening. */
 function reply(ctx: ToolContext, id: string, lines: string | readonly string[], patch: Partial<Negotiation> = {}, next: DecideResult['next'] = 'listen'): DecideResult {
-  const say = typeof lines === 'string' ? lines : vary(load(ctx, id), lines);
+  const cur = load(ctx, id);
+  let say = typeof lines === 'string' ? lines : vary(cur, lines);
+  // Never the same line twice in a row.
+  const last = [...(cur.transcript ?? [])].reverse().find((l) => l.speaker === 'pacepay')?.text;
+  if (say && last && say === last) say = `Just to repeat: ${say}`;
   const n = appendLines(ctx, id, [line(ctx, 'pacepay', say)], patch);
   emitLine(ctx, n, 'pacepay', say);
   return { say, next, state: n.state };
@@ -777,6 +886,8 @@ export function feeAmount(text: string): Cents | null {
   return feeIn(digitize(text), false);
 }
 
+/** Three or more numbers in a row ("1 1 9 4"): digits read out, a reference. */
+const DIGIT_RUN = /(?:^|\s)\d{1,2}(?:\s+\d{1,2}){2,}(?=\s|$)/;
 const NOT_A_NO = /\b(no (fees?|charge|cost|extra charge|problem|worries)|not a problem|without (a|any) fee)\b/g;
 /** A clause that turns its day down: "we can't do Friday", "Friday won't work", "not Friday", "Wednesday's out". */
 const REFUSES_DAY =
@@ -826,7 +937,7 @@ function noWords(utterance: string): boolean {
 }
 
 type Reading =
-  | { kind: 'offer'; days: Day[]; dayWords: boolean; fee: Cents | null; feeNoAmount: boolean; refused: Day[] }
+  | { kind: 'offer'; days: Day[]; dayWords: boolean; fee: Cents | null; feeNoAmount: boolean; refused: Day[]; summed?: boolean }
   | { kind: 'confirm'; strong: boolean }
   | { kind: 'deny' }
   | { kind: 'refused_days'; days: Day[] }
@@ -874,8 +985,10 @@ function daysIn(ctx: ToolContext, n: Negotiation, clause: string): Day[] {
  */
 function readInCode(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string, pending: Offer | undefined): Reading | null {
   const d = digitize(utterance);
-  const topic = feeTopic(n, m, pending, d);
+  // "One... one... nine... four": digits read one at a time are a reference, never a bare fee.
+  const topic = feeTopic(n, m, pending, d) && !DIGIT_RUN.test(d.replace(/[.,\u2026]+/g, ' '));
   const offered: Day[] = [];
+  const fees: { fee: Cents; extra: boolean; total: boolean }[] = [];
   const refused: Day[] = [];
   let fee: Cents | null = null;
   let zero = false;
@@ -888,6 +1001,7 @@ function readInCode(ctx: ToolContext, n: Negotiation, m: Memory, utterance: stri
     const days = daysIn(ctx, n, clause);
     const f = feeIn(clause, topic);
     if (f !== null && fee === null) fee = f;
+    if (f !== null) fees.push({ fee: f, extra: EXTRA_FEE.test(clause), total: TOTAL.test(clause) });
     if (ZERO_NEGATED.test(clause)) zeroNegated = true;
     else if (ZERO_FEE.test(clause)) zero = true;
     if (/\b(fee|fees|charge|cost)\b/.test(clause)) feeWord = true;
@@ -899,13 +1013,24 @@ function readInCode(ctx: ToolContext, n: Negotiation, m: Memory, utterance: stri
     if (!days.length && DAY_WORDS.test(clause)) dayWords = true;
   }
   if (fee === null && zero && !zeroNegated) fee = 0;
+  // "Friday with a $20 fee... also a $10 processing fee on top, so $30 total": the whole fee, not the first one.
+  let summed = false;
+  if (fees.length > 1 && fees.some((x) => x.extra || x.total)) {
+    // The total when one is said; else the base fee plus each distinct extra ("ten dollars on top,
+    // ten dollars" is one $10, not two).
+    const total = fees.find((x) => x.total);
+    const base = fees[0]!.fee;
+    const extras = [...new Set(fees.slice(1).filter((x) => x.extra && x.fee !== base).map((x) => x.fee))];
+    fee = total ? total.fee : base + extras.reduce((a, x) => a + x, 0);
+    summed = true;
+  }
   const feeNoAmount = fee === null && feeWord && !zero;
   // "We can't do Friday without a fee": Friday is on the table, with a fee. Ask how much.
   if (fee === null && zeroNegated && !offered.length && refused.length === 1) {
     return { kind: 'offer', days: refused, dayWords: false, fee: null, feeNoAmount: true, refused: [] };
   }
 
-  if (offered.length || fee !== null) return { kind: 'offer', days: offered, dayWords, fee, feeNoAmount, refused };
+  if (offered.length || fee !== null) return { kind: 'offer', days: offered, dayWords, fee, feeNoAmount, refused, ...(summed ? { summed } : {}) };
   if (refused.length) return { kind: 'refused_days', days: refused };
   // "We can't waive it", "the fee stays": a no to the waiver ask.
   if (zeroNegated) return { kind: 'deny' };
@@ -1050,6 +1175,8 @@ function safeSay(ctx: ToolContext, n: Negotiation, m: Memory, say: string | null
 
 /** What PacePay is asking for right now, in words: the pending read-back, the last counter, or the opening ask. */
 function currentAsk(ctx: ToolContext, n: Negotiation, m: Memory): string {
+  if (m.dispute) return honorAsk(ctx, n, m);
+  if (n.state === 'awaiting_approval') return vary(n, LINES.stillHolding);
   const pending = n.pendingOfferId ? n.offers.find((o) => o.id === n.pendingOfferId) : undefined;
   if (pending) {
     // The read-back was already said once: ask it again in other words, not the same read-back.
@@ -1139,6 +1266,8 @@ function garbage(utterance: string): 'silent' | 'repeat' | null {
   if (latin / letters.length < 0.6) return 'silent';
   const plain = normalizeReply(utterance);
   if (SHORT_OK.test(plain) || yesWords(utterance) || noWords(utterance)) return null;
+  // "Yeah, something like that": a real (hedged) answer, never noise.
+  if (isHedge(utterance) || /\b(yeah|yes|yep|yup|okay|ok|sure|right|fine|nope|nah)\b/.test(plain)) return null;
   // A spoken number ("Twenty.") or a day ("Fri") is a real answer.
   if (/\d/.test(digitize(utterance)) || DAY_WORDS.test(plain)) return null;
   if (ABOUT_BEING_AI.test(utterance) || ABOUT_FINANCES.test(utterance) || ABOUT_THE_REQUEST.test(plain)) return null;
@@ -1231,20 +1360,27 @@ function refExclusions(ctx: ToolContext, n: Negotiation): string[] {
 async function decideLocked(ctx: ToolContext, id: string, utterance: string): Promise<DecideResult> {
   let n = load(ctx, id);
   if (n.channel === 'voice') {
-    // Yoshua's answer came in through the orchestrator but was never said on the call: say it now.
-    const unsaid = unspokenOutcome(ctx, id);
+    // Yoshua's answer came in through the orchestrator but was never said on the call: say it now,
+    // unless the lender just changed the terms (then the change is answered below, never the old terms).
+    const unsaid = unspokenOutcome(ctx, id, utterance);
     if (unsaid) return unsaid;
   }
-  // On a call the goodbye was already said: just hang up.
-  if (n.state === 'closed') return { say: n.channel === 'voice' ? '' : LINES.ended[0], next: 'end_call', state: 'closed' };
+  // On a call the goodbye was already said: just hang up. A lender who changes the terms during the
+  // goodbye (before the call ends) voids the deal: PacePay never leaves agreement hanging on changed terms.
+  if (n.state === 'closed') {
+    const late = n.channel === 'voice' && n.outcome === 'deal' && endTimers.has(id) ? lateChange(ctx, n, utterance) : null;
+    return late ?? { say: n.channel === 'voice' ? '' : LINES.ended[0], next: 'end_call', state: 'closed' };
+  }
 
-  // 0. Line noise, echo and fragments: no reply (or one "say that again"), nothing recorded, no state change.
+  // 0. Line noise, echo and fragments: nothing recorded, no state change. Words that might be a real
+  // turn get the pending question again (once), never "I didn't catch that".
   const junk = garbage(utterance);
   if (junk) {
     const m0 = mem(n);
-    const say = junk === 'repeat' && !m0.saidSayAgain ? vary(n, LINES.sayAgain) : '';
+    const say = junk === 'repeat' && !m0.saidSayAgain ? restateQuestion(ctx, n, m0) : '';
     if (say) m0.saidSayAgain = true;
     ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Ignored a garbled line: "${utterance}"`, detail: { negotiationId: id, reply: say } });
+    if (say) return reply(ctx, id, say, {}, n.state === 'awaiting_approval' ? 'await_approval' : 'listen');
     return { say, next: n.state === 'awaiting_approval' ? 'await_approval' : 'listen', state: n.state };
   }
 
@@ -1277,14 +1413,17 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     }
   }
 
-  // Waiting on Yoshua: answer with the outcome if it's in, otherwise ask them to keep holding.
-  if (n.state === 'awaiting_approval') {
-    const out = await resolveOutcome(ctx, id);
-    if (out.status === 'pending') return reply(ctx, id, LINES.stillHolding, {}, 'await_approval');
-    // Said once: the voice worker's approval poll won't say it again.
-    markSpoken(ctx, id);
-    return { say: out.say ?? LINES.stillHolding[0], next: out.next ?? 'listen', state: load(ctx, id).state };
-  }
+  // Real-call situations (IVR menus, voicemail, transfers, account-holder-only, identity probes,
+  // prompt injection, hostility): agent/situations.ts, before any offer parsing.
+  const sit = situationTurn(ctx, n, m, words || utterance);
+  if (sit) return sit;
+
+  // The lender changed or conditioned terms PacePay is holding them to: settle that first.
+  if (m.dispute) return onDispute(ctx, n, m, words || utterance);
+
+  // Waiting on Yoshua: a change of terms is answered (never the stale terms later); otherwise the
+  // outcome if it's in, or a request to keep holding.
+  if (n.state === 'awaiting_approval') return onHold(ctx, n, m, words || utterance);
 
   // Closing: an outcome is set and PacePay asked for a reference number.
   if (n.outcome) return onReference(ctx, n, m, utterance);
@@ -1300,10 +1439,38 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
   const pending = n.pendingOfferId ? n.offers.find((o) => o.id === n.pendingOfferId) : undefined;
   if (HOLDING.test(normalizeReply(words)) && feeIn(digitize(words), false) === null && parseDay(ctx, n, words) === null) return reply(ctx, id, LINES.takeYourTime);
 
+  // A condition on terms PacePay asked about or read back ("yes, but only if he enrolls in autopay"):
+  // PacePay never agrees to anything but a day and a fee.
+  const asked: Terms | null = pending ? { newDay: pending.newDay, fee: pending.fee } : m.lastAsk && m.lastAsk.stated ? { newDay: m.lastAsk.newDay, fee: m.lastAsk.fee } : null;
+  if (asked && CONDITION.test(normalizeReply(words)) && !VERIFY.test(digitize(words))) {
+    return startDispute(ctx, n, m, { phase: 'readback', kind: 'condition', basis: asked, asks: 1 });
+  }
+
   // 2. Read the line in code; only what code can't read goes to the model.
+  let hedged = isHedge(words);
   let r = readInCode(ctx, n, m, words, pending);
+  // "Okay, the thirteenth then, fine, whatever. It's set for Friday the 13th with no fee": a grudging
+  // but exact restatement of the terms asked about is a yes. Only a hedge on the terms themselves
+  // ("about twenty", "I think so") needs the exact check again.
+  if (
+    hedged &&
+    asked &&
+    r?.kind === 'offer' &&
+    r.days.includes(asked.newDay) &&
+    r.fee === asked.fee &&
+    !r.refused.includes(asked.newDay) &&
+    !HEDGE.test(normalizeReply(digitize(words)).replace(/\b(whatever|if you say so|fine|i suppose)\b/g, ' '))
+  ) {
+    hedged = false;
+    m.hedges = 0;
+  }
+  if (!r && hedged && asked) {
+    // "Yeah, something like that", "I think so": not a yes to money terms. Read them back exactly.
+    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Heard a hedged answer: "${words}"`, detail: { negotiationId: id } });
+    return exactReadBack(ctx, n, m, asked, words, pending);
+  }
   if (r) {
-    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Read "${words}" as ${r.kind.replace('_', ' ')}`, detail: { negotiationId: id, reading: r } });
+    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Read "${words}" as ${r.kind.replace('_', ' ')}${hedged ? ' (hedged)' : ''}`, detail: { negotiationId: id, reading: r } });
   } else {
     const waitingFor = pending
       ? `a yes or no to the read-back "${readBackLine(pending, d0)}"`
@@ -1314,27 +1481,164 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
       r = readModel(ctx, n, m, words, await classify(ctx, n, words, waitingFor), pending);
       m.modelMisses = 0;
     } catch (err) {
-      // Never hang up because a model was slow: ask again once, then repeat the ask.
+      // Never hang up because a model was slow: the pending question again (in other words).
       ctx.bus.emit({ type: 'step.failed', model: ctx.models.roleFor('decide'), caseId: n.caseId, level: 'warn', title: `Negotiator could not read the lender's words, answered in code: ${(err as Error).message}`, detail: { negotiationId: id } });
       m.modelMisses += 1;
-      const say = m.modelMisses === 1 && !/\?/.test(words) ? vary(n, LINES.sayAgain) : currentAsk(ctx, n, m);
-      return reply(ctx, id, say);
+      return reply(ctx, id, restateQuestion(ctx, load(ctx, id), m));
     }
   }
-  return act(ctx, load(ctx, id), m, r, words, pending);
+  return act(ctx, load(ctx, id), m, r, words, pending, hedged);
+}
+
+/** The goodbye was said on a deal, the call is still up, and the lender changes the terms: void the deal. */
+function lateChange(ctx: ToolContext, n: Negotiation, utterance: string): DecideResult | null {
+  const basis = approvedOffer(n);
+  if (!basis) return null;
+  const m = mem(n);
+  const ch = detectChange(ctx, n, m, utterance, basis);
+  if (!ch || ch === 'same') return null;
+  const terms = { newDay: basis.newDay, fee: basis.fee };
+  const tc = {
+    kind: ch.kind,
+    previousTerms: terms,
+    ...(ch.proposed ? { newTerms: ch.proposed } : {}),
+    afterApproval: true,
+    status: 'no_deal' as const,
+    at: ctx.clock.now(),
+  };
+  const closeReason = changeReason(tc, day0(ctx));
+  const say = `I'm sorry, I can't agree to a change. Yoshua approved only ${termsWords(ctx, terms)}, so nothing is agreed today, and the payment stays as it is. Goodbye.`;
+  m.note = { kind: tc.kind, approved: terms, ...(ch.proposed ? { proposed: ch.proposed } : {}), approvedByYou: true };
+  const next = appendLines(ctx, n.id, [line(ctx, 'counterparty', utterance), line(ctx, 'pacepay', say)], { outcome: 'no_deal', termsChange: tc, closeReason });
+  setCallStatus(ctx, next, { outcome: 'no_deal' });
+  ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, level: 'warn', title: `Lender changed the terms after the goodbye; deal voided: ${closeReason}`, detail: { negotiationId: n.id } });
+  return { say, next: 'end_call', state: 'closed' };
+}
+
+/** Where the call is, for situations.ts. */
+function situationPhase(n: Negotiation): SituationPhase {
+  if (n.state === 'awaiting_approval') return 'holding';
+  if (n.outcome === 'deal') return 'approved';
+  if (n.outcome) return 'closing';
+  const lender = (n.transcript ?? []).filter((l) => l.speaker === 'counterparty').length;
+  return lender <= 1 ? 'greeting' : 'negotiating';
+}
+
+/** Why a call situation ended the call, in plain words (Negotiation.closeReason; the post-call text uses it). */
+const SITUATION_REASON: Partial<Record<string, string>> = {
+  voicemail: "I reached the lender's voicemail and left a short message, so nothing was agreed.",
+  after_hours: 'The lender was closed, so nothing was agreed.',
+  wrong_number: "The number didn't reach the right lender, so nothing was agreed.",
+  hostile: 'The lender asked not to be called again, so I ended the call. Nothing was agreed.',
+  hangup_signal: 'The call dropped before anything was agreed.',
+  authorization_required: 'The lender will only talk to you directly, so nothing was agreed.',
+  callback_request: 'The lender asked for a call back later, so nothing was agreed yet.',
+};
+
+/** What a closing situation means for the outcome: a confirmed deal stands; nothing else becomes one. */
+const SITUATION_OUTCOME: Partial<Record<string, NonNullable<Negotiation['outcome']>>> = { authorization_required: 'handoff_verification' };
+
+/**
+ * agent/situations.ts on one lender turn. Null: an ordinary turn (or advisory only), parsed as usual.
+ * Otherwise its line (or DTMF tones) and next move, recorded like any other PacePay line.
+ */
+function situationTurn(ctx: ToolContext, n: Negotiation, m: Memory, text: string): DecideResult | null {
+  const h = ctx.store.household();
+  const item = h.scheduled.find((s) => s.id === n.itemId || s.id === n.itemId.split(/[@#:]/)[0]);
+  const ref = accountReference(ctx, n);
+  const last = [...(n.transcript ?? [])].reverse().find((l) => l.speaker === 'pacepay')?.text;
+  let r;
+  try {
+    r = detectSituation(text, {
+      ...(last ? { lastPacePayLine: last } : {}),
+      phase: situationPhase(n),
+      callBrief: {
+        lender: counterpartyName(ctx, n),
+        accountLast4: /(\d{4})\b/.exec(ref)?.[1] ?? '',
+        itemLabel: (item?.label ?? 'payment').toLowerCase(),
+        targetDayPhrase: sayDay(ctx, n.callPlan.targetDay),
+        feeLimitCents: n.callPlan.feeLimit,
+        personName: personName(ctx),
+      },
+    });
+  } catch (err) {
+    ctx.bus.emit({ type: 'step.failed', model: 'code', caseId: n.caseId, level: 'warn', title: `Situation check failed: ${(err as Error).message}`, detail: { negotiationId: n.id } });
+    return null;
+  }
+  if (!r || (!r.say && !r.next && !r.dtmf)) return null;
+  if (r.kind === 'authorization_required' && r.next !== 'end_call' && VERIFY.test(digitize(text))) {
+    // The negotiator's own hand-off: Yoshua will contact them directly; get a reference number.
+    if (n.outcome || m.dispute || n.state === 'awaiting_approval') return null;
+    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: 'Call situation: authorization required', detail: { negotiationId: n.id, note: r.note } });
+    return reply(ctx, n.id, LINES.verification, { state: 'listening', outcome: 'handoff_verification', pendingOfferId: undefined });
+  }
+  ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Call situation: ${r.kind.replace(/_/g, ' ')}`, detail: { negotiationId: n.id, situation: r.kind, note: r.note, dtmf: r.dtmf } });
+  const dtmf = r.dtmf ? { dtmf: r.dtmf } : {};
+  if (r.next === 'end_call') {
+    if (m.dispute) {
+      const res = closeOnChange(ctx, n, m);
+      return { ...res, ...(r.say ? {} : { say: res.say }), ...dtmf };
+    }
+    const keep = n.outcome === 'deal' && !n.termsChange?.status.match(/asking|awaiting/);
+    const outcome = keep ? 'deal' : (SITUATION_OUTCOME[r.kind] ?? (n.outcome && n.outcome !== 'deal' ? n.outcome : 'no_deal'));
+    if (n.state === 'awaiting_approval') withdrawApproval(ctx, n.id);
+    const say = r.say ?? '';
+    return { ...close(ctx, n.id, say, outcome, keep ? {} : { closeReason: SITUATION_REASON[r.kind] ?? 'The call ended before anything was agreed.' }), ...dtmf };
+  }
+  const next: DecideResult['next'] = n.state === 'awaiting_approval' ? 'await_approval' : (r.next ?? 'listen');
+  if (!r.say) return { say: '', next, state: n.state, ...dtmf };
+  return { ...reply(ctx, n.id, r.say, {}, next), ...dtmf };
+}
+
+/** A lender turn while Yoshua decides: a change of terms is answered at once; otherwise his answer or "still checking". */
+async function onHold(ctx: ToolContext, n: Negotiation, m: Memory, words: string): Promise<DecideResult> {
+  const basis = approvedOffer(n);
+  const ch = basis ? detectChange(ctx, n, m, words, basis) : null;
+  if (basis && ch && ch !== 'same') {
+    const terms = { newDay: basis.newDay, fee: basis.fee };
+    // During a re-approval, going back to what Yoshua already approved settles it.
+    if (m.approved && ch.proposed && sameTerms(ch.proposed, m.approved)) {
+      m.dispute = { phase: 'approved', kind: ch.kind, basis: m.approved, asks: 1 };
+      return honorResolved(ctx, n, m, words);
+    }
+    const a = dealApproval(ctx, n.id);
+    const proposed = ch.proposed ? { proposed: ch.proposed } : {};
+    if (a && a.status === 'approved') {
+      // He already said yes to these terms (that line wasn't said yet): hold the lender to them.
+      outcomes.set(a.id, { status: 'approved', say: '', next: 'listen' });
+      spoken.add(a.id);
+      n = save(ctx, n.id, { state: 'listening' });
+      setCallStatus(ctx, n, { status: 'active' });
+      return startDispute(ctx, n, m, { phase: 'approved', kind: ch.kind, basis: terms, ...proposed, asks: 1 });
+    }
+    if (!a || a.status === 'pending') return startDispute(ctx, n, m, { phase: 'hold', kind: ch.kind, basis: terms, ...proposed, asks: 1 });
+  }
+  const out = await resolveOutcome(ctx, n.id);
+  if (out.status === 'pending') {
+    const preset = presetAnswer(ctx, n, m, words);
+    return reply(ctx, n.id, preset ?? LINES.stillHolding, {}, 'await_approval');
+  }
+  // Said once: the voice worker's approval poll won't say it again.
+  markSpoken(ctx, n.id);
+  return { say: out.say ?? LINES.stillHolding[0], next: out.next ?? 'listen', state: load(ctx, n.id).state };
 }
 
 /** One reading, one move: read back, ask, hold for Yoshua, or close. */
-function act(ctx: ToolContext, n: Negotiation, m: Memory, r: Reading, heard: string, pending: Offer | undefined): DecideResult | Promise<DecideResult> {
+function act(ctx: ToolContext, n: Negotiation, m: Memory, r: Reading, heard: string, pending: Offer | undefined, hedged = false): DecideResult | Promise<DecideResult> {
   switch (r.kind) {
     case 'say':
       return reply(ctx, n.id, r.text);
     case 'offer':
-      return onOffer(ctx, n, m, r, heard, pending);
+      return onOffer(ctx, n, m, r, heard, pending, hedged);
     case 'confirm':
-      if (pending) return onConfirm(ctx, n, m, pending);
+      if (pending) {
+        // After a hedge only a clear yes confirms money terms ("mm-hm" or "okay" gets the exact read-back again).
+        if (hedged || (m.hedges > 0 && !r.strong)) return exactReadBack(ctx, n, m, pending, heard, pending);
+        return onConfirm(ctx, n, m, pending);
+      }
       if (m.lastAsk) {
         const terms = { newDay: m.lastAsk.newDay, fee: m.lastAsk.fee };
+        if (hedged) return exactReadBack(ctx, n, m, terms, heard, undefined);
         // A clear yes to an ask that said the day and the fee is the lender agreeing to those exact terms.
         if (m.lastAsk.stated && r.strong) return acceptTerms(ctx, n, m, terms, heard);
         return readBack(ctx, n, m, terms, heard);
@@ -1397,7 +1701,7 @@ function lastOfferFor(n: Negotiation, day: Day): Offer | undefined {
  *   ask, so the next counter instead of the same read-back again;
  * - otherwise a read-back.
  */
-function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, r: Extract<Reading, { kind: 'offer' }>, heard: string, pending: Offer | undefined): DecideResult | Promise<DecideResult> {
+function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, r: Extract<Reading, { kind: 'offer' }>, heard: string, pending: Offer | undefined, hedged = false): DecideResult | Promise<DecideResult> {
   let days = r.days;
   let refused = r.refused;
   // "Not Friday at no fee, but with a thirty-five dollar fee we can": the fee goes with the day turned down.
@@ -1434,10 +1738,11 @@ function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, r: Extract<Reading
   const terms = { newDay: day, fee };
   const same = (o: { newDay: Day; fee: Cents }) => o.newDay === terms.newDay && o.fee === terms.fee;
 
-  if (pending && same(pending)) return onConfirm(ctx, n, m, pending);
+  // "Yeah, Friday, about twenty": the same terms, hedged. Read them back exactly; only a clear yes confirms.
+  if (pending && same(pending)) return hedged || m.hedges > 0 ? exactReadBack(ctx, n, m, pending, heard, pending) : onConfirm(ctx, n, m, pending);
   // The exact terms PacePay asked for, said back: agreed. A number code didn't place ("Friday's, um,
   // thirty") could be a fee it misheard, so that gets a read-back instead.
-  if (m.lastAsk && m.lastAsk.stated && same(m.lastAsk) && !strayNumber(heard)) return acceptTerms(ctx, n, m, terms, heard);
+  if (m.lastAsk && m.lastAsk.stated && same(m.lastAsk) && !strayNumber(heard)) return hedged ? exactReadBack(ctx, n, m, terms, heard, undefined) : acceptTerms(ctx, n, m, terms, heard);
   const checked = new Set((n.checks ?? []).map((c) => c.offerId));
   const before = [...n.offers].reverse().find((o) => o.readBackConfirmed && checked.has(o.id) && same(o));
   if (before) {
@@ -1445,6 +1750,8 @@ function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, r: Extract<Reading
     if (m.lastAsk && m.lastAsk.fee === 0 && m.lastAsk.newDay !== day) m.refusedDays.add(m.lastAsk.newDay);
     return counterOrClose(ctx, pending ? save(ctx, n.id, { pendingOfferId: undefined }) : n, m);
   }
+  // "Friday, about twenty bucks": the exact terms back, and only a clear yes confirms them.
+  if (hedged) return exactReadBack(ctx, n, m, terms, heard, undefined);
   return readBack(ctx, n, m, terms, heard);
 }
 
@@ -1457,10 +1764,11 @@ function strayNumber(heard: string): boolean {
 }
 
 /** Stores the offer as pending and reads it back. */
-function readBack(ctx: ToolContext, n: Negotiation, m: Memory, terms: { newDay: Day; fee: Cents }, heard: string): DecideResult {
+function readBack(ctx: ToolContext, n: Negotiation, m: Memory, terms: { newDay: Day; fee: Cents }, heard: string, lines?: readonly string[]): DecideResult {
   const d0 = day0(ctx);
   const offer: Offer = { id: newId('offer'), negotiationId: n.id, itemId: n.itemId, newDay: terms.newDay, fee: terms.fee, heard, readBackConfirmed: false };
   m.lastAsk = null;
+  m.hedges = 0;
   ctx.bus.emit({
     type: 'offer.heard',
     model: 'code',
@@ -1468,7 +1776,7 @@ function readBack(ctx: ToolContext, n: Negotiation, m: Memory, terms: { newDay: 
     title: `Heard "${speakDate(terms.newDay, d0)}, ${feeWords(terms.fee)}"`,
     detail: { negotiationId: n.id, offer },
   });
-  const say = vary(n, readBackVariants(ctx, offer));
+  const say = vary(n, lines ?? readBackVariants(ctx, offer));
   ctx.bus.emit({ type: 'offer.read_back', model: 'code', caseId: n.caseId, title: `Read back: "${say}"`, detail: { negotiationId: n.id, offerId: offer.id } });
   return reply(ctx, n.id, say, { offers: [...n.offers, offer], pendingOfferId: offer.id, state: 'reading_back' });
 }
@@ -1519,18 +1827,34 @@ async function onConfirm(ctx: ToolContext, n: Negotiation, m: Memory, pending: O
  * seven seven three two", "it's A7732"); wait while the lender looks it up; ask once more if they
  * moved on without one; then close politely.
  */
-function onReference(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string): DecideResult {
+function onReference(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string): DecideResult | Promise<DecideResult> {
   const ref = extractReference(utterance, refExclusions(ctx, n));
+  const deal = n.outcome === 'deal' ? approvedOffer(n) : undefined;
+  // A change to the approved terms comes first: PacePay never closes on terms the lender just changed.
+  if (deal && (!ref || /\$|\b(fee|fees|charge|dollars?|bucks|instead|actually|condition|autopay|only if|as long as)\b/i.test(utterance))) {
+    const basis = { newDay: deal.newDay, fee: deal.fee };
+    // With a reference in the line, read only the clauses that don't carry it.
+    const rest = ref
+      ? utterance
+          .split(/[,;.!?]+|\bbut\b/i)
+          .filter((c) => !REF_KEY.test(c) && !extractReference(c, refExclusions(ctx, n)))
+          .join(', ')
+      : utterance;
+    const ch = detectChange(ctx, n, m, rest, basis);
+    if (ch && ch !== 'same') return startDispute(ctx, n, m, { phase: 'approved', kind: ch.kind, basis, ...(ch.proposed ? { proposed: ch.proposed } : {}), asks: 1 });
+  }
+  const t = deal ? termsWords(ctx, deal) : '';
   if (ref) {
     const r = sayReference(n, ref);
-    const lines =
-      n.outcome === 'deal'
-        ? [`Thank you, reference ${r}. Have a great day, goodbye.`, `Perfect, that's ${r}. Thanks so much for your help today. Goodbye!`, `Great, I've got reference ${r}. Thanks again, have a good one. Goodbye.`]
-        : [`Thank you, reference ${r}. Yoshua will follow up. Goodbye.`, `Got it, ${r}. Thanks for your help, Yoshua will follow up. Goodbye.`];
+    const lines = deal
+      ? [`Thank you, reference ${r}. So that's ${t}, as agreed. Have a great day, goodbye.`, `Perfect, that's ${r}, for ${t}. Thanks so much for your help today. Goodbye!`]
+      : [`Thank you, reference ${r}. Nothing has been changed yet, and Yoshua will follow up. Goodbye.`, `Got it, ${r}. Thanks for your help. Nothing is changed for now; Yoshua will follow up. Goodbye.`];
     return close(ctx, n.id, lines, n.outcome!, { referenceNumber: ref });
   }
   const plain = normalizeReply(utterance);
-  const done = n.outcome === 'deal' ? LINES.closeDealNoReference : LINES.closeNoReference;
+  const done = deal
+    ? [`Okay. So that's ${t}, as agreed. Thank you for your help, goodbye.`, `Alright. To confirm, it's ${t}, as agreed. Thanks again, goodbye.`]
+    : LINES.closeNoReference;
   if (/\b(bye|goodbye|have a (good|great|nice) (one|day|night|evening))\b/.test(plain)) return close(ctx, n.id, done, n.outcome!);
   const looking = HOLDING.test(plain) || /\b(let me (get|grab|find|pull|generate)|getting (that|it|you)|one sec|bear with)\b/.test(plain) || (yesWords(utterance) !== null && plain.split(' ').length <= 3);
   if (looking) {
@@ -1547,15 +1871,450 @@ function onReference(ctx: ToolContext, n: Negotiation, m: Memory, utterance: str
 }
 
 // ---------------------------------------------------------------------------
+// Holding the lender to the terms: hedged yeses, and changes during the hold or after Yoshua's yes.
+// PacePay never agrees to anything but the exact day and fee Yoshua approved.
+// ---------------------------------------------------------------------------
+
+/** What a lender line does to the terms PacePay is holding them to. */
+type TermChange = { kind: 'terms' | 'extra_fee' | 'condition' | 'walkback'; proposed?: Terms; feeNoAmount?: boolean };
+
+/** "Yeah, something like that", "pretty much", "I think so", "about twenty": not a yes to money terms. */
+const HEDGE =
+  /\b(something like (that|this|it)|somethin like that|pretty much|more or less|sort of|kind of|kinda|sorta|i think so|i think|i guess|i believe so|i believe|i suppose|probably|roughly|approximately|ish|around (that|there)|about that|close enough|if you say so|whatever|maybe|not sure|give or take|ballpark|(about|around|like) \d+)\b/;
+export function isHedge(words: string): boolean {
+  return HEDGE.test(normalizeReply(digitize(words)));
+}
+
+/** A condition beyond a day and a fee ("only if he enrolls in autopay"). Tested on normalizeReply text. */
+const CONDITION =
+  /\b(only if|as long as|provided (that|he|she|they)|on (the )?condition|in exchange|if (he|she|they|yoshua) (enrolls?|signs? up|sets? up|agrees? to|turns on|switches to|signs)|(he|she|they|yoshua|hed|shed|theyd|hell|shell|theyll) (would |will )?(have|has|need|needs|must) to (enroll|sign|set up|agree to|turn on|switch|make a payment|pay today|pay now|send)|enroll\w* in autopay|(sign|set) up (for )?auto ?pay|on auto ?pay|automatic payments|auto draft)\b/;
+/** A fee on top of the agreed one ("plus a ten dollar processing fee"). */
+const EXTRA_FEE = /\b(plus|additional|extra|on top|another|processing|admin|administrative|convenience|handling)\b/;
+const TOTAL = /\b(total|totals|all in|altogether|all together|in all|in fees|combined)\b/;
+/** The lender takes the offer back. */
+const WALKBACK =
+  /\b(never ?mind|take (that|it) back|scratch that|changed (my|our) mind|no longer|not anymore|(offer|deal) (is|s) off|(cant|cannot|wont|not able to|unable to) (do|honor|offer|make|keep|hold) (that|it|this|those)( anymore| after all)?|(system|it) (wont|doesnt) (let|allow) me)\b/;
+/** The lender keeps the terms PacePay asked them to honor. */
+const HONOR =
+  /\b((we|i) (can|will) (do|honor|keep|hold) (that|it|this|those)|(well|ill) (honor|keep|do) (that|it|those)|honor (that|it|those)|keep it (at|as)|leave it (at|as)|(the )?(original|first) (terms|offer|fee) (is|s)? ?fine|thats fine we can do that)\b/;
+
+const sameTerms = (a: Terms, b: Terms) => a.newDay === b.newDay && a.fee === b.fee;
+
+/** "Friday the 13th with a twenty-dollar fee". */
+function termsWords(ctx: ToolContext, t: Terms): string {
+  return `${sayDay(ctx, t.newDay)} ${feeWords(t.fee)}`;
+}
+
+/**
+ * What the line does to `basis`: 'same' (the same terms said again), a change (new day and/or fee,
+ * an added fee, a condition, a walk-back), or null (nothing about the terms).
+ */
+function detectChange(ctx: ToolContext, n: Negotiation, m: Memory, words: string, basis: Terms): TermChange | 'same' | null {
+  const plain = normalizeReply(words);
+  const d = digitize(words);
+  if (CONDITION.test(plain) && !VERIFY.test(d)) return { kind: 'condition' };
+  const r = readInCode(ctx, n, m, words, undefined);
+  if (r?.kind === 'offer') {
+    let day: Day;
+    if (r.days.length) day = r.days.includes(basis.newDay) ? basis.newDay : r.days[0]!;
+    else if (r.refused.includes(basis.newDay)) return { kind: 'walkback' };
+    else day = basis.newDay;
+    if (r.fee === null) {
+      if (r.feeNoAmount && (EXTRA_FEE.test(plain) || basis.fee === 0)) return { kind: 'extra_fee', feeNoAmount: true, ...(day !== basis.newDay ? { proposed: { newDay: day, fee: basis.fee } } : {}) };
+      const t = { newDay: day, fee: basis.fee };
+      return sameTerms(t, basis) ? 'same' : { kind: 'terms', proposed: t };
+    }
+    const extra = !r.summed && r.fee !== basis.fee && basis.fee > 0 && EXTRA_FEE.test(plain) && !TOTAL.test(plain);
+    const t = { newDay: day, fee: extra ? basis.fee + r.fee : r.fee };
+    if (sameTerms(t, basis)) return 'same';
+    return { kind: extra || (r.summed && EXTRA_FEE.test(plain)) ? 'extra_fee' : 'terms', proposed: t };
+  }
+  if (r?.kind === 'refused_days' && r.days.includes(basis.newDay)) return { kind: 'walkback' };
+  if (r?.kind === 'refusal' || WALKBACK.test(plain)) return { kind: 'walkback' };
+  return null;
+}
+
+/** The pending money question after a hedge: the exact terms again; only a clear yes confirms. */
+function exactReadBack(ctx: ToolContext, n: Negotiation, m: Memory, terms: Terms, heard: string, pending: Offer | undefined): DecideResult {
+  m.hedges += 1;
+  // Never the same exact-check more than twice.
+  if (m.hedges > 2) {
+    m.hedges = 0;
+    return reply(ctx, n.id, LINES.clarifyOffer, { state: 'listening', pendingOfferId: undefined });
+  }
+  const t = termsWords(ctx, terms);
+  const lines = [`I need to be exact on this. Is it ${t}? A yes or no is fine.`, `Just so there's no confusion, is it exactly ${t}?`, `To be precise, is that ${t}, yes or no?`];
+  if (pending && sameTerms(pending, terms)) return reply(ctx, n.id, lines, { state: 'reading_back' });
+  const h = m.hedges;
+  const r = readBack(ctx, n, m, terms, heard, lines);
+  m.hedges = h;
+  return r;
+}
+
+/** The question PacePay is waiting on, in other words (never "I didn't catch that" for a real turn). */
+function restateQuestion(ctx: ToolContext, n: Negotiation, m: Memory): string {
+  if (n.state === 'awaiting_approval' && !m.dispute) return vary(n, LINES.stillHolding);
+  if (m.dispute) return honorAsk(ctx, n, m);
+  if (n.outcome && n.state !== 'closed') return vary(n, LINES.askReferenceAgain);
+  return currentAsk(ctx, n, m);
+}
+
+/** PacePay asks the lender to honor the terms it holds them to (or for the total of an added fee). */
+function honorAsk(ctx: ToolContext, n: Negotiation, m: Memory): string {
+  // The first wording on first use (it says what was approved and why PacePay can't agree), then the others.
+  const said = (n.transcript ?? []).filter((l) => l.speaker === 'pacepay').map((l) => l.text);
+  const vary = (nn: Negotiation, opts: readonly string[]) => (said.some((x) => x.includes(opts[0]!)) ? varyLine(nn, opts.slice(1)) : opts[0]!);
+  const dsp = m.dispute!;
+  const t = termsWords(ctx, dsp.basis);
+  if (dsp.awaitFee) return vary(n, ['What would the total fee be, all in?', 'And what would the fee come to in total?', 'How much would the fee be in total?']);
+  if (dsp.kind === 'condition') {
+    return vary(n, [
+      `I can only agree to a new date and a fee, with no other conditions. Can you do ${t} without that?`,
+      `I'm not able to agree to any conditions on Yoshua's behalf. Is ${t} possible on its own?`,
+      `Just the date and the fee is all I can agree to. Can you do ${t}, with nothing else attached?`,
+    ]);
+  }
+  if (dsp.phase === 'approved') {
+    return vary(n, [
+      `Just to be clear, Yoshua approved ${t}, and I can only agree to exactly that. Can you do ${t}?`,
+      `I'm not able to agree to a change. Yoshua approved ${t}. Can you keep it at ${t}?`,
+      `The only terms I can confirm are the ones Yoshua approved, ${t}. Can you honor that?`,
+      `I need a clear yes or no, please. Can you do ${t}, as Yoshua approved?`,
+    ]);
+  }
+  if (dsp.phase === 'hold') {
+    return vary(n, [
+      `I'm checking with Yoshua on ${t}, and I can't agree to different terms myself. Can you still do ${t}?`,
+      `Just so I'm clear, I'm asking Yoshua about ${t}. Can you keep it at ${t}?`,
+      `I can only check ${t} with Yoshua right now. Is ${t} still possible?`,
+    ]);
+  }
+  return vary(n, [`Just to confirm, can you do ${t}?`, `Is ${t} possible?`]);
+}
+
+/** The deal approval waiting on Yoshua's answer, if any. */
+function openDealApproval(ctx: ToolContext, id: string) {
+  const a = dealApproval(ctx, id);
+  return a && a.status === 'pending' ? a : undefined;
+}
+
+/** Withdraws a pending deal approval: a YES to it can never confirm terms the lender changed. */
+function withdrawApproval(ctx: ToolContext, id: string): void {
+  const a = openDealApproval(ctx, id);
+  if (!a) return;
+  timeoutApproval(ctx, a.id);
+  const next = ctx.store.patch('approvals', a.id, { answer: 'withdrawn' });
+  ctx.bus.publish({ event: 'approval', data: next });
+  outcomes.set(a.id, { status: 'pending' });
+  spoken.add(a.id);
+}
+
+/** The lender changed or conditioned the terms: hold them to the basis (and record it for the dashboard). */
+function startDispute(ctx: ToolContext, n: Negotiation, m: Memory, dsp: Dispute): DecideResult {
+  m.dispute = dsp;
+  m.hedges = 0;
+  const afterApproval = dsp.phase === 'approved';
+  if (afterApproval) m.approved = dsp.basis;
+  const patch: Partial<Negotiation> = {};
+  if (dsp.phase !== 'readback') {
+    patch.termsChange = {
+      kind: dsp.kind === 'unclear' ? 'terms' : dsp.kind,
+      previousTerms: dsp.basis,
+      ...(dsp.proposed ? { newTerms: dsp.proposed } : {}),
+      afterApproval,
+      status: 'asking_lender',
+      at: ctx.clock.now(),
+    };
+  }
+  if (afterApproval) {
+    patch.outcome = undefined;
+    patch.state = 'listening';
+    // The approved line ("Yoshua approved ... reference number?") must never go out after this.
+    const a = dealApproval(ctx, n.id);
+    if (a) spoken.add(a.id);
+  }
+  const t = termsWords(ctx, dsp.basis);
+  ctx.bus.emit({
+    type: 'offer.heard',
+    model: 'code',
+    caseId: n.caseId,
+    level: 'warn',
+    title: `Lender changed the terms ${dsp.phase === 'approved' ? 'after Yoshua approved' : dsp.phase === 'hold' ? 'while PacePay checked with Yoshua' : 'on the read-back'} (${dsp.kind}${dsp.proposed ? `: ${speakDate(dsp.proposed.newDay, day0(ctx))}, ${feeWords(dsp.proposed.fee)}` : ''}); holding them to ${t}`,
+    detail: { negotiationId: n.id, dispute: { ...dsp } },
+  });
+  if (patch.termsChange || afterApproval) n = save(ctx, n.id, patch);
+  return reply(ctx, n.id, honorAsk(ctx, n, m), {}, dsp.phase === 'hold' && n.state === 'awaiting_approval' ? 'await_approval' : 'listen');
+}
+
+/** A lender turn while PacePay holds them to the basis terms. */
+async function onDispute(ctx: ToolContext, n: Negotiation, m: Memory, words: string): Promise<DecideResult> {
+  const dsp = m.dispute!;
+  const plain = normalizeReply(words);
+  const next: DecideResult['next'] = n.state === 'awaiting_approval' ? 'await_approval' : 'listen';
+  if (dsp.awaitFee) {
+    const fee = feeIn(digitize(words), true);
+    if (fee !== null) {
+      dsp.awaitFee = false;
+      dsp.proposed = { newDay: dsp.proposed?.newDay ?? dsp.basis.newDay, fee };
+      if (sameTerms(dsp.proposed, dsp.basis)) return honorResolved(ctx, n, m, words);
+      return insist(ctx, n, m, words);
+    }
+  }
+  const ch = detectChange(ctx, n, m, words, dsp.basis);
+  const hedged = isHedge(words);
+  const yes = yesWords(words);
+  // "Okay fine, we'll honor the twenty", "Twenty is fine": every number in the line is the basis
+  // fee (or its date), with a plain yes and no "no".
+  const [, , dd] = dayToISODate(dsp.basis.newDay, day0(ctx)).split('-').map(Number) as [number, number, number];
+  const nums = (digitize(words).match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  const onlyBasis = nums.length > 0 && nums.every((x) => x === dsp.basis.fee / 100 || x === dd);
+  const negated = /\b(no|not|nope|nah|cant|cannot|wont|isnt|unable)\b/.test(plain);
+  const positive = /\b(fine|ok|okay|yes|yeah|yep|yup|sure|honor|keep it|works|alright|all right|deal|we can|i can)\b/.test(plain);
+  const backToBasis = !negated && (positive || HONOR.test(plain)) && (!ch || (onlyBasis && ch !== 'same' && ch.kind !== 'condition'));
+  if (!hedged && (ch === 'same' || backToBasis || (!ch && yes?.strong))) return honorResolved(ctx, n, m, words);
+  if (ch && ch !== 'same') {
+    dsp.kind = ch.kind;
+    if (ch.proposed) dsp.proposed = ch.proposed;
+    if (ch.feeNoAmount && !ch.proposed) dsp.proposed = undefined;
+    if (m.approved && ch.proposed && sameTerms(ch.proposed, m.approved) && !sameTerms(dsp.basis, m.approved)) return honorResolved(ctx, n, m, words);
+    return insist(ctx, n, m, words);
+  }
+  if (!hedged && (noWords(words) || /\b(cant|cannot|wont|unable|not able|no way)\b/.test(plain))) return insist(ctx, n, m, words);
+  const preset = presetAnswer(ctx, n, m, words);
+  if (preset) return reply(ctx, n.id, preset, {}, next);
+  if (HOLDING.test(plain)) return reply(ctx, n.id, LINES.takeYourTime, {}, next);
+  dsp.asks += 1;
+  if (dsp.asks > 3) return closeOnChange(ctx, n, m);
+  return reply(ctx, n.id, honorAsk(ctx, n, m), {}, next);
+}
+
+/** The lender went back to the terms PacePay held them to. */
+async function honorResolved(ctx: ToolContext, n: Negotiation, m: Memory, heard: string): Promise<DecideResult> {
+  const dsp = m.dispute!;
+  m.dispute = null;
+  m.hedges = 0;
+  m.reapproval = false;
+  const tc = n.termsChange ? { ...n.termsChange, status: 'resolved' as const } : undefined;
+  const t = termsWords(ctx, dsp.basis);
+  ctx.bus.emit({ type: 'offer.confirmed', model: 'code', caseId: n.caseId, title: `Lender kept ${speakDate(dsp.basis.newDay, day0(ctx))}, ${feeWords(dsp.basis.fee)}`, detail: { negotiationId: n.id } });
+  const approvedBasis = m.approved && sameTerms(m.approved, dsp.basis);
+  if (dsp.phase === 'approved' || approvedBasis) {
+    // Back to the terms Yoshua approved. If a re-approval for other terms is out, it no longer applies.
+    withdrawApproval(ctx, n.id);
+    const cur = approvedOffer(n);
+    if (!cur || !sameTerms(cur, dsp.basis)) n = await recordAgreed(ctx, n, dsp.basis, heard);
+    if (m.earlyRef) {
+      const r = sayReference(n, m.earlyRef);
+      return close(ctx, n.id, [`Thank you. So that's ${t}, exactly as Yoshua approved, and I have reference ${r}. Goodbye.`], 'deal', { referenceNumber: m.earlyRef, ...(tc ? { termsChange: tc } : {}) });
+    }
+    setCallStatus(ctx, n, { status: 'active' });
+    return reply(ctx, n.id, [`Thank you. So that's ${t}, exactly as Yoshua approved. Could I get a reference number for that?`, `Great, thank you. That's ${t}, as Yoshua approved. What's the reference number?`], { outcome: 'deal', state: 'listening', ...(tc ? { termsChange: tc } : {}) });
+  }
+  if (dsp.phase === 'hold') {
+    if (tc) n = save(ctx, n.id, { termsChange: tc });
+    if (!openDealApproval(ctx, n.id)) {
+      const out = await resolveOutcome(ctx, n.id);
+      if (out.status !== 'pending' && out.say) {
+        markSpoken(ctx, n.id);
+        return { say: out.say, next: out.next ?? 'listen', state: load(ctx, n.id).state };
+      }
+    }
+    return reply(ctx, n.id, [`Thank you. I'm still checking with Yoshua on ${t}.`, `Thanks. I'm still checking ${t} with Yoshua, one moment.`], {}, 'await_approval');
+  }
+  // On a read-back: the lender dropped the condition, so those terms are agreed as asked.
+  const pending = n.pendingOfferId ? n.offers.find((o) => o.id === n.pendingOfferId) : undefined;
+  if (pending && sameTerms(pending, dsp.basis)) return onConfirm(ctx, n, m, pending);
+  return acceptTerms(ctx, n, m, dsp.basis, heard);
+}
+
+/** Records terms the lender agreed to as a confirmed, checked offer (so dealChanges commits them). */
+async function recordAgreed(ctx: ToolContext, n: Negotiation, terms: Terms, heard: string): Promise<Negotiation> {
+  const offer: Offer = { id: newId('offer'), negotiationId: n.id, itemId: n.itemId, newDay: terms.newDay, fee: terms.fee, heard, readBackConfirmed: true };
+  n = save(ctx, n.id, { offers: [...n.offers, offer], pendingOfferId: undefined });
+  const raw = await runTool('check_offer', { itemId: offer.itemId, newDay: offer.newDay, fee: offer.fee }, ctx, scopeOf(n));
+  return save(ctx, n.id, { checks: [...(n.checks ?? []), { ...raw, offerId: offer.id }] });
+}
+
+/**
+ * The lender insists on the change. New terms within Yoshua's limits go to Yoshua as a fresh
+ * approval (PacePay holds); anything else ends the call without a deal.
+ */
+async function insist(ctx: ToolContext, n: Negotiation, m: Memory, heard: string): Promise<DecideResult> {
+  const dsp = m.dispute!;
+  if (dsp.kind === 'extra_fee' && !dsp.proposed && !dsp.awaitFee) {
+    dsp.awaitFee = true;
+    return reply(ctx, n.id, honorAsk(ctx, n, m), {}, n.state === 'awaiting_approval' ? 'await_approval' : 'listen');
+  }
+  if (!dsp.proposed) return closeOnChange(ctx, n, m);
+  const t = dsp.proposed;
+  const d0 = day0(ctx);
+  const offer: Offer = { id: newId('offer'), negotiationId: n.id, itemId: n.itemId, newDay: t.newDay, fee: t.fee, heard, readBackConfirmed: true };
+  n = save(ctx, n.id, { offers: [...n.offers, offer], pendingOfferId: undefined });
+  const raw = await runTool('check_offer', { itemId: offer.itemId, newDay: offer.newDay, fee: offer.fee }, ctx, scopeOf(n));
+  const check: OfferCheck = { ...raw, offerId: offer.id };
+  n = save(ctx, n.id, { checks: [...(n.checks ?? []), check] });
+  // The old question to Yoshua (if still open) is withdrawn either way.
+  withdrawApproval(ctx, n.id);
+  if (!check.pass) return closeOnChange(ctx, n, m);
+
+  const afterApproval = dsp.phase === 'approved' || (m.approved !== null && sameTerms(m.approved, dsp.basis));
+  const prompt = dealChangedApprovalText({ from: dsp.basis, afterApproval, toDay: check.postsOnDay, fee: t.fee, checkingFloor: ctx.store.rules().checkingFloor, day0Date: d0 });
+  const sent = runTool(
+    'request_approval',
+    { kind: 'deal', prompt, choices: ['yes', 'no'], timeoutMs: DEAL_APPROVAL_TIMEOUT_MS, negotiationId: n.id, ...(n.callId ? { callId: n.callId } : {}) },
+    ctx,
+    scopeOf(n),
+  ).catch((err: Error) => {
+    ctx.bus.emit({ type: 'step.failed', model: 'code', caseId: n.caseId, level: 'error', title: `Could not text Yoshua the changed terms: ${err.message}`, detail: { negotiationId: n.id } });
+  });
+  // request_approval stores the approval before its first await: tag it for the dashboard.
+  const a = openDealApproval(ctx, n.id);
+  if (a) ctx.bus.publish({ event: 'approval', data: ctx.store.patch('approvals', a.id, { previousTerms: dsp.basis, newTerms: t }) });
+  if (n.channel !== 'voice') await sent;
+  m.dispute = null;
+  m.reapproval = true;
+  m.changedFrom = { terms: dsp.basis, afterApproval };
+  const tc = {
+    kind: (dsp.kind === 'unclear' ? 'terms' : dsp.kind) as NonNullable<Negotiation['termsChange']>['kind'],
+    previousTerms: dsp.basis,
+    newTerms: t,
+    afterApproval,
+    status: 'awaiting_yoshua' as const,
+    ...(a ? { approvalId: a.id } : {}),
+    at: n.termsChange?.at ?? ctx.clock.now(),
+  };
+  ctx.bus.emit({ type: 'approval.requested', model: 'code', caseId: n.caseId, title: `Lender insisted on ${speakDate(t.newDay, d0)}, ${feeWords(t.fee)}: asked Yoshua again`, detail: { negotiationId: n.id, previousTerms: dsp.basis, newTerms: t } });
+  const say = vary(n, [
+    `I can't agree to ${termsWords(ctx, t)} myself. Let me check that with Yoshua, one moment.`,
+    `I'm not able to agree to that on my own. Let me ask Yoshua about ${termsWords(ctx, t)}. Please hold.`,
+  ]);
+  const result = reply(ctx, n.id, say, { state: 'awaiting_approval', outcome: undefined, termsChange: tc }, 'await_approval');
+  setCallStatus(ctx, load(ctx, n.id), { status: 'holding_for_approval' });
+  return result;
+}
+
+/** "The lender changed the fee to $35 after Yoshua approved $20; PacePay didn't agree. Nothing changed." */
+function changeReason(tc: NonNullable<Negotiation['termsChange']>, d0: string): string {
+  const fee = (c: Cents) => (c === 0 ? 'no fee' : formatMoney(c));
+  const terms = (t: Terms) => `${formatDate(t.newDay, d0)} ${t.fee === 0 ? 'with no fee' : `for ${formatMoney(t.fee)}`}`;
+  const when = tc.afterApproval ? 'after Yoshua approved' : 'while PacePay was checking with Yoshua on';
+  const tail = tc.status === 'yoshua_declined' ? 'Yoshua said no, so nothing changed.' : "PacePay didn't agree. Nothing changed.";
+  const p = tc.previousTerms;
+  const q = tc.newTerms;
+  if ((tc.kind === 'terms' || tc.kind === 'extra_fee') && q) {
+    if (q.newDay === p.newDay) return `The lender changed the fee to ${fee(q.fee)} ${when} ${fee(p.fee)}. ${tail}`;
+    if (q.fee === p.fee) return `The lender changed the date to ${formatDate(q.newDay, d0)} ${when} ${formatDate(p.newDay, d0)}. ${tail}`;
+    return `The lender changed the terms to ${terms(q)} ${when} ${terms(p)}. ${tail}`;
+  }
+  if (tc.kind === 'walkback') return `The lender took back the ${terms(p)} offer${tc.afterApproval ? ' after Yoshua approved it' : ''}. Nothing changed.`;
+  return `The lender ${tc.kind === 'condition' ? 'added a condition' : 'added another fee'} ${when} ${terms(p)}. ${tail}`;
+}
+
+/** Ends the call without a deal because the lender changed the terms. */
+function closeOnChange(ctx: ToolContext, n: Negotiation, m: Memory, youDeclined = false): DecideResult {
+  const dsp = m.dispute;
+  m.dispute = null;
+  withdrawApproval(ctx, n.id);
+  const d0 = day0(ctx);
+  const prev = n.termsChange;
+  const kind = (dsp ? (dsp.kind === 'unclear' ? 'terms' : dsp.kind) : prev?.kind) ?? 'terms';
+  const basis = dsp?.basis ?? prev?.previousTerms;
+  const proposed = dsp?.proposed ?? prev?.newTerms;
+  const tc = basis
+    ? {
+        kind,
+        previousTerms: basis,
+        ...(proposed ? { newTerms: proposed } : {}),
+        afterApproval: prev?.afterApproval ?? (dsp?.phase === 'approved' || (m.approved !== null && sameTerms(m.approved, basis))),
+        status: youDeclined ? ('yoshua_declined' as const) : ('no_deal' as const),
+        ...(prev?.approvalId ? { approvalId: prev.approvalId } : {}),
+        at: prev?.at ?? ctx.clock.now(),
+      }
+    : undefined;
+  const closeReason = tc ? changeReason(tc, d0) : 'The lender changed the terms, so PacePay did not agree. Nothing changed.';
+  if (tc) m.note = { kind: tc.kind, approved: tc.previousTerms, ...(tc.newTerms ? { proposed: tc.newTerms } : {}), approvedByYou: tc.afterApproval, youDeclined };
+  const nothing = 'So nothing is agreed today, and the payment stays as it is. Yoshua will follow up with you directly. Goodbye.';
+  let say: string;
+  if (youDeclined) say = `Thanks for holding. Yoshua isn't able to accept ${proposed ? termsWords(ctx, proposed) : 'those terms'}. ${nothing}`;
+  else if (kind === 'condition') say = `I'm not able to agree to conditions on Yoshua's behalf. ${nothing}`;
+  else if (kind === 'walkback' || !proposed) say = `Understood. ${nothing}`;
+  else say = `I'm sorry, I'm not able to agree to ${termsWords(ctx, proposed)}. ${nothing}`;
+  ctx.bus.emit({ type: 'offer.checked', model: 'code', caseId: n.caseId, level: 'warn', title: `No deal: ${closeReason}`, detail: { negotiationId: n.id } });
+  return close(ctx, n.id, say, 'no_deal', { ...(tc ? { termsChange: tc } : {}), closeReason });
+}
+
+/**
+ * The voice worker reports the call ended. Returns true when the negotiator settled it (the case
+ * then gets its CALL_ENDED from here); false means the caller handles it (no outcome: CALL_FAILED).
+ * A call that ends while the lender's change is unsettled closes without a deal.
+ */
+export function callHungUp(ctx: ToolContext, negotiationId: string): boolean {
+  if (sendCallEnded(ctx, negotiationId)) return true;
+  const n = ctx.store.getItem('negotiations', negotiationId);
+  if (!n) return false;
+  if (n.state === 'closed') return true;
+  const m = mem(n);
+  const tc = n.termsChange;
+  const unsettled = m.dispute || (tc && (tc.status === 'asking_lender' || tc.status === 'awaiting_yoshua'));
+  if (unsettled) {
+    if (!m.dispute && tc) m.dispute = { phase: tc.afterApproval ? 'approved' : 'hold', kind: tc.kind, basis: tc.previousTerms, ...(tc.newTerms ? { proposed: tc.newTerms } : {}), asks: 1 };
+    const d0 = day0(ctx);
+    const dsp = m.dispute!;
+    m.dispute = null;
+    withdrawApproval(ctx, negotiationId);
+    const next = {
+      kind: dsp.kind === 'unclear' ? ('terms' as const) : dsp.kind,
+      previousTerms: dsp.basis,
+      ...(dsp.proposed ? { newTerms: dsp.proposed } : {}),
+      afterApproval: tc?.afterApproval ?? dsp.phase === 'approved',
+      status: 'no_deal' as const,
+      ...(tc?.approvalId ? { approvalId: tc.approvalId } : {}),
+      at: tc?.at ?? ctx.clock.now(),
+    };
+    const closeReason = `${changeReason(next, d0)} The call ended before it was settled.`;
+    save(ctx, negotiationId, { state: 'closed', outcome: 'no_deal', pendingOfferId: undefined, termsChange: next, closeReason });
+  } else if (n.outcome) {
+    save(ctx, negotiationId, { state: 'closed', pendingOfferId: undefined });
+  } else if (n.channel !== 'text') {
+    // The lender hung up (or the line dropped) before anything was confirmed: no deal, and Yoshua
+    // gets the honest text (orchestrator: post-call summary), never silence.
+    withdrawApproval(ctx, negotiationId);
+    save(ctx, negotiationId, { state: 'closed', outcome: 'no_deal', pendingOfferId: undefined, closeReason: HUNG_UP_REASON });
+  } else return false;
+  ctx.enqueue({ id: newId('evt'), at: ctx.clock.now(), type: 'CALL_ENDED', callId: n.callId ?? '', negotiationId });
+  return true;
+}
+
+/** The close reason when the call ended before anything was confirmed. */
+export const HUNG_UP_REASON = 'The lender hung up before confirming anything, so nothing changed.';
+
+/**
+ * The deal the case may commit at the end of the call: Yoshua approved it, the lender accepted it,
+ * and nothing disputes it. Null otherwise (the orchestrator commits nothing and says so).
+ */
+export function confirmedDeal(ctx: ToolContext, negotiationId: string): Terms | null {
+  const n = ctx.store.getItem('negotiations', negotiationId);
+  if (!n || n.outcome !== 'deal') return null;
+  const m = mem(n);
+  if (m.dispute) return null;
+  if (n.termsChange && !['resolved', 'yoshua_approved'].includes(n.termsChange.status)) return null;
+  const approved = ctx.store.list('approvals').some((a) => a.kind === 'deal' && a.negotiationId === negotiationId && a.status === 'approved');
+  if (!approved) return null;
+  const o = approvedOffer(n);
+  return o ? { newDay: o.newDay, fee: o.fee } : null;
+}
+
+// ---------------------------------------------------------------------------
 // The deal approval
 // ---------------------------------------------------------------------------
 
 /** The newest deal approval for this negotiation. */
 function dealApproval(ctx: ToolContext, negotiationId: string) {
-  return ctx.store
-    .list('approvals')
-    .filter((a) => a.kind === 'deal' && a.negotiationId === negotiationId)
-    .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))[0];
+  // Newest first; two approvals in the same millisecond (a re-approval right after a withdrawal) keep insertion order.
+  const all = ctx.store.list('approvals').filter((a) => a.kind === 'deal' && a.negotiationId === negotiationId);
+  return all
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => y.a.requestedAt.localeCompare(x.a.requestedAt) || y.i - x.i)[0]?.a;
 }
 
 /** The offer Yoshua is approving: the last confirmed one that passed its check. */
@@ -1614,13 +2373,20 @@ export async function approvalOutcomeForCall(ctx: ToolContext, negotiationId: st
  * Yoshua's answer was settled elsewhere (the orchestrator on APPROVAL_REPLY) but its line hasn't
  * gone out on the call yet, and the lender spoke first: say it now (once).
  */
-function unspokenOutcome(ctx: ToolContext, id: string): DecideResult | null {
+function unspokenOutcome(ctx: ToolContext, id: string, utterance = ''): DecideResult | null {
   const a = dealApproval(ctx, id);
   if (!a || spoken.has(a.id)) return null;
   const out = outcomes.get(a.id);
   if (!out || out.status === 'pending' || !out.say) return null;
-  spoken.add(a.id);
   const n = load(ctx, id);
+  if (out.status === 'approved' && utterance && n.outcome === 'deal') {
+    // The lender changed the terms before hearing Yoshua's yes: answer the change (decide holds them
+    // to the approved terms), never "please go ahead" on terms they just changed.
+    const basis = approvedOffer(n);
+    const ch = basis ? detectChange(ctx, n, mem(n), utterance, basis) : null;
+    if (ch && ch !== 'same') return null;
+  }
+  spoken.add(a.id);
   return { say: out.say, next: out.next === 'end_call' || n.state === 'closed' ? 'end_call' : 'listen', state: n.state };
 }
 
@@ -1641,8 +2407,23 @@ async function resolveOutcome(ctx: ToolContext, id: string): Promise<VoiceApprov
     // Already moved on (e.g. after a restart): report the status with the last line said.
     const last = [...(n.transcript ?? [])].reverse().find((l) => l.speaker === 'pacepay');
     out = { status: a.status, say: last?.text, next: n.state === 'closed' ? 'end_call' : 'listen' };
+  } else if (a.status === 'approved' && m.dispute) {
+    // The lender changed the terms while Yoshua decided: he approved the old ones, so hold the lender to those.
+    m.dispute.phase = 'approved';
+    m.approved = m.dispute.basis;
+    const t = termsWords(ctx, m.dispute.basis);
+    const say = vary(n, [
+      `Thanks for holding. Yoshua approved ${t}, and that's the only thing I can agree to. Can you do ${t}?`,
+      `Thanks for waiting. Yoshua approved ${t}, and I can't agree to anything different. Can you keep it at ${t}?`,
+    ]);
+    reply(ctx, id, say, { state: 'listening' });
+    out = { status: 'approved', say, next: 'listen' };
   } else if (a.status === 'approved') {
     const offer = approvedOffer(n);
+    if (offer) m.approved = { newDay: offer.newDay, fee: offer.fee };
+    m.reapproval = false;
+    const tc = n.termsChange && n.termsChange.status === 'awaiting_yoshua' ? { termsChange: { ...n.termsChange, status: 'yoshua_approved' as const } } : {};
+    if (tc.termsChange) save(ctx, id, tc);
     const terms = offer ? `${speakDate(offer.newDay, d0)}, ${feeWords(offer.fee)}` : '';
     const say = vary(n, approvedLines(n, d0));
     ctx.bus.emit({ type: 'offer.confirmed', model: 'code', caseId: n.caseId, title: 'Deal agreed with the lender after Yoshua approved', detail: { negotiationId: id, offerId: offer?.id } });
@@ -1659,9 +2440,24 @@ async function resolveOutcome(ctx: ToolContext, id: string): Promise<VoiceApprov
       reply(ctx, id, say, { state: 'listening', outcome: 'deal' });
       out = { status: 'approved', say, next: 'listen' };
     }
+  } else if (a.status === 'declined' && (m.reapproval || n.termsChange?.status === 'awaiting_yoshua')) {
+    // Yoshua said no to the lender's changed terms: no deal, said plainly.
+    m.reapproval = false;
+    const r = closeOnChange(ctx, n, m, true);
+    out = { status: 'declined', say: r.say, next: 'end_call' };
   } else if (a.status === 'declined') {
+    m.dispute = null;
     const r = counterAfterDecline(ctx, load(ctx, id), m);
     out = { status: 'declined', say: r.say, next: r.next === 'end_call' ? 'end_call' : 'listen' };
+  } else if (m.dispute || m.reapproval || n.termsChange?.status === 'awaiting_yoshua') {
+    // No answer from Yoshua while the terms were in question: never ask the lender to hold changed terms.
+    m.dispute = null;
+    m.reapproval = false;
+    const tc = n.termsChange ? { ...n.termsChange, status: 'no_deal' as const } : undefined;
+    const closeReason = tc ? `${changeReason(tc, d0)} Yoshua didn't answer in time.` : "The lender changed the terms and Yoshua didn't answer in time. Nothing changed.";
+    const say = "I wasn't able to reach Yoshua just now, so nothing is agreed today, and the payment stays as it is. Yoshua will follow up with you directly. Goodbye.";
+    const r = close(ctx, id, say, 'approval_timeout', { ...(tc ? { termsChange: tc } : {}), closeReason });
+    out = { status: 'timeout', say: r.say, next: 'end_call' };
   } else {
     const say = vary(n, LINES.holdAndReference);
     reply(ctx, id, say, { state: 'listening', outcome: 'approval_timeout' });

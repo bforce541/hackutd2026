@@ -6,7 +6,8 @@
  * Facts check (SPEC §5.5): every $ amount and % in Super's text must appear in the facts built
  * from the negotiation. Otherwise it is regenerated once, then the template text is sent.
  */
-import { TOOLS, doneText, formatDate, formatMoney, type Call, type Negotiation, type TranscriptLine } from '@pacepay/shared';
+import { TOOLS, doneText, formatDate, formatMoney, termsChangedText, type Call, type Negotiation, type TranscriptLine } from '@pacepay/shared';
+import { confirmedDeal } from '../agent/negotiator';
 import { defineTool, type ToolContext } from './registry';
 import { sendText } from '../messaging/outbox';
 import { unsupportedNumbers } from './send_message';
@@ -35,9 +36,9 @@ function outcomeLine(outcome: Call['outcome'] | undefined): string {
 }
 
 export function buildCallFacts(ctx: ToolContext, call: Call, neg: Negotiation | undefined, lender: string, itemLabel: string): CallFacts {
-  const outcome = call.outcome ?? neg?.outcome;
+  const outcome = neg?.outcome ?? call.outcome;
   const day0 = ctx.store.household().day0Date;
-  const lines = [`Lender: ${lender}`, `Outcome: ${outcomeLine(outcome)}`];
+  const lines = [`Lender: ${lender}`, `Outcome: ${outcomeLine(outcome)}`, ...(neg?.closeReason ? [`Why: ${neg.closeReason}`] : [])];
   const allowed: string[] = [];
   const offers = neg?.offers ?? [];
   const last = offers.at(-1);
@@ -50,7 +51,8 @@ export function buildCallFacts(ctx: ToolContext, call: Call, neg: Negotiation | 
   if (outcome === 'deal' && last) {
     const fee = last.fee === 0 ? 'no fee' : `a ${formatMoney(last.fee)} fee`;
     template = `${lender} agreed to move your ${itemLabel} to ${formatDate(last.newDay, day0)} with ${fee}.`;
-  } else if (outcome === 'no_deal') template = `${lender} couldn't move your ${itemLabel}. Nothing changed.`;
+  } else if (neg?.closeReason && !neg.termsChange) template = `${neg.closeReason} Your ${itemLabel} is unchanged.`;
+  else if (outcome === 'no_deal') template = `${lender} couldn't move your ${itemLabel}. Nothing changed.`;
   else if (outcome === 'handoff_verification') template = `${lender} needs to verify your identity before changing anything, so nothing changed. They'll contact you directly.`;
   else if (outcome === 'approval_timeout') template = `I asked ${lender} to hold their offer, but the call ended before you replied. Nothing changed.`;
   else template = `The call with ${lender} ended without a change to your ${itemLabel}.`;
@@ -85,9 +87,21 @@ export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_
   const referenceNumber = call.referenceNumber ?? neg?.referenceNumber;
 
   let text = facts.template;
-  const outcome = call.outcome ?? neg?.outcome;
-  const deal = neg && outcome === 'deal' ? dealOffer(neg) : undefined;
-  if (deal) {
+  const outcome = neg?.outcome ?? call.outcome;
+  // The Done text only for a deal Yoshua approved, the lender accepted, and nothing disputed at the end.
+  const deal = neg && outcome === 'deal' && confirmedDeal(ctx, neg.id) ? dealOffer(neg) : undefined;
+  const tc = neg?.termsChange;
+  if (!deal && tc && tc.status !== 'resolved' && tc.status !== 'yoshua_approved') {
+    // The lender changed the terms and PacePay didn't agree: the honest text, written by code.
+    text = termsChangedText({
+      kind: tc.kind,
+      approved: tc.previousTerms,
+      ...(tc.newTerms ? { proposed: tc.newTerms } : {}),
+      approvedByYou: tc.afterApproval,
+      youDeclined: tc.status === 'yoshua_declined',
+      day0Date: ctx.store.household().day0Date,
+    });
+  } else if (deal) {
     // SPEC §5.5: the Done text is filled by code, not written by a model.
     text = doneText({ itemLabel: item?.label ?? 'payment', toDay: deal.newDay, fee: deal.fee, reference: referenceNumber, day0Date: ctx.store.household().day0Date });
   } else if (ctx.models.available('orchestrator')) {
@@ -113,7 +127,8 @@ export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_
       }
     }
   }
-  if (referenceNumber && !text.includes(referenceNumber)) text = `${text} Ref ${referenceNumber}.`;
+  const honest = !deal && tc && tc.status !== 'resolved' && tc.status !== 'yoshua_approved';
+  if (referenceNumber && !honest && !text.includes(referenceNumber)) text = `${text} Ref ${referenceNumber}.`;
 
   const sent = await sendText(ctx, text, { caseId: scope.caseId, stepId: scope.stepId, model: 'nemotron-super' });
   if (!sent.sent) throw new Error(`post_call_summary: text was held (${sent.reason})`);

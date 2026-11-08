@@ -28,3 +28,7 @@ dist
 .vercel
 .turbo
 next-env.d.ts
+
+# stress/test run outputs
+scripts/stress/out/
+scripts/voice-test/out/

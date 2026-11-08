@@ -11,6 +11,8 @@ export const ACTOR_LABELS: Record<Actor, string> = {
   'nemotron-vision': 'Nemotron Nano 2 VL',
   'claude-opus': 'Claude Opus 5.5',
   'gpt-realtime': 'GPT realtime',
+  /** PacePay's spoken call lines: written by the negotiator (code), voiced by OpenAI TTS. */
+  negotiator: 'Negotiator (OpenAI TTS)',
   engine: 'Engine',
   code: 'Code',
   yoshua: 'Yoshua',

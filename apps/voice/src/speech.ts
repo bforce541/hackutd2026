@@ -9,12 +9,27 @@
  */
 import { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream } from 'node:stream/web';
+import https from 'node:https';
+import { Readable } from 'node:stream';
 
 export const TTS_MODEL = process.env.PACEPAY_TTS_MODEL || 'gpt-4o-mini-tts-2025-12-15';
 export const TTS_VOICE = 'marin';
 export const TTS_INSTRUCTIONS =
   'You are on a phone call. Sound like a warm, relaxed, friendly person, not a newsreader or an announcer. ' +
   'Natural conversational pace, light and easy, small pauses at commas. Read the words exactly as written.';
+
+/**
+ * TTS says "Yoshua" wrong ("Yo-shoo-ah"). Every line goes to TTS with the name respelled the way it is
+ * said; transcripts, logs and the Conductor keep "Yoshua". The cache is keyed by the respelled text, so
+ * a respelling change never plays a stale clip.
+ */
+export const NAME_RESPELLING = process.env.PACEPAY_TTS_NAME || 'Yaw-shoo-uh';
+export const ttsText = (text: string): string =>
+  text
+    .trim()
+    .replace(/\bYoshua\b/g, NAME_RESPELLING)
+    // A reference like "K7Q2M9" is read one character at a time ("K, 7, Q, 2, M, 9"), never as a word.
+    .replace(/\b(?=[A-Z0-9]{5,10}\b)(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]+\b/g, (m) => m.split('').join(', '));
 
 const SAMPLE_RATE = 24_000;
 const FRAME_SAMPLES = 480; // 20 ms at 24 kHz
@@ -24,20 +39,67 @@ const FRAME_BYTES = FRAME_SAMPLES * 2;
 const cache = new Map<string, Promise<Uint8Array>>();
 const ready = new Set<string>();
 
-/** True once a line is fully synthesized and plays from memory. */
-export const isReady = (text: string): boolean => ready.has(text);
+/**
+ * Live lines first: background synthesis (prewarm) never starts a request while a live line is
+ * waiting for its first audio, so warming the likely lines never slows the line being said now.
+ */
+let liveWaiting = 0;
+const liveIdle: Array<() => void> = [];
+async function behindLive(): Promise<void> {
+  while (liveWaiting > 0) await new Promise<void>((r) => liveIdle.push(r));
+}
+function liveStart(): () => void {
+  liveWaiting++;
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    if (--liveWaiting === 0) liveIdle.splice(0).forEach((r) => r());
+  };
+}
 
-async function request(text: string, signal?: AbortSignal): Promise<Response> {
+/** True once a line is fully synthesized and plays from memory. */
+export const isReady = (text: string): boolean => ready.has(ttsText(text));
+
+/**
+ * TTS requests go over HTTP/1.1 keep-alive sockets, one per request in flight. Node's fetch speaks
+ * HTTP/2 to api.openai.com and the streams on one connection are served one after another: a live
+ * line waited ~1.5 s behind each background synthesis (measured: 2.1 s with one in flight, 4.4 s with
+ * two). On separate sockets a live line's first audio stays ~0.6 s whatever else is in flight.
+ */
+const ttsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 4 });
+
+function request(text: string, signal?: AbortSignal): Promise<Response> {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY is not set');
-  const res = await fetch('https://api.openai.com/v1/audio/speech', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: TTS_MODEL, voice: TTS_VOICE, input: text, instructions: TTS_INSTRUCTIONS, response_format: 'pcm' }),
-    signal,
+  if (!key) return Promise.reject(new Error('OPENAI_API_KEY is not set'));
+  const body = JSON.stringify({ model: TTS_MODEL, voice: TTS_VOICE, input: text, instructions: TTS_INSTRUCTIONS, response_format: 'pcm' });
+  return new Promise<Response>((resolve, reject) => {
+    const req = https.request(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        method: 'POST',
+        agent: ttsAgent,
+        signal,
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        if (status !== 200) {
+          let err = '';
+          res.setEncoding('utf8');
+          res.on('data', (c: string) => (err += c));
+          res.on('end', () => reject(new Error(`TTS ${status}: ${err.slice(0, 200)}`)));
+          res.on('error', reject);
+          return;
+        }
+        // A cancelled or aborted request ends the stream quietly; readers see it as done.
+        res.on('error', () => undefined);
+        resolve(new Response(Readable.toWeb(res) as unknown as globalThis.ReadableStream<Uint8Array>, { status }));
+      },
+    );
+    req.on('error', reject);
+    req.end(body);
   });
-  if (!res.ok || !res.body) throw new Error(`TTS ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  return res;
 }
 
 /**
@@ -48,21 +110,27 @@ function soundSeconds(pcm: Uint8Array): number {
   const lead = Math.max(0, soundStart(pcm));
   return Math.max(0, soundEnd(pcm, 0) - lead) / 2 / SAMPLE_RATE;
 }
-const plausible = (text: string, pcm: Uint8Array) => soundSeconds(pcm) <= 0.8 + text.split(/\s+/).length * 0.45;
+const plausible = (text: string, pcm: Uint8Array, strict = false) => {
+  const words = text.split(/\s+/).length;
+  // A short opener ("Got it.") gets a tight bound: a doubled "Got it, got it." must not pass.
+  return soundSeconds(pcm) <= (strict && words <= 3 ? 0.3 + words * 0.3 : 0.8 + words * 0.45);
+};
 
 /**
  * Synthesize a line fully and keep it (fillers, hold lines, the greeting): it then plays instantly.
  * A clip that came out far too long is synthesized again, and never kept if it still is.
  */
-export function prewarm(text: string): Promise<Uint8Array> {
+export function prewarm(line: string, strict = false): Promise<Uint8Array> {
+  const text = ttsText(line);
   let p = cache.get(text);
   if (!p) {
     p = (async () => {
       for (let attempt = 0; ; attempt++) {
         try {
+          await behindLive();
           const res = await request(text);
           const pcm = new Uint8Array(await res.arrayBuffer());
-          if (plausible(text, pcm)) return pcm;
+          if (plausible(text, pcm, strict)) return pcm;
           throw new Error(`clip came out ${soundSeconds(pcm).toFixed(1)}s long`);
         } catch (err) {
           if (attempt >= 1) {
@@ -89,6 +157,8 @@ const LEAD_LEVEL = 400;
 const LEAD_PAD_BYTES = FRAME_BYTES; // keep 20 ms before the first sound
 /** An opener keeps this much of its trailing quiet: the natural beat before the rest of the line. */
 const OPENER_TAIL_BYTES = 8 * FRAME_BYTES; // 160 ms
+/** A comma opener keeps a shorter beat: the rest of the line carries on mid-sentence. */
+const COMMA_TAIL_BYTES = 5 * FRAME_BYTES; // 100 ms
 
 const level = (buf: Uint8Array, i: number) => Math.abs((buf[i]! | (buf[i + 1]! << 8)) << 16 >> 16);
 
@@ -113,7 +183,7 @@ function* pcmFrames(pcm: Uint8Array, end = pcm.length & ~1): Generator<AudioFram
 }
 
 /** If the first TTS request has not produced audio by now, a second one races it. */
-export const HEDGE_MS = 450;
+export const HEDGE_MS = 650;
 /** No audio by now: give up, so the line falls back to the realtime voice instead of a long silence. */
 export const TTS_START_MAX_MS = 2_500;
 
@@ -134,6 +204,15 @@ async function firstChunk(text: string): Promise<Started> {
  * slow to produce audio (or failed). The loser is aborted.
  */
 async function startTts(text: string): Promise<Started & { ms: number; hedged: boolean }> {
+  const done = liveStart();
+  try {
+    return await startTtsLive(text);
+  } finally {
+    done();
+  }
+}
+
+async function startTtsLive(text: string): Promise<Started & { ms: number; hedged: boolean }> {
   const t0 = Date.now();
   let launched = false;
   const losers: Promise<Started>[] = [];
@@ -176,11 +255,14 @@ async function startTts(text: string): Promise<Started & { ms: number; hedged: b
   return { ...win, ms: Date.now() - t0, hedged: launched };
 }
 
+const START_CUSHION_BYTES = 4 * FRAME_BYTES; // 80 ms
+const PIECE_BYTES = 5 * FRAME_BYTES; // 100 ms
 /** Frames of a streaming TTS response as it arrives, from its first sound. */
 async function* streamFrames(st: Started): AsyncGenerator<AudioFrame> {
   let carry: Uint8Array = new Uint8Array(0);
   let next: Uint8Array | undefined = st.first;
   let leading = true;
+  let started = false;
   for (;;) {
     let value = next;
     next = undefined;
@@ -203,9 +285,16 @@ async function* streamFrames(st: Started): AsyncGenerator<AudioFrame> {
       leading = false;
       buf = buf.subarray(at);
     }
+    // The first audio waits for a small cushion, so a gap between the first network chunks does
+    // not stutter the opening syllable; after that, whole 20 ms frames in pieces of at most 100 ms.
+    if (!started && buf.length < START_CUSHION_BYTES) {
+      carry = buf;
+      continue;
+    }
+    started = true;
     const usable = buf.length - (buf.length % FRAME_BYTES);
     carry = buf.subarray(usable);
-    if (usable) yield frame(buf.subarray(0, usable));
+    for (let off = 0; off < usable; off += PIECE_BYTES) yield frame(buf.subarray(off, Math.min(usable, off + PIECE_BYTES)));
   }
   const tail = carry.subarray(0, carry.length - (carry.length % 2));
   if (tail.length && !leading) yield frame(tail);
@@ -226,12 +315,19 @@ function toStream(gen: AsyncGenerator<AudioFrame> | Generator<AudioFrame>, onCan
 }
 
 /**
- * Whole-sentence openers the negotiator starts lines with. Kept synthesized, so a line like "Thanks for
- * holding. Yoshua approved..." starts at once while the rest is still being synthesized; if the rest is
- * slow, the pause falls after a full stop, where it sounds natural. Never a one-word opener (TTS tends to
- * repeat those: "Okay, okay.") and never a clause ending in a comma (a pause there sounds broken).
+ * Openers the negotiator starts lines with. Kept synthesized, so a line like "Thanks for holding.
+ * Yoshua approved..." starts at once while the rest is still being synthesized. Whole sentences, plus
+ * the read-back openers ending in a comma: those take over a second to say, longer than the rest of
+ * the line takes to start (~0.6 s), so the rest follows on the comma's natural beat. Never a one-word
+ * opener (TTS tends to repeat those: "Okay, okay."); a two-word one only with the tight length check
+ * in plausible().
  */
 export const OPENERS = [
+  'Got it.',
+  'Okay, so just to confirm,',
+  'Just so I have it right,',
+  'Sorry, just to make sure I have it right,',
+  'And just to confirm,',
   'Thanks for holding.',
   'Thanks for waiting.',
   'Sorry for the wait.',
@@ -247,7 +343,7 @@ const goodOpeners = new Set<string>();
 export async function prewarmOpeners(): Promise<void> {
   for (const o of OPENERS) {
     try {
-      await prewarm(o);
+      await prewarm(o, true);
       goodOpeners.add(o);
     } catch {
       /* not cached: lines starting with it just stream */
@@ -256,12 +352,12 @@ export async function prewarmOpeners(): Promise<void> {
 }
 
 /** A line's longest cached opener and the rest of it, or null. */
-export function splitOpener(text: string): { head: string; rest: string } | null {
-  const t = text.trim();
+export function splitOpener(line: string): { head: string; rest: string } | null {
+  const t = ttsText(line);
   let best: { head: string; rest: string } | null = null;
-  for (const m of t.matchAll(/[.!?](?=\s+\S)/g)) {
+  for (const m of t.matchAll(/[.!?,](?=\s+\S)/g)) {
     const end = m.index! + 1;
-    if (end > 40) break;
+    if (end > 48) break;
     const head = t.slice(0, end);
     if (goodOpeners.has(head) && ready.has(head)) best = { head, rest: t.slice(end).trim() };
   }
@@ -277,8 +373,11 @@ export let lastTtsInfo = '';
  * produced audio (so a failure can fall back before anything is scheduled) and streams the rest as it
  * arrives. Cancelling the stream (an interruption) aborts the request.
  */
-export async function audioFor(text: string): Promise<ReadableStream<AudioFrame>> {
-  const cached = cache.get(text);
+export async function audioFor(line: string): Promise<ReadableStream<AudioFrame>> {
+  const text = ttsText(line);
+  // Only a clip that is fully synthesized plays from memory; one still being warmed would make this
+  // line wait for all of it, so it streams afresh instead (the warm one is kept for next time).
+  const cached = ready.has(text) ? cache.get(text) : undefined;
   if (cached) {
     try {
       const pcm = await cached;
@@ -291,13 +390,14 @@ export async function audioFor(text: string): Promise<ReadableStream<AudioFrame>
   const split = splitOpener(text);
   if (split) {
     const head = await cache.get(split.head)!;
+    const headEnd = soundEnd(head, split.head.endsWith(',') ? COMMA_TAIL_BYTES : OPENER_TAIL_BYTES);
     const t0 = Date.now();
     const rest = startTts(split.rest);
     rest.catch(() => undefined);
     let ctrl: AbortController | undefined;
     lastTtsInfo = `cached opener "${split.head}", rest streaming`;
     async function* joined(): AsyncGenerator<AudioFrame> {
-      yield* pcmFrames(head, soundEnd(head, OPENER_TAIL_BYTES));
+      yield* pcmFrames(head, headEnd);
       let st: Awaited<typeof rest>;
       try {
         st = await rest;
@@ -306,7 +406,8 @@ export async function audioFor(text: string): Promise<ReadableStream<AudioFrame>
         return;
       }
       ctrl = st.ctrl;
-      console.log(new Date().toISOString(), '[voice]', `rest of the line: first audio in ${Date.now() - t0} ms${st.hedged ? ' (hedged)' : ''}`);
+      const late = Date.now() - t0 - st.ms;
+      console.log(new Date().toISOString(), '[voice]', `rest of the line: first audio in ${st.ms} ms${st.hedged ? ' (hedged)' : ''}, ${late > 0 ? 'ready before the opener ended' : 'after the opener'}`);
       yield* streamFrames(st);
     }
     return toStream(joined(), () => {

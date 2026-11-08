@@ -138,8 +138,9 @@ function retryAfterMs(e: unknown): number | undefined {
 export function createEngine(spec: ProviderSpec, bus: Bus): ModelClient {
   const available = (job: ModelJob) => spec.routes(job).length > 0;
 
-  function emit(role: ModelRole, ms: number, req: { caseId?: string; stepId?: string }, title: string, level: 'info' | 'warn' | 'error', detail: unknown) {
-    bus.emit({ type: 'model.called', model: role, caseId: req.caseId, stepId: req.stepId, title, level, ms, detail });
+  function emit(role: ModelRole, ms: number, req: { caseId?: string; stepId?: string; detail?: Record<string, unknown> }, title: string, level: 'info' | 'warn' | 'error', detail: unknown) {
+    const merged = req.detail ? { ...req.detail, ...(detail && typeof detail === 'object' ? detail : {}) } : detail;
+    bus.emit({ type: 'model.called', model: role, caseId: req.caseId, stepId: req.stepId, title, level, ms, detail: merged });
   }
 
   async function once(route: Route, req: ChatRequest<z.ZodTypeAny | undefined>, messages: ChatMessage[], timeoutMs: number) {

@@ -126,6 +126,7 @@ export const MODEL_ROLES = all<ModelRole>()([
   'nemotron-vision',
   'claude-opus',
   'gpt-realtime',
+  'negotiator',
   'engine',
   'code',
 ]);

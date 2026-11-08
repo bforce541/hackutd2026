@@ -6,6 +6,7 @@
  */
 import { useEffect } from 'react';
 import { useDashboard } from '@/lib/data-source';
+import { TABS } from '@/lib/view-model';
 import { Header } from '@/components/Header';
 import { PaceLine } from '@/components/PaceLine';
 import { HealthStats } from '@/components/HealthStats';
@@ -25,8 +26,15 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-page text-ink">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-label focus:font-medium focus:text-page"
+      >
+        Skip to content
+      </a>
       <Header {...props} />
-      <main className="mx-auto max-w-[1560px] px-4 pb-10 pt-1 sm:px-8 [html[data-presenter=true]_&]:pb-3">
+      <main id="main" className="mx-auto max-w-[1560px] px-4 pb-10 pt-1 sm:px-8 [html[data-presenter=true]_&]:pb-3">
+        <h1 className="sr-only">PacePay: {TABS.find((t) => t.id === state.ui.tab)?.label}</h1>
         {state.ui.tab === 'home' && (
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,25rem)]">
             <div className="flex min-w-0 flex-col gap-3">

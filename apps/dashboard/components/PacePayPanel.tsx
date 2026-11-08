@@ -64,8 +64,9 @@ export function PacePayPanel(props: DashboardProps) {
     <section
       aria-label="PacePay"
       className="rise num min-w-0 self-start rounded-[1.75rem] border border-hairline bg-panel p-[1.5em] leading-[1.45] text-ink shadow-panel"
-      style={{ '--d': '160ms' } as CSSProperties}
+      style={{ '--d': '110ms' } as CSSProperties}
     >
+      <h2 className="sr-only">PacePay agent</h2>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-label font-medium">
           <span className="relative flex size-2">

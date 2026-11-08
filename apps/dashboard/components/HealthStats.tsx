@@ -105,6 +105,7 @@ export function HealthStats({ state, actions }: DashboardProps) {
 
   return (
     <section aria-label="Health stats" className="flex flex-col">
+      <h2 className="sr-only">Health stats</h2>
       <div className="grid grid-cols-2 gap-x-2 gap-y-1 lg:grid-cols-4">
         {stats.map((s, i) => {
           const isOpen = open?.key === s.key;
@@ -118,7 +119,7 @@ export function HealthStats({ state, actions }: DashboardProps) {
                 'rise flex min-w-0 flex-col rounded-2xl border px-4 py-3.5 text-left transition-[background-color,border-color] duration-[var(--dur-base)] [html[data-presenter=true]_&]:py-2',
                 isOpen ? 'border-hairline bg-panel' : 'border-transparent hover:bg-panel/70',
               )}
-              style={{ '--d': `${240 + i * 70}ms` } as CSSProperties}
+              style={{ '--d': `${160 + i * 50}ms` } as CSSProperties}
             >
               <span className="eyebrow block text-muted">{s.label}</span>
               <span className="display num mt-2 block whitespace-nowrap text-stat">{s.value}</span>

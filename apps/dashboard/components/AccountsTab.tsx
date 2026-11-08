@@ -19,9 +19,13 @@ export function AccountsTab({ state, actions }: DashboardProps) {
       <div className="rise flex flex-wrap items-end justify-between gap-x-10 gap-y-3 px-1 pb-6 pt-2" style={{ '--d': '0ms' } as CSSProperties}>
         <div>
           <p className="eyebrow text-muted">Accounts · {state.household.accountCount} in one place</p>
-          <h2 id="acct-h" className="display num m-0 mt-2 text-hero">
-            {formatMoney(Math.round(shown))}
+          <h2 id="acct-h" className="sr-only">
+            Accounts
           </h2>
+          <p className="display num m-0 mt-2 text-hero">
+            <span aria-hidden="true">{formatMoney(Math.round(shown))}</span>
+            <span className="sr-only">{formatMoney(netWorth)}</span>
+          </p>
           <p className="m-0 mt-2 text-body text-muted">Net worth</p>
         </div>
         <dl className="m-0 flex gap-8">

@@ -24,7 +24,7 @@
   --zero-line: #7a766d; /* the $0 line and bill markers */
   --before-line: #8f8a80; /* "Before" / "Current plan" ghost line */
   --label-ink: #3d3b37; /* chart labels */
-  --control-border: #d6d2c8;
+  --control-border: #8c887e; /* 3.5:1 on white: the edge of a text field is the only cue it is one */
   --secondary-hover: #f4f2ec;
   --input-fill: #fbfaf7;
 
@@ -39,7 +39,7 @@
   /* Brand green and the text-safe spectrum (contrast 4.5:1 or more on --page) */
   --green: #17794a;
   --green-tint: #e4f1e9;
-  --vermilion: #c93a1a;
+  --vermilion: #c23718;
   --vermilion-tint: #fdeae4;
   --hatch: #e8482a;
   --hatch-bg: #fbe8df;
@@ -72,7 +72,7 @@
   --zero-line: #77746c;
   --before-line: #86837a;
   --label-ink: #d9d7d0;
-  --control-border: #37373d;
+  --control-border: #6a6a72;
   --secondary-hover: #1a1a1d;
   --input-fill: #0e0e10;
 
@@ -112,7 +112,7 @@
   --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 160ms;
   --dur-base: 320ms;
-  --dur-slow: 700ms;
+  --dur-slow: 560ms;
 
   --page-pad: 2rem;
   --gap-panel: 2.5rem;
@@ -224,6 +224,13 @@ html.theme-switching *::after {
     outline: 2px solid var(--ink);
     outline-offset: 3px;
   }
+}
+
+/* Keyboard focus: one high-contrast ring everywhere. Unlayered on purpose, so it also wins over
+   Tailwind's utilities and over a ring that would otherwise follow the (light) text color. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }
 
 /* Every amount uses tabular figures. Add class "num" to amounts. */

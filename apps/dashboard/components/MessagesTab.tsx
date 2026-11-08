@@ -87,7 +87,7 @@ export function MessagesTab({ state, actions }: DashboardProps) {
             onChange={(e) => setDraft(e.target.value)}
             placeholder="iMessage"
             autoComplete="off"
-            className="box-border min-h-10 min-w-0 flex-1 rounded-full border border-hairline bg-page px-4 text-label text-ink placeholder:text-muted"
+            className="box-border min-h-10 min-w-0 flex-1 rounded-full border border-control-border bg-page px-4 text-label text-ink placeholder:text-muted"
           />
           <button
             type="submit"

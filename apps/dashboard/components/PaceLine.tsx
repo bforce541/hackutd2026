@@ -14,7 +14,7 @@ import { PatternLines } from '@visx/pattern';
 import { CHART_RANGES, formatDate, formatMoney, formatSignedMoney, type Cents } from '@pacepay/shared';
 import { Segmented } from '@/components/ui/Segmented';
 import { cn } from '@/lib/cn';
-import { useTween, useTweenArray, useViewportHeight } from '@/lib/motion';
+import { useReducedMotion, useTween, useTweenArray, useViewportHeight } from '@/lib/motion';
 import { buildGeometry } from '@/lib/pace-line';
 import type { DashboardProps } from '@/lib/view-model';
 
@@ -49,6 +49,7 @@ export function PaceLine({ state, actions }: DashboardProps) {
   const fontPx = 12 * (ui.presenter ? 1.25 : 1);
   // The chart gives up height on short screens (Presenter scales everything 25%, so it gives up more).
   const vh = useViewportHeight();
+  const reduced = useReducedMotion();
   const chartH = ui.presenter ? Math.max(170, Math.min(300, vh - 590)) : Math.max(220, Math.min(340, Math.round(vh * 0.36)));
   const g = useMemo(
     () =>
@@ -113,38 +114,53 @@ export function PaceLine({ state, actions }: DashboardProps) {
   const calloutW = cause ? cause.length * fontPx * 0.56 + 26 : 0;
 
   // The cause callout takes the first spot near the dot that stays inside the chart and clear of
-  // every date label; if there is none, the status chip and the hover card still say it.
+  // the date labels, the dot, and every overdrawn tile (it must never cover the thing it explains);
+  // if there is none, the status chip and the hover card still say it.
   const calloutAt = useMemo(() => {
     if (!g?.low || !cause) return null;
     const { x, y } = g.low;
     const h = 24;
+    const keepClear = [
+      { x0: x - 10, x1: x + 10, y0: y - 10, y1: y + 10 },
+      ...days.flatMap((d, i) =>
+        d.close < 0 ? [{ x0: i * g.colW, x1: (i + 1) * g.colW, y0: g.zeroY - 2, y1: g.y(d.close) + 2 }] : [],
+      ),
+    ];
     const tries: [number, number][] = [
-      [x - calloutW / 2, y + 14],
-      [x - calloutW / 2, y - 14 - h],
-      [x + 14, y - h / 2],
-      [x - 14 - calloutW, y - h / 2],
-      [x - calloutW / 2, y + 14 + h + 6],
+      [x - calloutW / 2, y + 16],
+      [x - 12, y + 16],
+      [x - calloutW + 12, y + 16],
+      [x - calloutW / 2, y + 16 + h + 6],
+      [x - calloutW / 2, g.zeroY - 14 - h],
+      [x + 16, y + 6],
+      [x - 16 - calloutW, y + 6],
     ];
     for (const [cx, cy] of tries) {
       const left = Math.max(0, Math.min(width - calloutW, cx));
       const box = { x0: left - 4, x1: left + calloutW + 4, y0: cy - 4, y1: cy + h + 4 };
       if (box.y0 < 0 || box.y1 > chartH) continue;
-      const hit = g.labels.some((l) => l.x < box.x1 && l.x + l.w > box.x0 && l.y < box.y1 && l.y + l.h > box.y0);
-      if (!hit) return { x: left, y: cy };
+      const overlaps = (r: { x0: number; x1: number; y0: number; y1: number }) => r.x0 < box.x1 && r.x1 > box.x0 && r.y0 < box.y1 && r.y1 > box.y0;
+      if (keepClear.some(overlaps)) continue;
+      if (g.labels.some((l) => overlaps({ x0: l.x, x1: l.x + l.w, y0: l.y, y1: l.y + l.h }))) continue;
+      return { x: left, y: cy };
     }
     return null;
-  }, [g, cause, calloutW, width, chartH]);
+  }, [g, cause, calloutW, width, chartH, days]);
 
   return (
     <section
       aria-label="Checking forecast"
       className="rise flex min-w-0 flex-col rounded-[1.75rem] border border-hairline bg-panel p-6 shadow-panel sm:p-7 [html[data-presenter=true]_&]:p-5"
-      style={{ '--d': '80ms' } as CSSProperties}
+      style={{ '--d': '50ms' } as CSSProperties}
     >
+      <h2 className="sr-only">Checking forecast</h2>
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <p className="eyebrow text-muted">Checking · next {ui.range} days</p>
-          <p className="display num mt-2 text-hero">{formatMoney(Math.round(balance))}</p>
+          <p className="display num mt-2 text-hero">
+            <span aria-hidden="true">{formatMoney(Math.round(balance))}</span>
+            <span className="sr-only">{formatMoney(state.household.checkingBalance)}</span>
+          </p>
           <p
             className={cn(
               'mt-3 inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-label font-medium',
@@ -202,6 +218,11 @@ export function PaceLine({ state, actions }: DashboardProps) {
           >
             <defs>
               <PatternLines id="pp-hatch" height={6} width={6} orientation={['diagonal']} stroke="var(--hatch)" strokeWidth={1.25} />
+              <linearGradient id="pp-sweep" x1="0" x2="1" y1="0" y2="0">
+                <stop offset="0" stopColor="var(--leaf)" stopOpacity="0" />
+                <stop offset="0.7" stopColor="var(--leaf)" stopOpacity="0.28" />
+                <stop offset="1" stopColor="var(--leaf)" stopOpacity="0" />
+              </linearGradient>
             </defs>
 
             {/* Day columns: a hairline per week, so the tiles read as a calendar */}
@@ -252,7 +273,7 @@ export function PaceLine({ state, actions }: DashboardProps) {
               const grow: CSSProperties = {
                 transformBox: 'fill-box',
                 transformOrigin: up ? 'bottom' : 'top',
-                animation: `tile-grow 800ms var(--ease-out) ${60 + i * 24}ms both`,
+                animation: `tile-grow 650ms var(--ease-out) ${40 + Math.min(i, 20) * 16}ms both`,
                 opacity: dim ? 0.55 : 1,
                 transition: 'opacity 160ms var(--ease-std)',
               };
@@ -264,6 +285,14 @@ export function PaceLine({ state, actions }: DashboardProps) {
                 </g>
               );
             })}
+
+            {/* The deal landed: one green sweep across the days, once (SMIL, so skipped for reduced motion) */}
+            {chart.mode === 'done' && !reduced && (
+              <rect key="sweep" x={-width * 0.35} y={0} width={width * 0.35} height={chartH} fill="url(#pp-sweep)" pointerEvents="none" aria-hidden="true">
+                <animate attributeName="x" from={-width * 0.35} to={width} dur="1.3s" begin="0.2s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1" />
+                <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.8;1" dur="1.3s" begin="0.2s" fill="freeze" />
+              </rect>
+            )}
 
             <line
               x1={0}

@@ -20,11 +20,14 @@
  * - The model (job 'decide') only classifies the lender's words and extracts { day phrase, fee }.
  *   Code turns the day phrase into a Day on the demo calendar; a phrase it can't pin down
  *   ("early next week") gets a clarifying question.
- * - Every new offer is read back ("So that's Friday, Nov 13, with a $20 fee?"). check_offer runs
- *   only after the lender confirms the read-back.
+ * - Every new offer is read back ("Okay, so just to confirm, that's Friday the 13th with a
+ *   twenty-dollar fee?"), including bounds like "the latest I can do is Friday". check_offer runs
+ *   only after the lender confirms the read-back (or restates the same terms).
  * - Pass -> deal approval (60 s). Fail -> a counter chosen here: a fee waiver first when only the
- *   fee fails, otherwise the CallPlan's targetDay (then the other acceptable days) with no fee.
+ *   fee fails, otherwise always the CallPlan's targetDay with no fee, unless the lender explicitly
+ *   turned that day down; then the next acceptable day in acceptableDays order.
  *   No line ever states a reason, a balance, a floor or the fee limit.
+ * - Every line has 2-4 code-written variants (LINES, vary()) so nothing repeats word-for-word.
  * - Closing: after a deal, a verification request or an approval timeout PacePay asks for a
  *   reference number (outcome set, state still 'listening'); the next lender line closes it.
  * - The confirmed deal's changes are NOT added to acceptedChanges here: the orchestrator's
@@ -66,41 +69,151 @@ const TEXT_DECIDE_TIMEOUT_MS = 15_000;
 // Lines PacePay says (no reasons, balances, floors or limits in any of them)
 // ---------------------------------------------------------------------------
 
+/**
+ * Every line PacePay says comes from here, in 2-4 variants. vary() picks one by turn and skips any
+ * variant already said in this negotiation, so nothing repeats word-for-word in a call. Amounts and
+ * dates are spoken ("a twenty-dollar fee", "Friday the 13th"); none of them comes from the model.
+ */
 const LINES = {
-  checkingWithYoshua: 'Let me confirm with Yoshua, one moment.',
-  stillHolding: "Thanks for holding, I'm still checking with Yoshua.",
-  clarifyDay: 'Which exact day would that be?',
-  clarifyOffer: 'Sorry, I want to get this right. What day and fee are you offering?',
-  whatDay: 'Is there a day you could move it to?',
-  waiver: 'Would you be able to waive the fee?',
-  lowerFee: 'Is there any way to lower the fee?',
-  noDeal: "Thanks for checking. I'll let Yoshua know, and Yoshua can follow up with you directly. Goodbye.",
-  refusal: "I understand. Thank you for your time. I'll let Yoshua know. Goodbye.",
-  verification:
+  checkingWithYoshua: [
+    'Let me confirm that with Yoshua.',
+    'Great, let me run that by Yoshua real quick.',
+    "Okay, I'll check with Yoshua. Bear with me.",
+    "Thanks. Let me get Yoshua's okay on that.",
+  ],
+  stillHolding: [
+    "Thanks for holding, I'm still checking with Yoshua.",
+    "Still checking with Yoshua, thanks for your patience.",
+    "Thanks for bearing with me, I'm still checking with Yoshua.",
+    "Just a little longer, I'm still checking with Yoshua.",
+  ],
+  clarifyDay: ['Which exact day would that be?', "Sorry, which day exactly?", 'Could you give me the exact day?'],
+  clarifyOffer: [
+    'Sorry, I want to get this right. What day and fee are you offering?',
+    "Sorry about that. What's the day and the fee you're offering?",
+    'Let me make sure I have it. What day and fee would that be?',
+  ],
+  whatDay: ['Is there a day you could move it to?', 'Okay. Is there another day that would work?', 'Understood. What day could you move it to?'],
+  waiver: [
+    'Got it. Is there any way to waive that fee?',
+    'I see. Would you be able to waive the fee?',
+    'Okay. Could you waive the fee on that one?',
+    "Understood. Is there any chance you'd waive the fee?",
+  ],
+  lowerFee: ['Is there any way to bring that fee down?', 'Could you lower the fee at all?', 'Is there any flexibility on the fee?'],
+  noDeal: [
+    "Thanks for checking. I'll let Yoshua know, and Yoshua can follow up with you directly. Goodbye.",
+    "Okay, thanks for looking into it. I'll pass that along to Yoshua, who can follow up with you directly. Goodbye.",
+    "I appreciate you checking. I'll let Yoshua know, and Yoshua will follow up directly. Take care, goodbye.",
+  ],
+  refusal: [
+    "I understand. Thank you for your time. I'll let Yoshua know. Goodbye.",
+    "Okay, I understand. Thanks for your time, I'll let Yoshua know. Goodbye.",
+    "Got it, thanks for your time today. I'll pass that along to Yoshua. Goodbye.",
+  ],
+  verification: [
     "I understand. I can't verify on Yoshua's behalf, so Yoshua will contact you directly. Could I get a reference number for this request?",
-  holdAndReference:
+    "That makes sense. I'm not able to verify for Yoshua, so Yoshua will reach out directly. Could I get a reference number for this request?",
+  ],
+  holdAndReference: [
     "I wasn't able to reach Yoshua just now. Could you hold that offer and give me a reference number? Yoshua will call you back.",
-  waitForReference: "Sure, I'll wait for the reference number.",
-  closeNoReference: 'Thank you for your help. Yoshua will follow up. Goodbye.',
-  modelFailed: "One moment. Let me check on that and call you back. Thank you, goodbye.",
-  ended: 'This conversation has ended. Thank you.',
-  privateDetails: "I'm not able to share details about Yoshua's finances.",
-  takeYourTime: 'Sure, take your time.',
-  sayAgain: 'Sorry, could you say that again?',
-  areYouAPerson: "I'm an AI assistant contacting you on Yoshua's behalf, with Yoshua's permission, and this conversation is transcribed.",
+    "Sorry, I couldn't reach Yoshua just yet. Could you hold that offer and give me a reference number? Yoshua will call you back.",
+  ],
+  waitForReference: ["Sure, I'll wait for the reference number.", "No rush, I'll hang on for the reference number.", "Of course, I'll wait for the reference number."],
+  closeNoReference: [
+    'Thank you for your help. Yoshua will follow up. Goodbye.',
+    "That's okay, thanks for your help. Yoshua will follow up. Goodbye.",
+    'No problem, thanks again. Yoshua will follow up. Goodbye.',
+  ],
+  modelFailed: ["Sorry, let me check on that and call you back. Thank you, goodbye."],
+  ended: ['This conversation has ended. Thank you.'],
+  privateDetails: ["I'm not able to share details about Yoshua's finances.", "I'm sorry, I can't share anything about Yoshua's finances.", "That's not something I can share on Yoshua's behalf."],
+  takeYourTime: ['Sure, take your time.', "No problem, I'll hold.", 'Of course, take your time.'],
+  sayAgain: ['Sorry, could you say that again?', "Sorry, I didn't catch that. Could you say it again?"],
+  areYouAPerson: [
+    "I'm an AI assistant contacting you on Yoshua's behalf, with Yoshua's permission, and this conversation is transcribed.",
+    "I'm an AI assistant, calling with Yoshua's permission, and this conversation is transcribed.",
+  ],
 } as const;
+
+/** The first three words, so "Okay, so just to confirm, that's Wednesday" and "...that's Friday" count as the same wording. */
+const opener = (s: string) => s.toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+
+/**
+ * Picks a variant by turn (PacePay lines said so far, after the greeting), skipping any already said
+ * in this negotiation, then any whose opening words were already used; only when every variant is
+ * used does a wording come back.
+ */
+function vary(n: Negotiation, options: readonly string[]): string {
+  const said = (n.transcript ?? []).filter((l) => l.speaker === 'pacepay').map((l) => l.text);
+  const turn = Math.max(0, said.length - 1);
+  const order = options.map((_, i) => options[(turn + i) % options.length]!);
+  const openers = new Set(said.flatMap((s) => s.split(/(?<=[.?!])\s+/)).map(opener));
+  return (
+    order.find((o) => !said.some((s) => s.includes(o)) && !openers.has(opener(o))) ??
+    order.find((o) => !said.some((s) => s.includes(o))) ??
+    order[0]!
+  );
+}
 
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** "Friday, November 13" (reads well spoken and typed). */
+function ordinal(d: number): string {
+  const s = d % 100 >= 11 && d % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][d % 10] ?? 'th');
+  return `${d}${s}`;
+}
+
+/** "Friday, November 13th": first mentions, the model's context, and the terms Yoshua approved. */
 function speakDate(day: Day, day0Date: string): string {
   const [, mm, dd] = dayToISODate(day, day0Date).split('-').map(Number) as [number, number, number];
-  return `${formatWeekdayLong(day, day0Date)}, ${MONTHS_LONG[mm - 1] ?? formatShortDate(day, day0Date)} ${dd}`;
+  return `${formatWeekdayLong(day, day0Date)}, ${MONTHS_LONG[mm - 1] ?? formatShortDate(day, day0Date)} ${ordinal(dd)}`;
+}
+
+/** "Friday the 13th" when the day is in today's month, else "Tuesday, December 1st": how the day is said mid-call. */
+function sayDay(ctx: ToolContext, day: Day): string {
+  const d0 = day0(ctx);
+  const [, mm, dd] = dayToISODate(day, d0).split('-').map(Number) as [number, number, number];
+  const [, tm] = dayToISODate(ctx.clock.today(), d0).split('-').map(Number) as [number, number];
+  return mm === tm ? `${formatWeekdayLong(day, d0)} the ${ordinal(dd)}` : speakDate(day, d0);
+}
+
+const SMALL = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS_WORDS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+/** 35 -> "thirty-five", 120 -> "one hundred twenty", 1500 -> "one thousand five hundred". */
+function numberWords(n: number): string {
+  if (n < 20) return SMALL[n]!;
+  if (n < 100) return `${TENS_WORDS[Math.floor(n / 10)]}${n % 10 ? `-${SMALL[n % 10]}` : ''}`;
+  if (n < 1000) return `${SMALL[Math.floor(n / 100)]} hundred${n % 100 ? ` ${numberWords(n % 100)}` : ''}`;
+  if (n < 1_000_000) return `${numberWords(Math.floor(n / 1000))} thousand${n % 1000 ? ` ${numberWords(n % 1000)}` : ''}`;
+  return String(n);
+}
+
+/** "with no fee", "with a twenty-dollar fee", "with an eighty-dollar fee", "with a fee of twelve dollars and fifty cents". */
+function feeWords(fee: Cents): string {
+  if (fee === 0) return 'with no fee';
+  const dollars = Math.floor(fee / 100);
+  const cents = fee % 100;
+  if (cents === 0) {
+    const w = numberWords(dollars);
+    return `with ${/^(eight|eleven)/.test(w) ? 'an' : 'a'} ${w}-dollar fee`;
+  }
+  return `with a fee of ${dollars ? `${numberWords(dollars)} dollar${dollars === 1 ? '' : 's'} and ` : ''}${numberWords(cents)} cent${cents === 1 ? '' : 's'}`;
 }
 
 /** The opening ask from the CallPlan: the target day with no fee. Said at the end of the greeting and whenever the lender asks what PacePay wants. */
 export function openingAsk(ctx: ToolContext, n: Negotiation): string {
   return `${n.channel === 'text' ? "I'm reaching out" : "I'm calling"} to ask if this month's payment can move to ${speakDate(n.callPlan.targetDay, day0(ctx))}, with no fee.`;
+}
+
+/** The opening ask said again later in the call, in other words. */
+function openingAskAgain(ctx: ToolContext, n: Negotiation): string[] {
+  const d = sayDay(ctx, n.callPlan.targetDay);
+  return [
+    openingAsk(ctx, n),
+    `We're hoping to move this month's payment to ${d}, with no fee.`,
+    `I'm asking whether this month's payment could move to ${d}, with no fee.`,
+  ];
 }
 
 /** The first thing PacePay says, on a call (the voice brief's greeting) or in the lender console. Ends with the ask. */
@@ -114,16 +227,37 @@ export function greetingLine(ctx: ToolContext, n: Negotiation, channel: 'voice' 
   );
 }
 
-function feeWords(fee: Cents): string {
-  return fee === 0 ? 'with no fee' : `with a ${formatMoney(fee)} fee`;
-}
-
+/** The read-back in plain words, for the model's context ("Friday, November 13th, with a twenty-dollar fee"). */
 function readBackLine(o: { newDay: Day; fee: Cents }, day0Date: string): string {
   return `So that's ${speakDate(o.newDay, day0Date)}, ${feeWords(o.fee)}?`;
 }
 
-function askDayLine(day: Day, day0Date: string): string {
-  return `Could you do ${speakDate(day, day0Date)} instead, with no fee?`;
+/** The read-back as said: "Okay, so just to confirm, that's Friday the 13th with a twenty-dollar fee?" */
+function readBackVariants(ctx: ToolContext, o: { newDay: Day; fee: Cents }): string[] {
+  const d = sayDay(ctx, o.newDay);
+  const f = feeWords(o.fee);
+  return [
+    `Okay, so just to confirm, that's ${d} ${f}?`,
+    `Got it. So that's ${d} ${f}, right?`,
+    `Just so I have it right, ${d} ${f}?`,
+    `Alright, ${d} ${f}. Is that correct?`,
+  ];
+}
+
+/** A counter for a day with no fee: "Hmm, would Friday the 13th work instead, with no fee?" */
+function askDayVariants(ctx: ToolContext, day: Day): string[] {
+  const d = sayDay(ctx, day);
+  return [
+    `Hmm, would ${d} work instead, with no fee?`,
+    `Could we do ${d} instead, with no fee?`,
+    `What about ${d}, with no fee?`,
+    `Is there any chance ${d} would work, with no fee?`,
+  ];
+}
+
+/** A reference number said back: spaced out on a call ("A 7 7 3 2") so it's read character by character. */
+function sayReference(n: Negotiation, ref: string): string {
+  return n.channel === 'text' ? ref : ref.replace(/-/g, '').split('').join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +281,7 @@ const MONTH_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|ju
  * day ("early next week"). Weekdays mean the next one after today; "the 13th" means the next
  * 13th on or after today.
  */
-export function parseDayPhrase(phrase: string, today: Day, day0Date: string): Day | null {
+export function parseDayPhrase(phrase: string, today: Day, day0Date: string, weekdaysAfter: Day = today): Day | null {
   const p = phrase.toLowerCase().replace(/[,]/g, ' ');
   if (/\btoday\b/.test(p)) return today;
   if (/\btomorrow\b/.test(p)) return today + 1;
@@ -183,14 +317,34 @@ export function parseDayPhrase(phrase: string, today: Day, day0Date: string): Da
     const want = hit[1];
     const nextWeek = /\bnext week\b|\bweek after\b/.test(p);
     const weekIndex = (d: Day) => Math.floor((d + monOffset(day0Date)) / 7);
-    for (let d = today + 1; d <= today + 21; d += 1) {
+    const from = Math.max(today, weekdaysAfter);
+    for (let d = from + 1; d <= from + 21; d += 1) {
       if (weekdayOf(d, day0Date) !== want) continue;
-      if (nextWeek && weekIndex(d) <= weekIndex(today)) continue;
+      if (nextWeek && weekIndex(d) <= weekIndex(from)) continue;
       return d;
     }
     return null;
   }
   return null;
+}
+
+/**
+ * The payment's current due day (on or after today): bare weekdays count from it, so "Tuesday" on a
+ * payment already moved to Friday the 13th means Tuesday the 17th, not the Tuesday before it.
+ */
+function dueDay(ctx: ToolContext, n: Negotiation): Day {
+  const today = ctx.clock.today();
+  const moved = /@(\d+)$/.exec(n.itemId);
+  if (moved) return Math.max(today, Number(moved[1]));
+  const h = ctx.store.household();
+  const item = h.scheduled.find((s) => s.id === n.itemId);
+  const next = item ? ctx.engine.postingDays(h, item, today + 62).find((d) => d >= today) : undefined;
+  return Math.max(today, next ?? today);
+}
+
+/** parseDayPhrase for this negotiation: dates as said, bare weekdays after the payment's due day. */
+function parseDay(ctx: ToolContext, n: Negotiation, phrase: string): Day | null {
+  return parseDayPhrase(phrase, ctx.clock.today(), day0(ctx), dueDay(ctx, n));
 }
 
 /** Days from the Monday that starts day 0's week to day 0 (so weeks run Mon-Sun). */
@@ -222,14 +376,15 @@ interface Memory {
   /** The terms PacePay last asked for (the opening ask, a waiver or a day). A bare "yes" accepts them. */
   lastAsk: { newDay: Day; fee: Cents } | null;
   waiverAsked: Set<Day>;
-  daysAsked: Set<Day>;
+  /** Days the lender explicitly turned down at no fee ("No" to an ask for that day, "we can't do Friday"). Counters skip them. */
+  refusedDays: Set<Day>;
   lowerFeeAsked: boolean;
   openQuestionAsked: boolean;
   counters: number;
   pushbacks: number;
   waitedForReference: boolean;
-  /** The last ask PacePay said in words (a counter, a waiver, "what day"); repeated when the lender asks what PacePay wants. Null means the opening ask. */
-  askLine: string | null;
+  /** The last ask PacePay made (a counter, a waiver, "what day"), in all its wordings; said again (in other words) when the lender asks what PacePay wants. Null means the opening ask. */
+  askLines: readonly string[] | null;
   /** PacePay already asked the lender to repeat a garbled line (asked once, then silence until a real turn). */
   saidSayAgain: boolean;
 }
@@ -245,13 +400,13 @@ function mem(n: Negotiation): Memory {
     m = {
       lastAsk: { newDay: n.callPlan.targetDay, fee: 0 },
       waiverAsked: new Set(),
-      daysAsked: new Set(),
+      refusedDays: new Set(),
       lowerFeeAsked: false,
       openQuestionAsked: false,
       counters: 0,
       pushbacks: 0,
       waitedForReference: false,
-      askLine: null,
+      askLines: null,
       saidSayAgain: false,
     };
     memory.set(n.id, m);
@@ -345,7 +500,8 @@ function setCallStatus(ctx: ToolContext, n: Negotiation, patch: { status?: 'acti
 }
 
 /** Closes the negotiation, records the outcome and hands CALL_ENDED to the agent. */
-function close(ctx: ToolContext, id: string, say: string, outcome: NonNullable<Negotiation['outcome']>, extra: Partial<Negotiation> = {}): DecideResult {
+function close(ctx: ToolContext, id: string, lines: string | readonly string[], outcome: NonNullable<Negotiation['outcome']>, extra: Partial<Negotiation> = {}): DecideResult {
+  const say = typeof lines === 'string' ? lines : vary(load(ctx, id), lines);
   const n = appendLines(ctx, id, [line(ctx, 'pacepay', say)], { state: 'closed', outcome, pendingOfferId: undefined, ...extra });
   emitLine(ctx, n, 'pacepay', say);
   setCallStatus(ctx, n, { outcome, referenceNumber: n.referenceNumber });
@@ -361,7 +517,8 @@ function close(ctx: ToolContext, id: string, say: string, outcome: NonNullable<N
 }
 
 /** PacePay says a line and keeps listening. */
-function reply(ctx: ToolContext, id: string, say: string, patch: Partial<Negotiation> = {}, next: DecideResult['next'] = 'listen'): DecideResult {
+function reply(ctx: ToolContext, id: string, lines: string | readonly string[], patch: Partial<Negotiation> = {}, next: DecideResult['next'] = 'listen'): DecideResult {
+  const say = typeof lines === 'string' ? lines : vary(load(ctx, id), lines);
   const n = appendLines(ctx, id, [line(ctx, 'pacepay', say)], patch);
   emitLine(ctx, n, 'pacepay', say);
   return { say, next, state: n.state };
@@ -475,8 +632,8 @@ function safeSay(ctx: ToolContext, n: Negotiation, m: Memory, say: string | null
 /** What PacePay is asking for right now, in words: the pending read-back, the last counter, or the opening ask. */
 function currentAsk(ctx: ToolContext, n: Negotiation, m: Memory): string {
   const pending = n.pendingOfferId ? n.offers.find((o) => o.id === n.pendingOfferId) : undefined;
-  if (pending) return readBackLine(pending, day0(ctx));
-  return m.askLine ?? openingAsk(ctx, n);
+  if (pending) return vary(n, readBackVariants(ctx, pending));
+  return vary(n, m.askLines ?? openingAskAgain(ctx, n));
 }
 
 const ASKS_A_QUESTION = /\?|^\s*(what|why|how|when|where|who|which|is|are|does|do|did|can|could|would|will|tell me|explain)\b/i;
@@ -500,13 +657,14 @@ const HOLDING = /\b(hold on|one (moment|sec|second|minute)|just a (moment|sec|se
  * offer (a day or an amount) still go to the model, which only extracts the offer from them.
  */
 function presetAnswer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string): string | null {
-  if (feeAmount(utterance) !== null || parseDayPhrase(utterance, ctx.clock.today(), day0(ctx)) !== null) return null;
+  if (feeAmount(utterance) !== null || parseDay(ctx, n, utterance) !== null) return null;
   const plain = normalizeReply(utterance);
   if (ASKS_A_QUESTION.test(utterance)) {
-    if (ABOUT_BEING_AI.test(utterance)) return LINES.areYouAPerson;
-    if (ABOUT_FINANCES.test(utterance)) return `${LINES.privateDetails} ${currentAsk(ctx, n, m)}`;
+    if (ABOUT_BEING_AI.test(utterance)) return vary(n, LINES.areYouAPerson);
+    if (ABOUT_FINANCES.test(utterance)) return `${vary(n, LINES.privateDetails)} ${currentAsk(ctx, n, m)}`;
   }
-  if (ABOUT_THE_REQUEST.test(plain)) return currentAsk(ctx, n, m);
+  // "No, we can't move the payment" is a refusal for the model, not a question about the request.
+  if (ABOUT_THE_REQUEST.test(plain) && !/\b(cant|cannot|wont|unable|not able)\b/.test(plain)) return currentAsk(ctx, n, m);
   return null;
 }
 
@@ -541,35 +699,62 @@ function garbage(utterance: string): 'silent' | 'repeat' | null {
 }
 
 // ---------------------------------------------------------------------------
+// Offers vs. a day turned down
+// ---------------------------------------------------------------------------
+
+/** "No fee" and friends aren't a no. */
+const NOT_A_NO = /\b(no (fee|fees|charge|cost|extra charge|problem|worries)|not a problem|without (a|any) fee)\b/gi;
+const NEGATION = /\b(not|no|nope|can't|cant|cannot|won't|wont|unable|isn't|isnt|doesn't|doesnt|don't|dont)\b/i;
+/** "The latest I can do is X", "nothing beyond X", "we can only do X": X is on the table. */
+const BOUND = /\b(latest|earliest|furthest|farthest|beyond|past|later than|after|up to|until|at most|only|best i can|most i can)\b/i;
+const WEEKDAY_NAMES = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b/gi;
+
+/**
+ * The one day the lender explicitly turned down ("We can't do Friday", "Friday won't work"), or null.
+ * Not a refusal: a bound ("the latest I can do is Friday", "I can't go beyond Friday"), "no fee", or
+ * a line naming two days ("Wednesday's out, but Friday works": the model picks the offer).
+ */
+function dayRefusal(ctx: ToolContext, n: Negotiation, utterance: string): Day | null {
+  const day = parseDay(ctx, n, utterance);
+  if (day === null) return null;
+  const t = utterance.replace(/[\u2018\u2019]/g, "'").replace(NOT_A_NO, ' ');
+  if (!NEGATION.test(t) || BOUND.test(t)) return null;
+  const weekdays = new Set((t.match(WEEKDAY_NAMES) ?? []).map((w) => w.toLowerCase().slice(0, 3)));
+  if (weekdays.size > 1) return null;
+  return day;
+}
+
+// ---------------------------------------------------------------------------
 // Counters (code picks them from the CallPlan)
 // ---------------------------------------------------------------------------
 
 const FAILURES = (c: OfferCheck) => c.reasons.filter((r) => r !== 'OK' && r !== 'WEEKEND_ROLLS_FORWARD');
 
-/** The next counter for a failing offer, or null when PacePay has nothing left to ask for. */
-function nextCounter(ctx: ToolContext, n: Negotiation, m: Memory, offer: Offer | undefined, check: OfferCheck | undefined): { say: string; ask: Memory['lastAsk'] } | null {
+/**
+ * The next counter for a failing offer, or null when PacePay has nothing left to ask for.
+ * 1. Only the fee fails: ask for a waiver on that day (once per day).
+ * 2. Otherwise always the CallPlan's targetDay with no fee, unless the lender explicitly turned that
+ *    day down; then the next acceptable day, in acceptableDays order, that wasn't turned down.
+ * 3. A lower fee, once.
+ */
+function nextCounter(ctx: ToolContext, n: Negotiation, m: Memory, offer: Offer | undefined, check: OfferCheck | undefined): { lines: string[]; ask: Memory['lastAsk'] } | null {
   if (m.counters >= MAX_COUNTERS) return null;
-  const d0 = day0(ctx);
   const plan = n.callPlan;
   const failures = check ? FAILURES(check) : [];
   const feeOnly = failures.length > 0 && failures.every((r) => r === 'FEE_OVER_LIMIT');
 
-  // 1. Only the fee fails: ask for a waiver first.
   if (offer && feeOnly && !m.waiverAsked.has(offer.newDay)) {
     m.waiverAsked.add(offer.newDay);
-    return { say: LINES.waiver, ask: { newDay: offer.newDay, fee: 0 } };
+    return { lines: [...LINES.waiver], ask: { newDay: offer.newDay, fee: 0 } };
   }
-  // 2. The plan's target day, then the other days that work with no fee.
+  // A day already asked for as a waiver is that day with no fee: asking it again is not a new counter.
   const days = [plan.targetDay, ...plan.acceptableDays].filter((d, i, all) => all.indexOf(d) === i && d > ctx.clock.today());
-  const nextDay = days.find((d) => !m.daysAsked.has(d) && d !== offer?.newDay);
-  if (nextDay !== undefined) {
-    m.daysAsked.add(nextDay);
-    return { say: askDayLine(nextDay, d0), ask: { newDay: nextDay, fee: 0 } };
-  }
-  // 3. A lower fee, once.
+  const nextDay = days.find((d) => !m.refusedDays.has(d) && !(d === offer?.newDay && m.waiverAsked.has(d)));
+  if (nextDay !== undefined) return { lines: askDayVariants(ctx, nextDay), ask: { newDay: nextDay, fee: 0 } };
+
   if (offer && offer.fee > 0 && !m.lowerFeeAsked) {
     m.lowerFeeAsked = true;
-    return { say: LINES.lowerFee, ask: null };
+    return { lines: [...LINES.lowerFee], ask: null };
   }
   return null;
 }
@@ -585,11 +770,16 @@ function counterOrClose(ctx: ToolContext, n: Negotiation, m: Memory): DecideResu
   const { offer, check } = lastOfferAndCheck(n);
   const c = nextCounter(ctx, n, m, offer, check);
   if (!c) return close(ctx, n.id, LINES.noDeal, 'no_deal');
+  return sayCounter(ctx, n, m, c);
+}
+
+function sayCounter(ctx: ToolContext, n: Negotiation, m: Memory, c: NonNullable<ReturnType<typeof nextCounter>>): DecideResult {
   m.counters += 1;
   m.lastAsk = c.ask;
-  m.askLine = c.say;
-  ctx.bus.emit({ type: 'offer.checked', model: 'code', caseId: n.caseId, title: `Countered: "${c.say}"`, detail: { negotiationId: n.id, ask: c.ask } });
-  return reply(ctx, n.id, c.say, { state: 'countering', pendingOfferId: undefined });
+  m.askLines = c.lines;
+  const say = vary(load(ctx, n.id), c.lines);
+  ctx.bus.emit({ type: 'offer.checked', model: 'code', caseId: n.caseId, title: `Countered: "${say}"`, detail: { negotiationId: n.id, ask: c.ask } });
+  return reply(ctx, n.id, say, { state: 'countering', pendingOfferId: undefined });
 }
 
 // ---------------------------------------------------------------------------
@@ -603,13 +793,13 @@ export async function decide(ctx: ToolContext, negotiationId: string, utterance:
 
 async function decideLocked(ctx: ToolContext, id: string, utterance: string): Promise<DecideResult> {
   let n = load(ctx, id);
-  if (n.state === 'closed') return { say: LINES.ended, next: 'end_call', state: 'closed' };
+  if (n.state === 'closed') return { say: LINES.ended[0], next: 'end_call', state: 'closed' };
 
   // 0. Line noise, echo and fragments: no reply (or one "say that again"), nothing recorded, no state change.
   const junk = garbage(utterance);
   if (junk) {
     const m0 = mem(n);
-    const say = junk === 'repeat' && !m0.saidSayAgain ? LINES.sayAgain : '';
+    const say = junk === 'repeat' && !m0.saidSayAgain ? vary(n, LINES.sayAgain) : '';
     if (say) m0.saidSayAgain = true;
     ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Ignored a garbled line: "${utterance}"`, detail: { negotiationId: id, reply: say } });
     return { say, next: n.state === 'awaiting_approval' ? 'await_approval' : 'listen', state: n.state };
@@ -632,15 +822,19 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     const out = await resolveOutcome(ctx, id);
     if (out.status === 'pending') return reply(ctx, id, LINES.stillHolding, {}, 'await_approval');
     // resolveOutcome already said its line; return it again for this turn.
-    return { say: out.say ?? LINES.stillHolding, next: out.next ?? 'listen', state: load(ctx, id).state };
+    return { say: out.say ?? LINES.stillHolding[0], next: out.next ?? 'listen', state: load(ctx, id).state };
   }
 
   // Closing: an outcome is set and PacePay asked for a reference number.
   if (n.outcome) {
     const ref = extractReference(utterance);
     if (ref) {
-      const say = n.outcome === 'deal' ? `Thank you, reference ${ref}. Have a great day, goodbye.` : `Thank you, reference ${ref}. Yoshua will follow up. Goodbye.`;
-      return close(ctx, id, say, n.outcome, { referenceNumber: ref });
+      const r = sayReference(n, ref);
+      const lines =
+        n.outcome === 'deal'
+          ? [`Thank you, reference ${r}. Have a great day, goodbye.`, `Perfect, that's ${r}. Thanks so much for your help today. Goodbye!`, `Great, I've got reference ${r}. Thanks again, have a good one. Goodbye.`]
+          : [`Thank you, reference ${r}. Yoshua will follow up. Goodbye.`, `Got it, ${r}. Thanks for your help, Yoshua will follow up. Goodbye.`];
+      return close(ctx, id, lines, n.outcome, { referenceNumber: ref });
     }
     const declines = /\b(no|don't|dont|can't|cant|cannot|not able|unable|won't|wont)\b/i.test(utterance);
     if (!declines && !m.waitedForReference) {
@@ -671,12 +865,19 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     ctx.bus.emit({ type: 'step.failed', model: ctx.models.roleFor('decide'), caseId: n.caseId, level: 'error', title: `Negotiator could not read the lender's words: ${(err as Error).message}`, detail: { negotiationId: id } });
     return close(ctx, id, LINES.modelFailed, 'no_deal');
   }
-  // A line that names a fee, or a day without a "not", carries an offer whatever the model called it
-  // ("Friday works, but there's a thirty-five dollar fee" is not a no).
+  // Code has the last word on offers and refusals of a day, whatever the model called the line:
+  // - "We can't do Friday" turns that one day down (a no, not a refusal of the whole request);
+  // - a fee, or a day that isn't turned down, is an offer: "Friday works, but there's a thirty-five
+  //   dollar fee", "The latest I can offer is Friday, November 13 with no fee", "How about Friday?".
   let kind: Kind = c.kind;
-  if (kind !== 'offer' && kind !== 'verification_request') {
-    const namesFee = feeAmount(utterance) !== null;
-    const namesDay = parseDayPhrase(utterance, ctx.clock.today(), d0) !== null && !/\b(not|no|cant|can't|cannot|won't|wont)\b/i.test(utterance);
+  const namesFee = feeAmount(utterance) !== null;
+  const refusedDay = kind !== 'verification_request' && !namesFee ? dayRefusal(ctx, n, utterance) : null;
+  if (refusedDay !== null) {
+    m.refusedDays.add(refusedDay);
+    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Lender turned down ${speakDate(refusedDay, d0)} (model said ${kind})`, detail: { negotiationId: id } });
+    kind = 'deny';
+  } else if (kind !== 'offer' && kind !== 'verification_request') {
+    const namesDay = parseDay(ctx, n, utterance) !== null;
     if (namesFee || namesDay) {
       ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Read "${utterance}" as an offer (model said ${kind})`, detail: { negotiationId: id } });
       kind = 'offer';
@@ -691,7 +892,10 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
       if (m.lastAsk) return readBack(ctx, n, m, { newDay: m.lastAsk.newDay, fee: m.lastAsk.fee }, utterance);
       return reply(ctx, id, LINES.clarifyOffer);
     case 'deny':
-      if (pending) return reply(ctx, id, LINES.clarifyOffer, { state: 'listening', pendingOfferId: undefined });
+      // A no to the read-back means PacePay heard it wrong, unless the lender just turned that day down.
+      if (pending && refusedDay === null) return reply(ctx, id, LINES.clarifyOffer, { state: 'listening', pendingOfferId: undefined });
+      // A no to an ask for a day with no fee (the opening ask, a counter, a waiver) turns that day down.
+      if (!pending && m.lastAsk && m.lastAsk.fee === 0) m.refusedDays.add(m.lastAsk.newDay);
       return onPushback(ctx, n, m);
     case 'refusal':
       return onPushback(ctx, n, m, true);
@@ -711,11 +915,17 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
 function onPushback(ctx: ToolContext, n: Negotiation, m: Memory, refusal = false): DecideResult {
   const hasOffers = n.offers.length > 0;
   if (!hasOffers) {
-    if (refusal || m.openQuestionAsked) return close(ctx, n.id, LINES.refusal, 'no_deal');
+    if (refusal) return close(ctx, n.id, LINES.refusal, 'no_deal');
+    // The target day was turned down before any offer: ask for the next acceptable day once, then an open question.
+    if (m.counters === 0 && m.refusedDays.size > 0) {
+      const c = nextCounter(ctx, n, m, undefined, undefined);
+      if (c) return sayCounter(ctx, n, m, c);
+    }
+    if (m.openQuestionAsked) return close(ctx, n.id, LINES.refusal, 'no_deal');
     m.openQuestionAsked = true;
     m.lastAsk = null;
-    m.askLine = LINES.whatDay;
-    return reply(ctx, n.id, LINES.whatDay, { state: 'listening' });
+    m.askLines = LINES.whatDay;
+    return reply(ctx, n.id, LINES.whatDay, { state: 'listening', pendingOfferId: undefined });
   }
   if (refusal) {
     if (m.pushbacks >= 1) return close(ctx, n.id, LINES.refusal, 'no_deal');
@@ -724,12 +934,12 @@ function onPushback(ctx: ToolContext, n: Negotiation, m: Memory, refusal = false
   return counterOrClose(ctx, n, m);
 }
 
-function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string, c: Classified, pending: Offer | undefined): DecideResult {
+function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string, c: Classified, pending: Offer | undefined): DecideResult | Promise<DecideResult> {
   const d0 = day0(ctx);
   const today = ctx.clock.today();
   const phrase = c.offer?.day?.trim() || '';
-  let day: Day | null = phrase ? parseDayPhrase(phrase, today, d0) : null;
-  if (day === null) day = parseDayPhrase(utterance, today, d0);
+  let day: Day | null = phrase ? parseDay(ctx, n, phrase) : null;
+  if (day === null) day = parseDay(ctx, n, utterance);
 
   // An amount written in the utterance is exact; otherwise the model's number (it hears "twenty dollars").
   let fee: Cents | null = feeAmount(utterance);
@@ -748,6 +958,8 @@ function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string,
     ctx.bus.emit({ type: 'offer.heard', model: ctx.models.roleFor('decide'), caseId: n.caseId, level: 'warn', title: `Heard an offer without a clear day: "${utterance}"`, detail: { negotiationId: n.id, phrase } });
     return reply(ctx, n.id, LINES.clarifyDay, { state: 'listening', pendingOfferId: undefined });
   }
+  // The read-back's own terms said again ("Yes, Wednesday, November 11, no fee. Does that work?") confirm it.
+  if (pending && day === pending.newDay && (fee === null || fee === pending.fee)) return onConfirm(ctx, n, m, pending);
   return readBack(ctx, n, m, { newDay: day, fee: fee ?? 0 }, utterance);
 }
 
@@ -763,7 +975,7 @@ function readBack(ctx: ToolContext, n: Negotiation, m: Memory, terms: { newDay: 
     title: `Heard "${speakDate(terms.newDay, d0)}, ${feeWords(terms.fee)}"`,
     detail: { negotiationId: n.id, offer },
   });
-  const say = readBackLine(offer, d0);
+  const say = vary(n, readBackVariants(ctx, offer));
   ctx.bus.emit({ type: 'offer.read_back', model: 'code', caseId: n.caseId, title: `Read back: "${say}"`, detail: { negotiationId: n.id, offerId: offer.id } });
   return reply(ctx, n.id, say, { offers: [...n.offers, offer], pendingOfferId: offer.id, state: 'reading_back' });
 }
@@ -846,8 +1058,17 @@ async function resolveOutcome(ctx: ToolContext, id: string): Promise<VoiceApprov
     out = { status: a.status, say: last?.text, next: n.state === 'closed' ? 'end_call' : 'listen' };
   } else if (a.status === 'approved') {
     const offer = approvedOffer(n);
-    const terms = offer ? ` Please go ahead and move the payment to ${speakDate(offer.newDay, d0)}, ${feeWords(offer.fee)}.` : '';
-    const say = `Thanks for holding. Yoshua approved.${terms} Could I get a reference number for that?`;
+    const terms = offer ? `${speakDate(offer.newDay, d0)}, ${feeWords(offer.fee)}` : '';
+    const say = vary(
+      n,
+      terms
+        ? [
+            `Thanks for holding. Yoshua approved. Please go ahead and move the payment to ${terms}. Could I get a reference number for that?`,
+            `Thanks for waiting. Good news, Yoshua approved, so please go ahead and move it to ${terms}. Could I get a reference number?`,
+            `Okay, I'm back. Yoshua approved. Please go ahead with ${terms}. What's the reference number for that?`,
+          ]
+        : ['Thanks for holding. Yoshua approved. Could I get a reference number for that?'],
+    );
     ctx.bus.emit({ type: 'offer.confirmed', model: 'code', caseId: n.caseId, title: 'Deal agreed with the lender after Yoshua approved', detail: { negotiationId: id, offerId: offer?.id } });
     reply(ctx, id, say, { state: 'listening', outcome: 'deal' });
     out = { status: 'approved', say, next: 'listen' };
@@ -855,8 +1076,9 @@ async function resolveOutcome(ctx: ToolContext, id: string): Promise<VoiceApprov
     const r = counterAfterDecline(ctx, load(ctx, id), m);
     out = { status: 'declined', say: r.say, next: r.next === 'end_call' ? 'end_call' : 'listen' };
   } else {
-    reply(ctx, id, LINES.holdAndReference, { state: 'listening', outcome: 'approval_timeout' });
-    out = { status: 'timeout', say: LINES.holdAndReference, next: 'listen' };
+    const say = vary(n, LINES.holdAndReference);
+    reply(ctx, id, say, { state: 'listening', outcome: 'approval_timeout' });
+    out = { status: 'timeout', say, next: 'listen' };
   }
   outcomes.set(a.id, out);
   return out;
@@ -868,13 +1090,12 @@ function counterAfterDecline(ctx: ToolContext, n: Negotiation, m: Memory): Decid
   const target = n.callPlan.targetDay;
   if (offer && !(offer.newDay === target && offer.fee === 0) && m.counters < MAX_COUNTERS) {
     m.counters += 1;
-    m.daysAsked.add(target);
     m.lastAsk = { newDay: target, fee: 0 };
-    m.askLine = askDayLine(target, day0(ctx));
-    const say = `Thanks for holding. Yoshua can't take that one. ${m.askLine}`;
-    return reply(ctx, n.id, say, { state: 'countering' });
+    m.askLines = askDayVariants(ctx, target);
+    const lead = vary(n, ["Thanks for holding. Yoshua can't take that one.", "Sorry for the wait. That one won't work for Yoshua."]);
+    return reply(ctx, n.id, `${lead} ${vary(n, m.askLines)}`, { state: 'countering' });
   }
-  return close(ctx, n.id, `Thanks for holding. Yoshua isn't able to take that. ${LINES.noDeal}`, 'no_deal');
+  return close(ctx, n.id, `${vary(n, ["Thanks for holding. Yoshua isn't able to take that.", "Sorry for the wait. Yoshua can't take that one."])} ${vary(n, LINES.noDeal)}`, 'no_deal');
 }
 
 /**

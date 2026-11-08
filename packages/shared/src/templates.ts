@@ -202,3 +202,73 @@ export function chartSubtitleText(days: number): string {
 export function statusLineText(p: { lowest: Lowest } & DateCtx): string {
   return `Lowest ${money(p.lowest.amount)} on ${formatDate(p.lowest.day, p.day0Date)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Paycheck late (what-if by text, the watch, and the real thing)
+// ---------------------------------------------------------------------------
+
+export interface PaycheckWhatIfParams extends DateCtx {
+  payDay: Day; // when the paycheck is due now
+  lateDay: Day; // when it would land instead
+  /** The first day checking dips below $0 (or below the minimum when it never goes negative). */
+  hit: Lowest | null;
+  /** What comes out that day: "the car payment". */
+  cause?: string;
+  /** hit is below $0 (true) or only under the minimum (false). */
+  negative: boolean;
+  checkingFloor: Cents;
+  /** The 30-day lowest when nothing dips (hit null). */
+  lowest: Lowest;
+  /** Checking stays below $0 from the hit until the paycheck lands. */
+  staysNegative: boolean;
+  watch: boolean;
+}
+
+/**
+ * "If your paycheck lands Monday instead of Thursday, checking would hit −$320 on Fri, Nov 13 when the
+ * car payment comes out. I'll watch for it and text you Thursday night if it hasn't landed. Reply NO to skip."
+ */
+export function paycheckWhatIfText(p: PaycheckWhatIfParams): string {
+  const head = `If your paycheck lands ${formatWeekdayLong(p.lateDay, p.day0Date)} instead of ${formatWeekdayLong(p.payDay, p.day0Date)}`;
+  if (!p.hit) {
+    return `${head}, checking stays above your ${whole(p.checkingFloor)} minimum. The lowest is ${money(p.lowest.amount)} on ${formatDate(p.lowest.day, p.day0Date)}.`;
+  }
+  const when = p.cause ? ` when ${p.cause} comes out` : '';
+  const what = p.negative
+    ? `checking would hit ${money(p.hit.amount)} on ${formatDate(p.hit.day, p.day0Date)}${when}${p.staysNegative ? ' and stay negative until it lands' : ''}.`
+    : `checking would dip to ${money(p.hit.amount)} on ${formatDate(p.hit.day, p.day0Date)}${when}, under your ${whole(p.checkingFloor)} minimum.`;
+  const watch = p.watch ? ` I'll watch for it and text you ${formatWeekdayLong(p.payDay, p.day0Date)} night if it hasn't landed. Reply NO to skip.` : '';
+  return `${head}, ${what}${watch}`;
+}
+
+/**
+ * Sent right after a deal that only works if the next paycheck lands on time:
+ * "This works as long as your paycheck lands Thursday. I'll check Thursday night and text you if it hasn't. Reply NO to skip."
+ */
+export function paycheckDependsText(p: { payDay: Day } & DateCtx): string {
+  const day = formatWeekdayLong(p.payDay, p.day0Date);
+  return `This works as long as your paycheck lands ${day}. I'll check ${day} night and text you if it hasn't. Reply NO to skip.`;
+}
+
+/** Sent by the watcher on payday night (8:00 PM) while the watch is on. */
+export function paycheckWatchText(p: { hit: Lowest; payDay: Day } & DateCtx): string {
+  return `It's ${formatWeekdayLong(p.payDay, p.day0Date)} night and your paycheck hasn't landed yet. If it's late, checking hits ${money(p.hit.amount)} on ${formatDate(p.hit.day, p.day0Date)}. Text me when it's coming and I'll work on a fix.`;
+}
+
+export function paycheckWatchKeptText(): string {
+  return "Got it, I'll keep an eye on it.";
+}
+
+export function paycheckWatchCancelledText(): string {
+  return "Okay, I won't watch for it.";
+}
+
+/** "Got it: your paycheck lands Mon, Nov 16 instead of Thu, Nov 12. Checking your week." */
+export function paycheckLateAckText(p: { payDay: Day; lateDay: Day } & DateCtx): string {
+  return `Got it: your paycheck lands ${formatDate(p.lateDay, p.day0Date)} instead of ${formatDate(p.payDay, p.day0Date)}. Checking your week.`;
+}
+
+/** "now that your paycheck lands Mon, Nov 16": the alert's condition for a late paycheck. */
+export function paycheckLateCondition(p: { lateDay: Day } & DateCtx): string {
+  return `now that your paycheck lands ${formatDate(p.lateDay, p.day0Date)}`;
+}

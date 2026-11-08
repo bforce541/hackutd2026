@@ -23,25 +23,14 @@ const geometry = (changes: Change[], lowestDay?: number) => {
 };
 
 describe('pace line: the lowest-point dot', () => {
-  // Car payment moved to Thursday (payday): the day closes at $1,700, but the payment posts
-  // before the deposit, so the intraday low is −$300. The dot has to sit at −$300.
-  const { fc, g } = geometry([repair, { type: 'move_item', itemId: 'auto_payment', toDay: 5 }]);
+  // Car payment moved to Thursday (payday): the deposit posts first and covers it, so the day
+  // never dips below its open or close.
+  const { fc } = geometry([repair, { type: 'move_item', itemId: 'auto_payment', toDay: 5 }]);
 
-  it('the case really has an intraday low below the closing balance', () => {
+  it('deposits post before debits, so a payday bill does not dip the day', () => {
     const thu = fc.days[5]!;
-    expect(thu.intradayLow).toBe(-30_000);
+    expect(thu.intradayLow).toBe(Math.min(fc.days[4]!.close, thu.close));
     expect(thu.close).toBe(170_000);
-    expect(fc.lowest).toMatchObject({ amount: -30_000, day: 5 });
-  });
-
-  it('puts the dot below the $0 line (at the intraday low), not up at the closing step', () => {
-    expect(g.low).not.toBeNull();
-    expect(g.low!.negative).toBe(true);
-    expect(g.low!.y).toBeGreaterThan(g.zeroY);
-  });
-
-  it('sits in the middle of the lowest day\'s column', () => {
-    expect(g.low!.x).toBeCloseTo(((5 + 0.5) / 14) * 1000, 5);
   });
 
   it('with no intraday dip it matches the closing step (the $650 repair, Tuesday)', () => {

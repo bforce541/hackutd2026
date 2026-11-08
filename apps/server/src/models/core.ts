@@ -108,6 +108,33 @@ export function extractJson(text: string): unknown {
   throw new Error('no JSON found in reply');
 }
 
+const ULTRA_GAP_MS = 4000;
+const ULTRA_BACKOFF_MS = [1500, 3000, 5000];
+let ultraSlot: Promise<void> = Promise.resolve();
+let ultraLast = 0;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Serialize Ultra calls through one queue that starts them at least ULTRA_GAP_MS apart. */
+function ultraTurn(): Promise<void> {
+  const mine = ultraSlot.then(async () => {
+    const wait = ultraLast + ULTRA_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    ultraLast = Date.now();
+  });
+  ultraSlot = mine.catch(() => undefined);
+  return mine;
+}
+
+function retryAfterMs(e: unknown): number | undefined {
+  const h = (e as { headers?: unknown })?.headers as { get?: (k: string) => string | null } | Record<string, string> | undefined;
+  const v = h ? (typeof (h as { get?: unknown }).get === 'function' ? (h as { get: (k: string) => string | null }).get('retry-after') : (h as Record<string, string>)['retry-after']) : undefined;
+  if (!v) return undefined;
+  const n = Number(v);
+  if (Number.isFinite(n)) return Math.max(0, n * 1000);
+  const d = Date.parse(v);
+  return Number.isNaN(d) ? undefined : Math.max(0, d - Date.now());
+}
+
 export function createEngine(spec: ProviderSpec, bus: Bus): ModelClient {
   const available = (job: ModelJob) => spec.routes(job).length > 0;
 
@@ -122,7 +149,28 @@ export function createEngine(spec: ProviderSpec, bus: Bus): ModelClient {
       messages: req.images?.length ? withImages(messages, req.images) : messages,
       ...(tools ? { tools } : {}),
     };
-    const res = await route.client.chat.completions.create(params, { timeout: timeoutMs, maxRetries: 0 });
+    let res: OpenAI.Chat.Completions.ChatCompletion;
+    if (route.role !== 'nemotron-ultra') {
+      res = await route.client.chat.completions.create(params, { timeout: timeoutMs, maxRetries: 0 });
+    } else {
+      // Ultra on build.nvidia.com rate-limits hard: queue, and on 429 back off and retry Ultra
+      // (inside this step's timeout) before the caller falls back to Super.
+      const deadline = Date.now() + timeoutMs;
+      for (let n = 0; ; n++) {
+        await ultraTurn();
+        const left = deadline - Date.now();
+        if (left <= 0) throw new ModelTimeoutError(`timed out waiting for ${route.model}`);
+        try {
+          res = await route.client.chat.completions.create(params, { timeout: left, maxRetries: 0 });
+          break;
+        } catch (e) {
+          if (!(e instanceof OpenAI.APIError) || e.status !== 429 || n >= ULTRA_BACKOFF_MS.length) throw e;
+          const wait = retryAfterMs(e) ?? ULTRA_BACKOFF_MS[n] * (0.8 + Math.random() * 0.4);
+          if (Date.now() + wait + 1000 >= deadline) throw e;
+          await sleep(wait);
+        }
+      }
+    }
     const msg = res.choices[0]?.message;
     if (!msg) throw new Error('empty completion');
     return msg;

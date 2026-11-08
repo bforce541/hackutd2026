@@ -112,7 +112,8 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     // limit, the floors, or a reason. The greeting ends with the ask so the call opens with it.
     const neg = call.negotiationId ? store.getItem('negotiations', call.negotiationId) : undefined;
     const household = store.household();
-    const item = neg ? household.scheduled.find((s) => s.id === neg.itemId) : undefined;
+    // A payment already moved once is 'auto_payment@6': fall back to its base id for the label.
+    const item = neg ? household.scheduled.find((s) => s.id === neg.itemId || s.id === neg.itemId.split(/[@#:]/)[0]) : undefined;
     const counterparty = household.counterparties.find((p) => p.id === (neg?.counterpartyId ?? call.counterpartyId));
     const ref = neg ? accountReference(ctx, neg) : 'account';
     const about = `the ${ref}`;

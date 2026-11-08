@@ -13,7 +13,7 @@ export interface AccountLedger {
   accountId: string;
   open: Cents[]; // index = day
   close: Cents[];
-  intradayLow: Cents[]; // open + every debit that day (debits post before credits)
+  intradayLow: Cents[]; // lowest point that day: deposits post before debits, so min(open, close)
   postings: Posting[][];
 }
 
@@ -83,13 +83,11 @@ export function project(h: Household, maxDay: Day): Map<string, AccountLedger> {
     for (let d = 0; d < len; d += 1) {
       const today = ps[d] as Posting[];
       open.push(bal);
-      let debits = 0;
+      // Banks post deposits before debits on the same day, so a paycheck landing the morning a bill
+      // comes out covers it. The day's low is then just the lower of its open and its close.
       let all = 0;
-      for (const p of today) {
-        all += p.amount;
-        if (p.amount < 0) debits += p.amount;
-      }
-      intradayLow.push(bal + debits);
+      for (const p of today) all += p.amount;
+      intradayLow.push(Math.min(bal, bal + all));
       bal += all;
       close.push(bal);
     }

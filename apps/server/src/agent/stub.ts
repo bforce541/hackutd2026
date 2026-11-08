@@ -969,7 +969,7 @@ export async function scriptedDecide(ctx: ToolContext, negotiationId: string, ut
   if (neg.state === 'awaiting_approval') {
     const out = scriptedApprovalOutcome(ctx, negotiationId);
     const state = ctx.store.mustGet('negotiations', negotiationId).state;
-    if (out.status === 'pending') return reply('One moment, I am confirming with Yoshua.', 'await_approval', 'awaiting_approval');
+    if (out.status === 'pending') return reply('Thanks for holding, I am still checking with Yoshua.', 'await_approval', 'awaiting_approval');
     return { say: out.say ?? 'Thank you. Goodbye.', next: out.next ?? 'end_call', state };
   }
 
@@ -1063,7 +1063,7 @@ async function confirmPending(
   if (check.pass) {
     const c = ctx.store.mustGet('cases', neg.caseId);
     moveTo(ctx, c.id, 'AWAITING_APPROVAL');
-    const say = 'Let me confirm with Yoshua, one moment.';
+    const say = 'Let me confirm that with Yoshua.';
     const r = reply(say, 'await_approval', 'awaiting_approval', withCheck);
     await runTool(
       'request_approval',

@@ -19,7 +19,7 @@ import type { Speaker } from '@pacepay/shared';
 import { createServerClient, type VoiceServerClient } from './server';
 import { inboundTools, outboundTools, type VoiceToolHooks } from './tools';
 
-export const AGENT_NAME = 'pacepay-voice';
+export const AGENT_NAME = process.env.PACEPAY_VOICE_AGENT_NAME || 'pacepay-voice';
 const MODEL_FALLBACKS = ['gpt-realtime-2.1', 'gpt-realtime-2', 'gpt-realtime'];
 const here = dirname(fileURLToPath(import.meta.url));
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), '[voice]', ...a);
@@ -31,8 +31,15 @@ function prompt(name: 'voice' | 'voice-inbound', vars: Record<string, string>): 
 }
 
 const STYLE =
-  '\nSpeak at a natural pace. Say any returned "say" text word for word. ' +
-  'While a tool runs you may say only "One moment." and nothing else.';
+  '\nDelivery: sound like a warm, relaxed person on the phone, not a newsreader. Natural pacing, small ' +
+  'pauses at commas, contractions exactly as written. Change how you say a line, never its words. ' +
+  'Never add filler of your own: no "one moment", no "mm-hm", nothing before calling a tool. Short ' +
+  'acknowledgements are played for you by the system when a lookup is slow.';
+
+/** Speak a fixed line (a realtime model has no TTS, so session.say() would throw). No tools on these. */
+const EXACT = (text: string) => `Say exactly this and nothing else, then stop and listen: "${text}"`;
+const FILLER = (text: string) =>
+  `Say only this short acknowledgement, softly and casually like a person thinking, then stop: "${text}"`;
 
 /**
  * Phone-line turn-taking. Server VAD is less jumpy than the default semantic VAD on 8 kHz line noise
@@ -126,6 +133,7 @@ function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: 
   let session: voice.AgentSession | undefined;
   let lastSpeech: voice.SpeechHandle | undefined;
   let ended = false;
+  let turnEndedAt = 0;
   const post = (speaker: Speaker, text: string) => {
     if (!text.trim()) return;
     void server.event(callId, { type: 'transcript', speaker, text: text.trim() }).catch((e) => log('transcript post failed', e.message));
@@ -145,8 +153,15 @@ function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: 
     // A realtime model has no TTS, so session.say() would throw; have the model speak the line instead.
     // The line is posted to the transcript by the ConversationItemAdded listener, not here.
     say: async (text) => {
-      session?.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${text}"` });
+      session?.generateReply({ instructions: EXACT(text), toolChoice: 'none' });
     },
+    // Chosen in code (tools.ts) only when a lookup is slow. Skipped if we are already talking.
+    filler: async (text) => {
+      if (ended || !session || session.agentState === 'speaking') return;
+      log('filler:', text);
+      session.generateReply({ instructions: FILLER(text), toolChoice: 'none' });
+    },
+    turnEndedAt: () => turnEndedAt,
     // Wait until the agent has stopped speaking: let a pending goodbye start, then require the state to
     // stay 'listening' (and the last speech handle done) for a moment. Capped so it cannot hang.
     settle: async (maxMs) => {
@@ -171,6 +186,9 @@ function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: 
     session = s;
     s.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
       lastSpeech = ev.speechHandle;
+    });
+    s.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+      if (ev.oldState === 'speaking' && ev.newState === 'listening') turnEndedAt = ev.createdAt ?? Date.now();
     });
     s.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (ev.isFinal) post(otherSpeaker, ev.transcript);
@@ -206,7 +224,7 @@ async function runOutbound(ctx: JobContext, server: VoiceServerClient, callId: s
   const counterparty = await ctx.waitForParticipant('counterparty');
   log('answered by', counterparty.identity);
   await server.event(callId, { type: 'answered' }).catch((e) => log('answered post failed', e.message));
-  session.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${brief.greeting}"` });
+  session.generateReply({ instructions: EXACT(brief.greeting), toolChoice: 'none' });
 }
 
 async function runInbound(ctx: JobContext, server: VoiceServerClient, room: string): Promise<void> {
@@ -220,7 +238,7 @@ async function runInbound(ctx: JobContext, server: VoiceServerClient, room: stri
   const agent = new voice.Agent({ instructions, tools: Object.values(inboundTools(server, inbound.callId, w.hooks)) });
   const session = await startSession(ctx, agent);
   w.attach(session);
-  session.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${inbound.greeting}"` });
+  session.generateReply({ instructions: EXACT(inbound.greeting), toolChoice: 'none' });
 }
 
 const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

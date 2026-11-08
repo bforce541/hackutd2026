@@ -136,14 +136,14 @@ describe('negotiator via the lender console (SPEC §11 variants)', { timeout: LI
     const { lender, get } = setup();
     const a = await lender('We can do Wednesday.');
     expect(a.state).toBe('reading_back');
-    expect(a.reply).toBe("So that's Wednesday, Nov 11, with no fee?");
+    expect(a.reply).toMatch(/Wednesday the 11th with no fee/);
     expect((await get()).checks ?? []).toHaveLength(0); // nothing checked before the read-back is confirmed
     const b = await lender('Yes.');
     const n = await get();
     expect(n.checks?.[0]?.pass).toBe(false);
     expect(n.offers[0]?.readBackConfirmed).toBe(true);
     expect(b.reply).not.toMatch(FORBIDDEN);
-    expect(b.reply).toBe('Could you do Friday, Nov 13 instead, with no fee?');
+    expect(b.reply).toMatch(/Friday the 13th.*with no fee\?$/);
     expect(b.state).toBe('countering');
   });
 
@@ -155,13 +155,13 @@ describe('negotiator via the lender console (SPEC §11 variants)', { timeout: LI
     expect(check?.pass).toBe(false);
     expect(check?.reasons).toContain('PAYDAY_SAME_DAY');
     expect(b.reply).not.toMatch(FORBIDDEN);
-    expect(b.reply).toMatch(/Friday, Nov 13/);
+    expect(b.reply).toMatch(/Friday the 13th/);
   });
 
   it('"$35 fee": FEE_OVER_LIMIT, then a waiver ask', async () => {
     const { lender, get } = setup();
     const a = await lender('We can do Friday with a $35 fee.');
-    expect(a.reply).toBe("So that's Friday, Nov 13, with a $35 fee?");
+    expect(a.reply).toMatch(/Friday the 13th with a thirty-five-dollar fee/);
     const b = await lender('Yes.');
     const check = (await get()).checks?.[0];
     expect(check?.reasons).toEqual(expect.arrayContaining(['FEE_OVER_LIMIT']));
@@ -202,10 +202,11 @@ describe('negotiator via the lender console (SPEC §11 variants)', { timeout: LI
   it('"Friday, $20": read-back, deal approval with a 60 s timeout, Yoshua says yes, reference, deal', async () => {
     const { ctx, store, lender, get, ended, targetDay, negotiationId } = setup();
     const a = await lender('Friday, with a twenty dollar fee.');
-    expect(a.reply).toBe("So that's Friday, Nov 13, with a $20 fee?");
+    expect(a.reply).toMatch(/Friday the 13th with a twenty-dollar fee/);
     const b = await lender('Yes.');
     expect(b.awaitingApproval).toBe(true);
-    expect(b.reply).toBe('Let me confirm with Yoshua, one moment.');
+    expect(b.reply).toMatch(/Yoshua/);
+    expect(b.reply).not.toMatch(FORBIDDEN);
     const approval = store.pendingApprovals().find((x) => x.kind === 'deal');
     expect(approval?.timeoutMs).toBe(DEAL_APPROVAL_TIMEOUT_MS);
     expect(approval?.negotiationId).toBe(negotiationId);

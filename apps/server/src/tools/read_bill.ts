@@ -75,10 +75,12 @@ function parseIso(s: string | null | undefined): ISODate | null {
 const IMMEDIATE = /pick\s?-?up|receipt|upon|immediate|today|on delivery|at completion|at service/i;
 
 function toBillRead(raw: RawRead, day0Date: ISODate): BillRead {
-  const due = parseIso(raw.due_date);
   const docDate = parseIso(raw.document_date);
+  // A due date before the bill's own date is a misread (one run read "Nov 7" as Jun 7): drop it.
+  const read = parseIso(raw.due_date);
+  const due = read && docDate && read < docDate ? null : read;
   let dueDay: Day | null = due ? isoDateToDay(due, day0Date) : null;
-  if (dueDay === null && docDate && raw.due_phrase && IMMEDIATE.test(raw.due_phrase)) dueDay = isoDateToDay(docDate, day0Date);
+  if (dueDay === null && docDate && ((raw.due_phrase && IMMEDIATE.test(raw.due_phrase)) || (read && !due))) dueDay = isoDateToDay(docDate, day0Date);
   return {
     merchant: raw.merchant.trim(),
     amount: Math.round(raw.amount_dollars * 100),

@@ -6,6 +6,7 @@
  */
 import {
   CATEGORIES,
+  ITEM_IDS,
   formatDate,
   formatMoney,
   formatMonths,
@@ -82,6 +83,8 @@ import {
 } from './demo-script';
 import {
   CAR_PAYMENT_DAY,
+  PAYCHECK_LATE_DAYS,
+  agreedChanges,
   alertMessage,
   baseChanges,
   caseForecast,
@@ -89,9 +92,12 @@ import {
   findOption,
   inCall,
   lastOffer,
+  lateCase,
+  latePaycheck,
   lowestOf,
   needsHelp,
   nextCallLine,
+  nextPayday,
   optionRow,
   planChanges,
   rankedOptions,
@@ -125,10 +131,6 @@ function scriptedDealFee(): number {
   return offers[offers.length - 1]?.offer?.fee ?? 0;
 }
 
-function nextPayday(fc: Forecast): number | null {
-  return fc.days.find((d) => d.items.some((it) => it.itemId.startsWith('paycheck') && it.amount > 0))?.day ?? null;
-}
-
 function daysBelowZero(fc: Forecast, days: number): number {
   return fc.days.slice(0, days).filter((d) => d.close < 0).length;
 }
@@ -142,14 +144,16 @@ function whatIf(m: DemoMachine, plan: Change[], planFc: Forecast): WhatIfResult 
   const range = m.ui.range;
   const to = targetDay(m);
   const fee = scriptedDealFee();
-  const payday = nextPayday(planFc);
-  const late = payday === null ? null : payday + 4;
+  // Once Yoshua says the paycheck is late it is in the plan; the row keeps naming the same move.
+  const lp = m.paycheck === 'late' ? latePaycheck(m) : null;
+  const payday = lp ? lp.payday : nextPayday(planFc);
+  const late = lp ? lp.late : payday === null ? null : payday + PAYCHECK_LATE_DAYS;
   const matures = cdMaturesOn(r);
   const cardOpt = findOption(m, 'card');
 
   const available: Record<WhatIfKey, boolean> = {
     car: m.day === CASE_DAY && m.stage !== 'done' && to >= 0,
-    late: m.day === CASE_DAY && late !== null,
+    late: m.day === CASE_DAY && late !== null && m.paycheck !== 'late',
     card: m.day === CASE_DAY && !!cardOpt && !(m.stage === 'done' && m.chosen === 'card'),
     cd: m.day < matures,
   };
@@ -161,7 +165,7 @@ function whatIf(m: DemoMachine, plan: Change[], planFc: Forecast): WhatIfResult 
     changes = changes.flatMap((c) => (isRepairPaid(c) ? (charge ? [charge] : []) : [c]));
   }
   if (on('car')) changes = [...changes, ...runOfferChanges(r, { newDay: to, fee })];
-  if (on('late') && late !== null) changes = [...changes, { type: 'move_item', itemId: 'paycheck', toDay: late }];
+  if (on('late') && late !== null) changes = [...changes, { type: 'move_item', itemId: ITEM_IDS.paycheck, toDay: late }];
   let cdLine: string | null = null;
   if (on('cd')) {
     const payoff = runCdOptions(r, changes, m.day).find((o) => o.id === 'cd_payoff_card');
@@ -474,6 +478,20 @@ function panelView(m: DemoMachine, help: boolean, plan: Change[], dealCheck: Off
     }
   }
 
+  if (m.stage === 'done' && m.paycheck === 'late' && m.day === CASE_DAY) {
+    const lc = lateCase(m);
+    const [best, ...others] = lc?.options ?? [];
+    if (lc && best) {
+      return {
+        step: 'heads_up',
+        lowest: lc.lowest,
+        condition: `If your paycheck lands ${formatDate(lc.late.late)}.`,
+        best: { optionId: best.id, title: best.title, detail: best.detail, cta: best.id === 'move_payment' ? 'Ask my lender' : 'Use savings' },
+        others: others.map((o) => ({ optionId: o.id, title: o.title, detail: o.detail })),
+      };
+    }
+  }
+
   switch (m.stage) {
     case 'home': {
       if (!help) return { step: 'idle' };
@@ -549,6 +567,9 @@ function chartView(m: DemoMachine, planFc: Forecast, wi: WhatIfResult | null): C
     line = wi.forecast;
     mode = 'what_if';
     if (wi.movesChecking) ghost = { forecast: planFc, label: 'Current plan' };
+  } else if (m.stage === 'done' && m.paycheck === 'late') {
+    // The late paycheck is in the plan now: the line before it stays as "Before".
+    ghost = { forecast: runForecast(r, agreedChanges(m), m.day, CHART_DAYS), label: 'Before' };
   } else if (m.stage === 'done') {
     mode = 'done';
     ghost = { forecast: runForecast(r, baseChanges(m), m.day, CHART_DAYS), label: 'Before' };

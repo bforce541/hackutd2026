@@ -36,7 +36,7 @@ export function dayAt(day: Day, hour: number, minute = 0): string {
 }
 
 /** Minutes after 7:00 PM for each beat of the mockup's story. */
-export const MINUTE = { photo: 2, alert: 3, pick: 3, limits: 3, call: 4, offer2: 5, approve: 5, done: 6 } as const;
+export const MINUTE = { photo: 2, alert: 3, pick: 3, limits: 3, call: 4, offer2: 5, approve: 5, done: 6, paycheckAsk: 8, paycheckLate: 9 } as const;
 
 /** Seconds per transcript line on the call timer (the mockup's step × 8). */
 export const SECONDS_PER_LINE = 8;

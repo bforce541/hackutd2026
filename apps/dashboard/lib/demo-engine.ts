@@ -7,6 +7,7 @@
  * from the demo hook's initializer, its actions and its derive step.
  */
 import {
+  CALL_SEARCH_DAYS,
   applyChanges,
   billChange,
   buildOptions,
@@ -23,7 +24,7 @@ import {
   planCallTargets,
   simulate,
 } from '@pacepay/engine';
-import type { Cents, Change, Day, Forecast, HealthScore, Household, NetWorth, OfferCheck, Option, Rules } from '@pacepay/shared';
+import type { Cents, Change, Day, Forecast, HealthScore, Household, Lowest, NetWorth, OfferCheck, Option, Rules } from '@pacepay/shared';
 
 /** The repair from v2.md: what the bill photo says. */
 export const REPAIR_MERCHANT = 'Northside Auto Service';
@@ -130,6 +131,37 @@ export function runOfferChanges(rules: Rules, offer: OfferTerms): Change[] {
   return memo(k('offerChanges', rulesKey(rules), offer), () =>
     offerChanges(household(rules), { itemId: 'auto_payment', newDay: offer.newDay, fee: offer.fee }) as Change[],
   );
+}
+
+/** Whether `itemId` is a movable payment once `changes` apply (the moved car payment is `auto_payment@6`). */
+export function isMovable(rules: Rules, changes: Change[], itemId: string): boolean {
+  return memo(k('movable', rulesKey(rules), changes, itemId), () =>
+    applyChanges(household(rules), changes).scheduled.some((s) => s.id === itemId && s.movable === true),
+  );
+}
+
+/**
+ * The best day to move `itemId` to after `afterDay` (the late payday), within the engine's call
+ * search window: the first business day, not a payday, with the highest 30-day low (checkOffer,
+ * no fee). Unlike planCallTargets it returns a day even when none clears the floor alone, so the
+ * caller can say what else it takes. Null when no day is allowed at all.
+ */
+export function runBestMoveDay(rules: Rules, base: Change[], itemId: string, afterDay: Day): { day: Day; lowest: Lowest } | null {
+  return memo(k('bestMove', rulesKey(rules), base, itemId, afterDay), () => {
+    const h = household(rules);
+    let best: { day: Day; lowest: Lowest } | null = null;
+    for (let d = afterDay + 1; d <= afterDay + CALL_SEARCH_DAYS; d += 1) {
+      const c = checkOffer(h, { itemId, newDay: d, fee: 0 }, { baseChanges: base, fromDay: CASE_DAY }) as OfferCheck;
+      if (c.reasons.includes('WEEKEND_ROLLS_FORWARD') || c.reasons.includes('PAYDAY_SAME_DAY') || c.reasons.includes('UNKNOWN_ITEM')) continue;
+      if (!best || c.lowest.amount > best.lowest.amount) best = { day: d, lowest: c.lowest };
+    }
+    return best;
+  });
+}
+
+/** A savings account's balance on the case day. */
+export function balanceOf(rules: Rules, accountId: string): Cents {
+  return household(rules).accounts.find((a) => a.id === accountId)?.balance ?? 0;
 }
 
 /** cd_renew and cd_payoff_card, with `changes` (the current plan) already applied. */

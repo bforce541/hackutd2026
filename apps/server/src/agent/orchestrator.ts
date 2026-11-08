@@ -42,10 +42,22 @@ import {
   formatWholeDollars,
   limitsText,
   movePaymentOptionText,
+  normalizeReply,
+  paycheckLateAckText,
+  paycheckLateCondition,
+  paycheckWatchCancelledText,
+  paycheckWatchKeptText,
+  paycheckWatchText,
+  paycheckDependsText,
+  paycheckWhatIfText,
   reminderText,
   replyPrompt,
   savingsOptionText,
   type AgentEvent,
+  type Forecast,
+  type Lowest,
+  type ScheduledItem,
+  weekdayOf,
   type Approval,
   type Bill,
   type CallPlan,
@@ -64,10 +76,11 @@ import {
 } from '@pacepay/shared';
 import type { Agent } from './index';
 import { runTool, type ToolContext, type ToolScope } from '../tools/registry';
-import { CALL_STEP_KINDS, writePlan } from './planner';
+import { CALL_STEP_KINDS, ultraTurn, writePlan } from './planner';
 import { assertCaseTransition, assertPlaceCallAllowed, caseApprovals, GateError, isOpen } from './machine';
 import { approvalOutcome, dealChanges, openingLine } from './negotiator';
 import { answerQuestion } from './qa';
+import { parseDay } from '../tools/simulate';
 import { needsBillCheck } from '../tools/read_bill';
 import { unsupportedNumbers } from '../tools/send_message';
 import { currentForecast, publishForecast } from '../forecast';
@@ -93,10 +106,24 @@ function aboutCents(c: Cents): Cents {
 const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const baseItemId = (id: string) => id.split('@')[0]!.split(':')[0]!;
 
+// "What if my paycheck is late?" and "My paycheck is going to be late, it's landing Monday": code paths,
+// not model luck, so the demo's question always gets the engine's answer.
+const PAYCHECK_WORDS = /\b(pay ?check|paycheque|pay ?day|direct deposit|salary|wages|my pay)\b/i;
+const LATE_WORDS = /\b(late|delay(?:ed)?|slips?|slipped|pushed|won'?t (?:come|land|arrive|hit|clear)|doesn'?t (?:come|land|arrive|hit|clear)|(?:landing|lands|coming|arrives?|arriving|hits?|clears?) (?:on )?(?:mon|tues?|wed|thu|fri|sat|sun|next))/i;
+const HYPOTHETICAL = /\b(what if|what happens|what would|suppose|in case|if)\b/i;
+const WATCH_NO = /^(no|n|nah|nope|dont|do not|dont bother|dont watch|skip|skip it|no thanks|no thank you|stop|cancel|never ?mind|not needed)\b/;
+const WATCH_OK = /^(ok|okay|k|kk|yes|y|yep|yeah|ya|sure|thanks|thank you|thx|ty|cool|great|perfect|sounds good|got it|good|nice|awesome|please|pls|do it|keep watching)\b/;
+const WEEKDAY_WORD = /\b(mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b/i;
+
 export function createRealAgent(ctx: ToolContext): Agent {
   const h = () => ctx.store.household();
   const d0 = () => h().day0Date;
   const today = () => ctx.clock.today();
+  /**
+   * A scheduled item by id, including the ids a moved payment gets ("auto_payment@6" after the first
+   * deal): those live only in the household with the changes applied, so fall back to the series.
+   */
+  const itemFor = (id: string): ScheduledItem | undefined => h().scheduled.find((s) => s.id === id) ?? h().scheduled.find((s) => s.id === id.split(/[@#:]/)[0]);
 
   // -------------------------------------------------------------------------
   // Case, plan and step bookkeeping
@@ -309,7 +336,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
   function moveInfo(o: Option): MoveInfo | null {
     const mv = o.changes.find((ch): ch is Extract<Change, { type: 'move_item' }> => ch.type === 'move_item');
     if (!mv) return null;
-    const item = h().scheduled.find((s) => s.id === mv.itemId);
+    const item = itemFor(mv.itemId);
     return { itemId: mv.itemId, itemLabel: lower(item?.label ?? 'payment'), toDay: mv.toDay, counterpartyId: item?.counterpartyId };
   }
 
@@ -322,7 +349,8 @@ export function createRealAgent(ctx: ToolContext): Agent {
     switch (o.id) {
       case 'move_payment': {
         const m = moveInfo(o)!;
-        return movePaymentOptionText({ itemLabel: m.itemLabel, toDay: m.toDay, day0Date: d0() });
+        // A payment a lender already moved once ("auto_payment@6") is asked about "again".
+        return movePaymentOptionText({ itemLabel: m.itemId.includes('@') ? `${m.itemLabel} again` : m.itemLabel, toDay: m.toDay, day0Date: d0() });
       }
       case 'card':
         return cardOptionText({ monthlyInterest: o.tradeoffs.monthlyInterest ?? 0 });
@@ -566,13 +594,20 @@ export function createRealAgent(ctx: ToolContext): Agent {
     }
     const bill = getBill(c);
     const f = currentForecast(ctx, { days: 30 });
-    const condition = bill ? `if you pay the ${billNoun(bill)} ${formatDayRelative(Math.max(bill.dueDay ?? today(), today()), today(), d0())}` : 'if nothing changes';
-    const context = contextItems();
+    const late = lateCases.get(c.id);
+    // A late paycheck leads with the day checking first dips (the payment that overdraws), as the what-if did.
+    const head: Lowest = late ? (firstDip(f) ?? f.lowest) : f.lowest;
+    const condition = bill
+      ? `if you pay the ${billNoun(bill)} ${formatDayRelative(Math.max(bill.dueDay ?? today(), today()), today(), d0())}`
+      : late
+        ? paycheckLateCondition({ lateDay: late.lateDay, day0Date: d0() })
+        : 'if nothing changes';
+    const context = late ? [] : contextItems();
     const pickReason = pickReasons.get(c.id) ?? DEFAULT_PICK[ranked[0]!.id];
-    const template = alertText({ lowest: f.lowest, condition, context, options: ranked.map(optionBody), pickReason, day0Date: d0() });
+    const template = alertText({ lowest: head, condition, context, options: ranked.map(optionBody), pickReason, day0Date: d0() });
     const facts: Facts = {
-      lowest: formatMoney(f.lowest.amount),
-      lowest_date: formatDate(f.lowest.day, d0()),
+      lowest: formatMoney(head.amount),
+      lowest_date: formatDate(head.day, d0()),
       condition,
       context: context.join(', '),
       ...(bill ? { bill_amount: formatMoney(bill.amount), merchant: bill.merchant } : {}),
@@ -583,7 +618,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     };
     const text = await writeText(c, step, {
       instruction:
-        `Write the heads-up text with the options. First line: "Heads up: <lowest> on <lowest_date> <condition> (<context>)." ` +
+        `Write the heads-up text with the options. First line: "Heads up: <lowest> on <lowest_date> <condition>${context.length ? ' (<context>)' : ''}." ` +
         `Then one line per option in option_order, numbered 1, 2, 3, using each option's own wording from FACTS; after option 1 add ". My pick: <pick_reason>". ` +
         `Last line: <reply>. Example shape:\n${template}`,
       facts,
@@ -761,6 +796,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     const lender = h().counterparties.find((cp) => cp.id === m.counterpartyId)?.name ?? 'the lender';
     const dueDay = nextDue(m.itemId);
     const nb = nextBestText(c, "The lender couldn't move it.");
+    await ultraTurn(ctx); // the ranking just used Ultra; a back-to-back call gets a 429 and falls back to Super
     const wording = (await callWording(c, step, m, dueDay, targets, lender)) ?? templateWording(m, dueDay, targets.targetDay, nb.text);
     const callPlan: CallPlan = { ...templateWording(m, dueDay, targets.targetDay, nb.text), ...wording, targetDay: targets.targetDay, acceptableDays: targets.acceptableDays, feeLimit: targets.feeLimit };
     const neg: Negotiation = {
@@ -796,13 +832,13 @@ export function createRealAgent(ctx: ToolContext): Agent {
   function callScript(neg: Negotiation): string {
     const cp = neg.callPlan;
     const days = cp.acceptableDays.map((d) => `${d} = ${formatDate(d, d0())}`).join(', ');
-    const m: MoveInfo = { itemId: neg.itemId, itemLabel: lower(h().scheduled.find((s) => s.id === neg.itemId)?.label ?? 'payment'), toDay: neg.callPlan.targetDay, counterpartyId: neg.counterpartyId };
+    const m: MoveInfo = { itemId: neg.itemId, itemLabel: lower(itemFor(neg.itemId)?.label ?? 'payment'), toDay: neg.callPlan.targetDay, counterpartyId: neg.counterpartyId };
     const lender = h().counterparties.find((cp) => cp.id === neg.counterpartyId)?.name ?? 'the lender';
     return [
       `Opening: "${greeting(m, lender)}"`,
       `Ask: ${neg.callPlan.openingAsk}`,
       'Every offer: read it back ("So that\'s <day>, with <fee>?") and wait for the lender to confirm. Then the engine checks it.',
-      'An offer that works: "Let me confirm with Yoshua, one moment." Agree only after Yoshua approves by text (60 seconds). No answer in time: ask them to hold the offer, take a reference number, end the call.',
+      'An offer that works: "Let me confirm that with Yoshua." Agree only after Yoshua approves by text (60 seconds). No answer in time: ask them to hold the offer, take a reference number, end the call.',
       `An offer that does not work: ask for a fee waiver if only the fee is the problem, otherwise ask for ${formatDate(neg.callPlan.targetDay, d0())} with no fee. Never say why.`,
       'Identity verification request: take a reference number and end the call; Yoshua will call back.',
       'Refusal: thank them and end the call. On hold more than 60 seconds: end the call politely.',
@@ -820,7 +856,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
       const cur = getCase(c.id);
       if (!cur.review) patchCase(c.id, { review: { verdict: op.verdict, issues: op.issues, at: ctx.clock.now() } });
       if (getCase(c.id).review?.verdict === 'revise') {
-        const m: MoveInfo = { itemId: neg.itemId, itemLabel: lower(h().scheduled.find((s) => s.id === neg.itemId)?.label ?? 'payment'), toDay: neg.callPlan.targetDay, counterpartyId: neg.counterpartyId };
+        const m: MoveInfo = { itemId: neg.itemId, itemLabel: lower(itemFor(neg.itemId)?.label ?? 'payment'), toDay: neg.callPlan.targetDay, counterpartyId: neg.counterpartyId };
         const lender = h().counterparties.find((cp) => cp.id === neg.counterpartyId)?.name ?? 'the lender';
         const fixes = op.issues.map((i) => `${i.issue} Fix: ${i.fix}`);
         const revised = (await callWording(c, step, m, nextDue(neg.itemId), neg.callPlan, lender, fixes)) ?? templateWording(m, nextDue(neg.itemId), neg.callPlan.targetDay, neg.callPlan.fallbackText);
@@ -881,7 +917,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
       const offer = dealOffers.get(c.id);
       if (neg?.outcome === 'deal' && offer) {
         const facts: Facts = { fee: formatMoney(offer.fee), new_day: formatDate(offer.newDay, d0()) };
-        const label = h().scheduled.find((s) => s.id === neg.itemId)?.label ?? 'Payment';
+        const label = itemFor(neg.itemId)?.label ?? 'Payment';
         await sendMessage(c, step, `Done. ${label} is now ${formatDate(offer.newDay, d0())} (${offer.fee ? formatMoney(offer.fee) : 'no fee'}).${neg.referenceNumber ? ` Ref ${neg.referenceNumber}.` : ''}`, facts);
       } else {
         await sendMessage(c, step, "The call ended without a change. Nothing was agreed.", {});
@@ -928,12 +964,13 @@ export function createRealAgent(ctx: ToolContext): Agent {
       skipStep(c, 'schedule_followup', 'The payment is already due');
       return 'continue';
     }
-    const item = h().scheduled.find((s) => s.id === offer.itemId);
+    const item = itemFor(offer.itemId);
     const f = currentForecast(ctx, { days: 30 });
     const day = f.days.find((d) => d.day === offer.postsOnDay);
     const text = reminderText({ itemLabel: lower(item?.label ?? 'payment'), amount: Math.abs(item?.amount ?? 0), fee: offer.fee, when: 'tomorrow', balanceAfter: day?.intradayLow ?? f.lowest.amount });
     await runTool('schedule_followup', { atDay, text }, ctx, scopeFor(c, step));
     doneStep(getCase(c.id), 'schedule_followup', `Reminder set for ${formatDate(atDay, d0())}, 8:00 PM`);
+    await offerPaycheckWatch(getCase(c.id));
     return 'continue';
   }
 
@@ -1149,16 +1186,18 @@ export function createRealAgent(ctx: ToolContext): Agent {
 
   function howToText(c: Case, o: Option): { text: string; facts: Facts } {
     const bill = getBill(c);
-    const what = bill ? `the ${formatMoney(bill.amount)} ${billNoun(bill)}` : 'it';
+    // No bill (a late paycheck): the move has to land before the first day checking dips.
+    const dip = bill ? null : firstDip(currentForecast(ctx, { days: 30 }));
+    const by = bill ? `before the ${formatMoney(bill.amount)} ${billNoun(bill)} is paid` : dip ? `before ${formatDate(dip.day, d0())}` : 'now';
     const facts: Facts = { ...optionFacts([o]), ...(bill ? { bill_amount: formatMoney(bill.amount) } : {}) };
     if (o.id === 'card') {
       const i = o.tradeoffs.monthlyInterest ?? 0;
-      return { facts, text: `Got it. Put ${what} on your card. That's about ${formatWholeDollars(i)}/mo in interest until it's paid off.\nYou make the move. PacePay never moves money.` };
+      return { facts, text: `Got it. Put ${bill ? `the ${formatMoney(bill.amount)} ${billNoun(bill)}` : 'it'} on your card. That's about ${formatWholeDollars(i)}/mo in interest until it's paid off.\nYou make the move. PacePay never moves money.` };
     }
     const amt = savingsAmount(o);
     const after = o.tradeoffs.savingsAfter;
     const floorNote = o.violations.includes('BELOW_SAVINGS_FLOOR') && after !== null ? ` Savings will be ${formatMoney(after)}, below your ${formatWholeDollars(h().rules.savingsFloor)} floor.` : '';
-    return { facts, text: `Got it. Move ${formatWholeDollars(amt)} from savings to checking before ${what} is paid.${floorNote}\nYou make the move. PacePay never moves money.` };
+    return { facts, text: `Got it. Move ${formatWholeDollars(amt)} from savings to checking ${by}.${floorNote}\nYou make the move. PacePay never moves money.` };
   }
 
   async function onApprovalReply(e: Extract<AgentEvent, { type: 'APPROVAL_REPLY' }>): Promise<void> {
@@ -1239,7 +1278,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
         return;
       }
       dealOffers.set(c.id, { itemId: offer.itemId, newDay: offer.newDay, fee: offer.fee, postsOnDay: mv.toDay });
-      commit(c.id, changes, { title: `Moved the ${lower(h().scheduled.find((s) => s.id === offer.itemId)?.label ?? 'payment')} to ${formatDate(mv.toDay, d0())}${fee ? ` with a ${formatMoney(fee.amount)} fee` : ''}` });
+      commit(c.id, changes, { title: `Moved the ${lower(itemFor(offer.itemId)?.label ?? 'payment')} to ${formatDate(mv.toDay, d0())}${fee ? ` with a ${formatMoney(fee.amount)} fee` : ''}` });
       doneStep(getCase(c.id), 'confirm_deal', `Yoshua approved ${formatDate(offer.newDay, d0())}, ${offer.fee ? formatMoney(offer.fee) : 'no'} fee`);
       return;
     }
@@ -1338,6 +1377,190 @@ export function createRealAgent(ctx: ToolContext): Agent {
     return advance(c.id);
   }
 
+  // -------------------------------------------------------------------------
+  // Paycheck late: the what-if (with a watch that is on unless he says no) and the real thing
+  // -------------------------------------------------------------------------
+
+  /** Cases opened because the paycheck is late: the alert says "now that your paycheck lands Mon, Nov 16". */
+  const lateCases = new Map<string, { payDay: Day; lateDay: Day }>();
+  /** The paycheck watch from the last what-if; awaitingReply until his next text ("no" cancels it). */
+  let paycheckWatch: { followupId: string; awaitingReply: boolean } | null = null;
+
+  /** The first day checking dips below $0, or else under his minimum; null when it never does. */
+  function firstDip(f: Forecast): Lowest | null {
+    const d = f.days.find((x) => x.intradayLow < 0) ?? f.days.find((x) => x.intradayLow < h().rules.checkingFloor);
+    return d ? { amount: d.intradayLow, day: d.day } : null;
+  }
+
+  function nextPaycheck(): { itemId: string; day: Day } | null {
+    for (const d of currentForecast(ctx, { days: 30 }).days) {
+      const i = d.items.find((x) => itemFor(x.itemId)?.kind === 'paycheck');
+      if (i) return { itemId: i.itemId, day: d.day };
+    }
+    return null;
+  }
+
+  const COUNT_WORDS: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+
+  /** The day he says it lands ("Monday", "Nov 16", "two days late"); Monday after payday by default. */
+  function lateDayFrom(text: string, payDay: Day): Day {
+    const ok = (d: Day) => d > payDay && d <= payDay + 13;
+    const n = /\b(\d+|a|one|two|three|four|five|six|seven) (?:business )?days? late\b/i.exec(text);
+    if (n) {
+      const k = COUNT_WORDS[n[1]!.toLowerCase()] ?? Number(n[1]);
+      if (ok(payDay + k)) return payDay + k;
+    }
+    const date = /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2}|\d{1,2}\/\d{1,2})\b/i.exec(text);
+    if (date) {
+      try {
+        const d = parseDay(date[1]!, today(), d0());
+        if (ok(d)) return d;
+      } catch {
+        /* fall through */
+      }
+    }
+    const wd = WEEKDAY_WORD.exec(text);
+    const want = wd ? wd[1]!.slice(0, 3).toLowerCase() : 'mon';
+    for (let d = payDay + 1; d <= payDay + 7; d++) if (weekdayOf(d, d0()).toLowerCase() === want) return d;
+    return payDay + 4;
+  }
+
+  interface PaycheckScenario {
+    itemId: string;
+    payDay: Day;
+    lateDay: Day;
+    change: Change;
+    f: Forecast;
+    hit: Lowest | null;
+    cause?: string;
+    staysNegative: boolean;
+  }
+
+  /** The engine's forecast with this paycheck landing late, on top of the current plan (any accepted deal). */
+  function paycheckScenario(text: string): PaycheckScenario | null {
+    const pay = nextPaycheck();
+    if (!pay) return null;
+    const lateDay = lateDayFrom(text, pay.day);
+    const change: Change = { type: 'move_item', itemId: pay.itemId, toDay: lateDay };
+    const f = ctx.engine.forecast(h(), { fromDay: today(), days: 30, changes: [...ctx.store.forecastChanges(), change] });
+    const hit = firstDip(f);
+    const hitDay = hit ? f.days.find((d) => d.day === hit.day) : undefined;
+    const biggest = hitDay?.items.filter((i) => i.amount < 0).sort((a, b) => a.amount - b.amount)[0];
+    const cause = biggest ? `the ${lower(itemFor(biggest.itemId)?.label ?? biggest.label)}` : undefined;
+    const staysNegative = !!hit && hit.amount < 0 && f.days.filter((d) => d.day >= hit.day && d.day <= lateDay).every((d) => d.intradayLow < 0);
+    return { itemId: pay.itemId, payDay: pay.day, lateDay, change, f, hit, cause, staysNegative };
+  }
+
+  function paycheckIntent(text: string): 'what_if' | 'late' | null {
+    if (!PAYCHECK_WORDS.test(text) || !LATE_WORDS.test(text)) return null;
+    if (HYPOTHETICAL.test(text)) return 'what_if';
+    if (/\?\s*$/.test(text)) return null; // "Is my paycheck late?" is a question for Q&A
+    return 'late';
+  }
+
+  /** A text with no case behind it (the what-if, the watch replies), through send_message's facts check. */
+  async function sendCaseless(text: string, facts: Facts): Promise<void> {
+    try {
+      await runTool('send_message', { text, facts }, ctx, { caller: 'orchestrator', model: 'code' });
+    } catch (err) {
+      ctx.bus.emit({ type: 'step.failed', model: 'code', level: 'error', title: `send_message refused a text (${(err as Error).message}); sending it directly`, detail: { text, facts } });
+      await sendText(ctx, text, {});
+    }
+  }
+
+  function cancelPaycheckWatch(why: string): void {
+    paycheckWatch = null;
+    // Also any watch from before a restart (the in-memory handle is gone, the follow-up is not).
+    for (const f of ctx.store.list('followups')) {
+      if (f.status !== 'scheduled' || f.caseId || !/paycheck hasn't landed/.test(f.text)) continue;
+      ctx.store.patch('followups', f.id, { status: 'cancelled' });
+      ctx.bus.emit({ type: 'step.completed', model: 'code', title: `Stopped watching for the paycheck (${why})` });
+    }
+  }
+
+  async function onPaycheckWhatIf(text: string): Promise<boolean> {
+    const s = paycheckScenario(text);
+    if (!s) return false;
+    const floor = h().rules.checkingFloor;
+    const watch = !!s.hit && s.payDay >= today();
+    ctx.bus.emit({
+      type: 'step.completed',
+      model: 'engine',
+      title: `What-if: paycheck lands ${formatDate(s.lateDay, d0())} instead of ${formatDate(s.payDay, d0())}${s.hit ? `; checking ${formatMoney(s.hit.amount)} on ${formatDate(s.hit.day, d0())}` : '; checking stays above the minimum'}`,
+      detail: { change: s.change, hit: s.hit, lowest: s.f.lowest },
+    });
+    const text2 = paycheckWhatIfText({ payDay: s.payDay, lateDay: s.lateDay, hit: s.hit, cause: s.cause, negative: (s.hit?.amount ?? 0) < 0, checkingFloor: floor, lowest: s.f.lowest, staysNegative: s.staysNegative, watch, day0Date: d0() });
+    await sendCaseless(text2, { hit: s.hit ? formatMoney(s.hit.amount) : '', floor: formatWholeDollars(floor), lowest: formatMoney(s.f.lowest.amount) });
+    if (watch && s.hit) startPaycheckWatch(s, s.hit);
+    return true;
+  }
+
+  /** Watch for the paycheck: a text on payday night unless he replies no. */
+  function startPaycheckWatch(s: PaycheckScenario, hit: Lowest): void {
+    cancelPaycheckWatch('replaced by a new watch');
+    const f = ctx.store.put('followups', { id: newId('fu'), atDay: s.payDay, atTime: '20:00', text: paycheckWatchText({ hit, payDay: s.payDay, day0Date: d0() }), status: 'scheduled' });
+    paycheckWatch = { followupId: f.id, awaitingReply: true };
+    ctx.bus.emit({ type: 'step.completed', model: 'code', title: `Watching for the paycheck: a text ${formatDate(s.payDay, d0())}, 8:00 PM, unless he says no`, detail: { followupId: f.id } });
+  }
+
+  /**
+   * Proactive, after a deal: if the new date only works because the next paycheck lands first, say so
+   * and watch for it (on unless he says no). Not after a late-paycheck case, which already knows.
+   */
+  async function offerPaycheckWatch(c: Case): Promise<void> {
+    const offer = dealOffers.get(c.id);
+    if (!offer || lateCases.has(c.id)) return;
+    const s = paycheckScenario('');
+    if (!s?.hit || s.payDay < today() || s.payDay > offer.postsOnDay) return;
+    ctx.bus.emit({ type: 'step.completed', model: 'engine', caseId: c.id, title: `The new date leans on the ${formatDate(s.payDay, d0())} paycheck: late, checking hits ${formatMoney(s.hit.amount)} on ${formatDate(s.hit.day, d0())}` });
+    await sendCaseless(paycheckDependsText({ payDay: s.payDay, day0Date: d0() }), {});
+    startPaycheckWatch(s, s.hit);
+  }
+
+  /** His reply to the what-if: "no" / "nah" / "don't" cancels the watch, a plain "ok" / "thanks" keeps it. */
+  async function onPaycheckWatchReply(text: string): Promise<boolean> {
+    if (!paycheckWatch?.awaitingReply) return false;
+    const n = normalizeReply(text);
+    if (WATCH_NO.test(n)) {
+      cancelPaycheckWatch('Yoshua said no');
+      await sendCaseless(paycheckWatchCancelledText(), {});
+      return true;
+    }
+    paycheckWatch.awaitingReply = false;
+    if (WATCH_OK.test(n) && !text.includes('?') && n.split(' ').length <= 4) {
+      await sendCaseless(paycheckWatchKeptText(), {});
+      return true;
+    }
+    return false; // anything else is a new message; the watch stays on
+  }
+
+  /** "My paycheck is going to be late, it's landing Monday": put it in the forecast and work it like a bill. */
+  async function onPaycheckLate(text: string): Promise<boolean> {
+    const pay = nextPaycheck();
+    if (pay && pay.itemId.includes('@')) {
+      await sendCaseless(`I already have your paycheck landing ${formatDate(pay.day, d0())}.`, {});
+      return true;
+    }
+    const s = paycheckScenario(text);
+    if (!s) return false;
+    cancelPaycheckWatch('he says it is late');
+    await sendCaseless(paycheckLateAckText({ payDay: s.payDay, lateDay: s.lateDay, day0Date: d0() }), {});
+    ctx.store.addAcceptedChanges([s.change]);
+    publishForecast(ctx, { title: `Moved the paycheck to ${formatDate(s.lateDay, d0())}: Yoshua says it's late` });
+    if (!s.hit) {
+      const floor = formatWholeDollars(h().rules.checkingFloor);
+      await sendCaseless(`Checking stays above your ${floor} minimum, so there's nothing to fix.`, { floor });
+      return true;
+    }
+    ctx.bus.emit({ type: 'event.received', model: 'code', title: `Late paycheck puts checking at ${formatMoney(s.hit.amount)} on ${formatDate(s.hit.day, d0())}: opening a case`, detail: { hit: s.hit, change: s.change } });
+    const ev = { id: newId('evt'), at: ctx.clock.now(), type: 'SHORTFALL' as const, lowest: s.hit };
+    const c = await openCase(ev, 'shortfall', 'Your late paycheck');
+    lateCases.set(c.id, { payDay: s.payDay, lateDay: s.lateDay });
+    patchCase(c.id, { acceptedChanges: [s.change] });
+    await advance(c.id);
+    return true;
+  }
+
   async function onText(e: Extract<AgentEvent, { type: 'TEXT' }>): Promise<void> {
     // A typed amount after a photo PacePay couldn't read becomes the bill.
     const c = ctx.store.currentCase();
@@ -1352,6 +1575,11 @@ export function createRealAgent(ctx: ToolContext): Agent {
       await sendAck(getCase(c.id), rb, bill);
       return advance(c.id);
     }
+
+    if (await onPaycheckWatchReply(e.text)) return;
+    const intent = paycheckIntent(e.text);
+    if (intent === 'what_if' && (await onPaycheckWhatIf(e.text))) return;
+    if (intent === 'late' && (await onPaycheckLate(e.text))) return;
 
     const caseId = c?.id;
     ctx.bus.emit({ type: 'step.started', model: 'nemotron-super', caseId, title: "Answer Yoshua's question" });

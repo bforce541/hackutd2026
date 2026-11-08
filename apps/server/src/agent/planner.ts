@@ -275,6 +275,30 @@ function eventRules(event: CaseEvent): string {
   return `This plan must include these step kinds: ${req.join(', ')}.${call}`;
 }
 
+/**
+ * build.nvidia.com rate-limits Ultra per key: only a few requests a minute with a small burst, and a
+ * 429 comes back in ~0.2 s and clears a few seconds later. A case calls Ultra back to back (the plan,
+ * the option ranking, then plan_call a few seconds after Yoshua's pick), and the model client's one
+ * retry goes straight to Super, so the third call hit a 429 and fell back. Waiting until the last
+ * Ultra call in the feed is ULTRA_GAP_MS old keeps the first try on Ultra; the Super fallback stays
+ * as the safety net. A no-op when the planner job does not run on Ultra.
+ */
+export const ULTRA_GAP_MS = 12_000;
+export async function ultraTurn(ctx: Pick<ToolContext, 'models' | 'store'>): Promise<void> {
+  if (ctx.models.roleFor('planner') !== 'nemotron-ultra') return;
+  const log = ctx.store.activity();
+  const now = Date.now();
+  for (let i = log.length - 1; i >= 0; i--) {
+    const e = log[i]!;
+    const at = Date.parse(e.at);
+    if (!(at > now - ULTRA_GAP_MS)) return; // the feed is in time order: nothing recent enough
+    if (e.type === 'model.called' && e.model === 'nemotron-ultra') {
+      await new Promise((r) => setTimeout(r, at + ULTRA_GAP_MS - now));
+      return;
+    }
+  }
+}
+
 function format(errors: PlanValidationError[]): string {
   return errors.map((e) => `- ${e.stepIndex !== undefined ? `step ${e.stepIndex + 1}: ` : ''}${e.message}`).join('\n');
 }
@@ -295,6 +319,7 @@ export async function writePlan(ctx: ToolContext, event: AgentEvent, ids: { case
   let lastErrors: PlanValidationError[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      if (attempt === 0) await ultraTurn(ctx);
       const res = await ctx.models.chat({
         role: 'planner',
         messages,

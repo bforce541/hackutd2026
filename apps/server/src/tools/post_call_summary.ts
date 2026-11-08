@@ -76,7 +76,8 @@ export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_
   const call = ctx.store.mustGet('calls', input.callId);
   const neg = call.negotiationId ? ctx.store.getItem('negotiations', call.negotiationId) : undefined;
   const cp = ctx.store.household().counterparties.find((c) => c.id === (call.counterpartyId ?? neg?.counterpartyId));
-  const item = neg ? ctx.store.household().scheduled.find((s) => s.id === neg.itemId) : undefined;
+  // A payment already moved once is 'auto_payment@6': fall back to its base id for the label.
+  const item = neg ? ctx.store.household().scheduled.find((s) => s.id === neg.itemId || s.id === neg.itemId.split(/[@#:]/)[0]) : undefined;
   const lender = cp?.name ?? 'The lender';
   const itemLabel = (item?.label ?? 'payment').toLowerCase();
   const facts = buildCallFacts(ctx, call, neg, lender, itemLabel);

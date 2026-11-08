@@ -9,9 +9,9 @@ Return JSON: {"kind": "offer|confirm|deny|question|verification_request|refusal|
               "say": "<only for question or chitchat: one short sentence>"}
 
 How to pick "kind":
-- offer: the lender proposes or agrees to a day and/or a fee ("We can do Friday", "Friday with a twenty dollar fee", "there'd be a $35 fee", "early next week"). Put the day words exactly as heard in offer.day (null if they gave none) and the fee in dollars as a number in offer.fee (null if they did not say one).
+- offer: the lender proposes or agrees to a day and/or a fee ("We can do Friday", "Friday with a twenty dollar fee", "there'd be a $35 fee", "early next week"). A limit on the day is an offer of that day: "The latest I can do is Friday", "The earliest I can offer is Thursday", "I can't go beyond Friday the 13th", "We can only do Wednesday", "How about Friday?", "Friday would work". Put the day words exactly as heard in offer.day (null if they gave none) and the fee in dollars as a number in offer.fee (null if they did not say one).
 - confirm: the lender says yes to what PacePay just read back or asked ("Yes", "That's right", "Correct", "Sure, we can do that").
-- deny: the lender says no to what PacePay just read back or asked ("No, that's not right", "We can't waive it").
+- deny: the lender says no to what PacePay just read back or asked ("No, that's not right", "We can't waive it", "We can't do Friday"). If they turn one day down and offer another in the same breath ("Friday won't work, but Wednesday will"), that's an offer of the other day.
 - verification_request: the lender needs to verify the account holder, wants the customer on the line, or asks for security details.
 - refusal: the lender will not move the payment at all.
 - question: the lender asks PacePay something. Questions about the request itself ("How can I help?", "Which payment?", "What date?", "Do you not want to move the payment?") are answered with the opening ask by code.

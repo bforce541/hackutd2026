@@ -28,11 +28,11 @@ describe('offer.fridayFee20Passes', () => {
 
 // v2.md › "Thursday also fails"
 describe('offer.thursdayPaydayRisky', () => {
-  it('fails on payday: if the payment posts before the deposit, checking hits −$300', () => {
+  it('fails on payday by rule, even though deposits post first and the math alone works', () => {
     const c = offer(WEEK.thu);
     expect(c.pass).toBe(false);
     expect(c.reasons).toContain('PAYDAY_SAME_DAY');
-    expect(c.lowest).toEqual({ amount: $(-300), day: WEEK.thu });
+    expect(c.affordable).toBe(true);
   });
 });
 

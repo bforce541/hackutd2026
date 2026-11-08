@@ -168,23 +168,30 @@ function applyEvent(r: Raw, e: SseEvent): Raw {
     case 'clock':
       return { ...r, seen, day: e.data.day };
     case 'case': {
-      const sameCase = r.case?.id === e.data.case.id;
+      // A second case (a new bill, the CD, a shortfall after a DONE case) replaces the first. Keep
+      // only what already belongs to the new one: its approvals or negotiation may arrive first.
+      const next = e.data.case;
+      const sameCase = r.case?.id === next.id;
+      const negotiation = sameCase || r.negotiation?.caseId === next.id ? r.negotiation : null;
       return {
         ...r,
         seen,
-        case: e.data.case,
+        case: next,
         plan: e.data.plan,
         bill: e.data.bill !== undefined ? e.data.bill : sameCase ? r.bill : null,
-        approvals: sameCase ? r.approvals : [],
-        call: sameCase ? r.call : null,
-        negotiation: sameCase ? r.negotiation : null,
+        approvals: sameCase ? r.approvals : r.approvals.filter((a) => a.caseId === next.id || next.approvalIds.includes(a.id)),
+        call: sameCase || (negotiation && r.call?.negotiationId === negotiation.id) ? r.call : null,
+        negotiation,
       };
     }
     case 'approval':
       return { ...r, seen, approvals: upsert(r.approvals, e.data) };
     case 'call':
+      // Only the case's own call: an inbound call (no negotiation) or an old case's call stays out of the panel.
+      if (!e.data.negotiationId || (r.negotiation && e.data.negotiationId !== r.negotiation.id)) return { ...r, seen };
       return { ...r, seen, call: e.data };
     case 'negotiation':
+      if (r.case && e.data.caseId !== r.case.id) return { ...r, seen };
       return { ...r, seen, negotiation: e.data };
     case 'arena':
       return { ...r, seen, arenaProgress: e.data };
@@ -250,6 +257,27 @@ function pendingApproval(raw: Raw, kind: Approval['kind']): Approval | undefined
   return caseApprovals(raw).find((a) => a.kind === kind && a.status === 'pending');
 }
 
+/** The offer the deal was made on: the last one read back and passed by the engine (the server's own rule). */
+function agreedOffer(neg: Negotiation | null): Offer | null {
+  if (!neg) return null;
+  const passed = (o: Offer) => neg.checks?.some((k) => k.offerId === o.id && k.pass) ?? false;
+  return [...neg.offers].reverse().find((o) => o.readBackConfirmed && passed(o)) ?? null;
+}
+
+/** The car payment move this case committed, if it did (the deal was approved and confirmed). */
+function committedMove(c: Case): Extract<Change, { type: 'move_item' }> | null {
+  return (c.acceptedChanges ?? []).find((x): x is Extract<Change, { type: 'move_item' }> => x.type === 'move_item') ?? null;
+}
+
+/** The deal approval ran out: the lender was asked to hold the offer and nothing changed. */
+function isHeld(raw: Raw): boolean {
+  const c = raw.case;
+  if (!c || !raw.negotiation || committedMove(c)) return false;
+  return c.state === 'HOLD_REQUESTED' || raw.negotiation.outcome === 'approval_timeout' || caseApprovals(raw).some((a) => a.kind === 'deal' && a.status === 'timeout');
+}
+
+const HELD_TEXT = 'No answer from Yoshua, so the lender is holding the offer';
+
 /** The offer being discussed: the pending one, else the latest. */
 function currentOffer(neg: Negotiation | null): Offer | null {
   if (!neg || neg.offers.length === 0) return null;
@@ -314,7 +342,11 @@ function orderedOptions(raw: Raw, approval: Approval | undefined): Option[] {
 
 function billCondition(raw: Raw): string {
   const b = raw.bill;
-  if (!b) return raw.case?.title ? `If you pay ${raw.case.title}.` : '';
+  if (!b) {
+    // A shortfall has no bill: the dip is already in the plan (a late paycheck, say).
+    if (raw.case?.kind === 'shortfall') return 'If nothing changes.';
+    return raw.case?.title ? `If you pay ${raw.case.title}.` : '';
+  }
   const noun = (b.description || 'bill').trim().split(/\s+/).pop()?.toLowerCase() || 'bill';
   const when = b.dueDay === null || b.dueDay <= raw.day ? 'today' : formatDayRelative(b.dueDay, raw.day);
   return `If you pay the ${formatMoney(b.amount)} ${noun} ${when}.`;
@@ -349,7 +381,11 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
     return { step: 'approve', rows, approvalId: deal.id, secondsLeft };
   }
 
-  if (limits) {
+  // Limits: the pending call_limits approval, and also while the call plan is being written
+  // (PREPARING_CALL) or the answer is on its way, so the panel goes Heads up -> Limits -> Call.
+  const answered = caseApprovals(raw).find((a) => a.kind === 'call_limits' && a.status !== 'pending');
+  const said = !answered ? null : answered.status === 'approved' || answered.answer === 'yes' ? 'yes' : 'no';
+  if (limits || c.state === 'PREPARING_CALL' || (c.state === 'AWAITING_LIMITS' && !said)) {
     const neg = raw.negotiation;
     const mv = c.options?.find((o) => o.id === 'move_payment')?.changes.find((x) => x.type === 'move_item');
     const askFor = neg?.callPlan.targetDay ?? (mv && mv.type === 'move_item' ? mv.toDay : raw.day);
@@ -358,9 +394,10 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
       askFor,
       maxFee: neg?.callPlan.feeLimit ?? raw.rules.feeLimit,
       newCredit: 'None',
-      approvalId: limits.id,
+      approvalId: limits?.id,
     };
   }
+  if (c.state === 'AWAITING_LIMITS' && said === 'yes') return { step: 'call' };
 
   if (choice && c.kind === 'cd_maturing') {
     if (ui.cdDismissed) return { step: 'idle' };
@@ -397,26 +434,25 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
   }
 
   const neg = raw.negotiation;
-  const inNegotiation: Case['state'][] = [
-    'PREPARING_CALL',
-    'REVIEWING',
-    'CALLING',
-    'NEGOTIATING',
-    'AWAITING_APPROVAL',
-    'CONFIRMING',
-    'HOLD_REQUESTED',
-    'TEXT_NEGOTIATION',
-  ];
+  // Held: no answer to the deal in time. Nothing needs Yoshua and nothing changed; derive() puts
+  // HELD_TEXT under the panel's calm line.
+  if (isHeld(raw)) return { step: 'idle' };
+
+  const inNegotiation: Case['state'][] = ['REVIEWING', 'CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL', 'CONFIRMING', 'TEXT_NEGOTIATION'];
   if (inNegotiation.includes(c.state)) return { step: 'call' };
 
   if (c.state === 'SUMMARIZING' || c.state === 'DONE' || c.state === 'ADVISED') {
     if (c.kind === 'cd_maturing') return { step: 'idle' };
-    const offer = neg?.offers.find((o) => o.readBackConfirmed) ?? (neg?.outcome === 'deal' ? currentOffer(neg) : null);
+    // Done only for what was committed: the confirmed move, shown with the offer that passed (not
+    // an earlier read-back the engine rejected). A declined or failed negotiation changed nothing.
+    const moved = committedMove(c);
+    const offer = agreedOffer(neg);
     const lowest = lowestIn(raw.forecast, 14);
-    if (neg && offer && neg.outcome !== 'no_deal') {
+    if (neg && moved) {
+      const fee = offer?.fee ?? (c.acceptedChanges ?? []).reduce((sum, x) => sum + (x.type === 'add_fee' ? x.amount : 0), 0);
       const results = [
-        { label: itemLabel(raw, offer.itemId, 'Payment'), value: formatDate(offer.newDay) },
-        { label: 'Fee', value: formatMoney(offer.fee) },
+        { label: itemLabel(raw, offer?.itemId ?? moved.itemId, 'Payment'), value: formatDate(offer?.newDay ?? moved.toDay) },
+        { label: 'Fee', value: formatMoney(fee) },
         { label: 'Lowest', value: formatMoney(lowest.amount) },
       ];
       const reference = neg.referenceNumber ?? raw.call?.referenceNumber;
@@ -497,7 +533,8 @@ function beforeForecast(raw: Raw): Forecast | null {
 interface WhatIfPlan {
   rows: WhatIfRow[];
   changes: Change[];
-  cdChanges: Change[];
+  /** The CD payoff option: the CD case's own when one is open (so the numbers match the CD alert), else the engine's. */
+  cdOption: Option | null;
 }
 
 function buildWhatIf(raw: Raw, t: WhatIfToggles, panelStep: PanelView['step']): WhatIfPlan {
@@ -552,10 +589,10 @@ function buildWhatIf(raw: Raw, t: WhatIfToggles, panelStep: PanelView['step']): 
 
   // CD payoff
   const cd = h.accounts.find((a) => a.id === ACCOUNT_IDS.cd);
-  const cdChanges = safe(
-    () => (cd ? (engine.cdOptions(h, cd.id, { fromDay: raw.day }).find((o) => o.id === 'cd_payoff_card')?.changes ?? []) : []),
-    [] as Change[],
-  );
+  const cdOption =
+    (raw.case?.kind === 'cd_maturing' ? raw.case.options?.find((o) => o.id === 'cd_payoff_card') : undefined) ??
+    safe(() => (cd ? (engine.cdOptions(h, cd.id, { fromDay: raw.day }).find((o) => o.id === 'cd_payoff_card') ?? null) : null), null as Option | null);
+  const cdChanges = cdOption?.changes ?? [];
   rows.push({
     key: 'cd',
     label: 'Use the CD to pay off your card',
@@ -572,7 +609,7 @@ function buildWhatIf(raw: Raw, t: WhatIfToggles, panelStep: PanelView['step']): 
   if (on('car') && carDay !== null) changes.push(...safe(() => engine.offerChanges(h, { itemId: ITEM_IDS.carPayment, newDay: carDay, fee: carFee }), [] as Change[]));
   if (on('late') && pay) changes.push({ type: 'move_item', itemId: ITEM_IDS.paycheck, toDay: pay.mon });
   if (on('cd')) changes.push(...cdChanges);
-  return { rows, changes, cdChanges };
+  return { rows, changes, cdOption };
 }
 
 function deriveWhatIf(raw: Raw, ui: UiState, plan: WhatIfPlan, whatIfForecast: Forecast): WhatIfView {
@@ -593,14 +630,11 @@ function deriveWhatIf(raw: Raw, ui: UiState, plan: WhatIfPlan, whatIfForecast: F
     const interest = plan.rows.find((r) => r.key === 'card')?.detail.replace(/^About /, 'about ') ?? '';
     if (a && b) extra.push(`Card use: ${formatPercent(a.value)} → ${formatPercent(b.value)}${interest ? `, ${interest}` : ''}`);
   }
-  if (t.cd) {
-    const a = score(raw.scores, 'emergency_fund');
-    const b = score(sim?.scores, 'emergency_fund');
-    const saved = safe(() => {
-      const cd = raw.household.accounts.find((x) => x.id === ACCOUNT_IDS.cd);
-      return cd ? (engine.cdOptions(raw.household, cd.id, { fromDay: raw.day }).find((o) => o.id === 'cd_payoff_card')?.tradeoffs.yearlyInterestSaved ?? null) : null;
-    }, null as number | null);
-    if (a && b) extra.push(`Emergency fund: ${formatOneDecimal(a.value)} → ${formatOneDecimal(b.value)} months${saved ? `, about ${whole(saved)} a year saved` : ''}`);
+  if (t.cd && plan.cdOption) {
+    // From the CD option's own tradeoffs, as the CD alert says it. Scores at today would miss the
+    // money landing in savings when the CD matures.
+    const { emergencyMonthsBefore: a, emergencyMonthsAfter: b, yearlyInterestSaved: saved } = plan.cdOption.tradeoffs;
+    if (a !== null && b !== null) extra.push(`Emergency fund: ${formatOneDecimal(a)} → ${formatOneDecimal(b)} months${saved ? `, about ${whole(saved)} a year saved` : ''}`);
   }
   if (!t.car && !t.late && !t.card && !t.cd) extra.push('Pick a change below to see what happens.');
   return {
@@ -647,6 +681,8 @@ function derive(raw: Raw, ui: UiState, now: number, notice: string | null, readO
     const any = ui.whatIf.car || ui.whatIf.late || ui.whatIf.card;
     chart = lineChart(f, any ? { forecast: raw.forecast, label: 'Current plan' } : null, floor, range, 'what_if', 'What if: ');
     whatIf = deriveWhatIf(raw, ui, plan, f);
+  } else if (isHeld(raw)) {
+    chart = { ...chart, status: HELD_TEXT };
   } else if (basePanel.step === 'done') {
     const before = beforeForecast(raw);
     chart = lineChart(raw.forecast, before ? { forecast: before, label: 'Before' } : null, floor, range, 'done', '', ' · on track');
@@ -677,7 +713,8 @@ function derive(raw: Raw, ui: UiState, now: number, notice: string | null, readO
     chart,
     panel,
     current: raw.case ? { case: raw.case, plan: raw.plan, approvals: caseApprovals(raw), bill: raw.bill } : null,
-    call: inCall || raw.case?.state === 'SUMMARIZING' || raw.case?.state === 'DONE' ? call : null,
+    // Only during the call, as in demo mode (the chart's What if button hides while there is one).
+    call: inCall ? call : null,
     whatIf,
     thread: raw.thread,
     activity: raw.activity,
@@ -831,7 +868,11 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
         const idx = a?.optionIds?.indexOf(optionId) ?? -1;
         if (a && idx >= 0) void answer(a, String(idx + 1));
       },
-      approveLimits: () => void answer(pending('call_limits'), 'yes'),
+      approveLimits: () => {
+        const a = pending('call_limits');
+        if (a) void answer(a, 'yes');
+        else flash('One moment, PacePay is still writing the call plan');
+      },
       startCall: () => {},
       nextLine: () => {},
       endCall: () => flash('Only the server can hang up. It ends the call when the negotiation finishes.'),

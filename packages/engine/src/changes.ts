@@ -45,6 +45,11 @@ function moveItem(h: Household, itemId: string, toDay: Day): void {
   if (idx < 0) return;
   const item = h.scheduled[idx] as ScheduledItem;
   if (!item.every) {
+    // A payment that was already moved once carries its moving fee along: the lender bills the fee
+    // with the payment, so moving it again moves the fee to the new date too.
+    if (item.id.includes('@')) {
+      for (const fee of h.scheduled) if (fee.kind === 'fee' && fee.day === item.day && !fee.every) fee.day = toDay;
+    }
     item.day = toDay;
     return;
   }

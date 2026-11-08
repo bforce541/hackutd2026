@@ -8,6 +8,10 @@
  * | end_call        | POST /api/voice/calls/:id/events {ended}  | then delete the room to hang up |
  * | verify_pin      | POST /api/voice/calls/:id/verify-pin      | inbound only |
  * | ask_pacepay     | POST /api/voice/calls/:id/ask             | inbound only, after the PIN |
+ *
+ * Fillers are chosen here, in code, never by the model: if decide (or an inbound lookup) is still
+ * running ~1.1 s after the other person stopped talking, one short filler plays, varied and never the
+ * same twice in a row. A fast answer gets no filler at all.
  */
 import { llm } from '@livekit/agents';
 import { z } from 'zod';
@@ -26,6 +30,57 @@ export interface VoiceToolHooks {
   settle?(maxMs: number): Promise<void>;
   /** Tell the server the call ended (posts /events {ended}), once. */
   end(reason: string): Promise<void>;
+  /** Speak a short filler while a tool is still working. Optional: tests may omit it. */
+  filler?(text: string): Promise<void>;
+  /** When the other person's last turn ended (ms epoch), or 0 if unknown. */
+  turnEndedAt?(): number;
+}
+
+/** Silence after the other person's turn before a filler plays. */
+export const FILLER_AFTER_MS = 1_100;
+/** Even when the turn ended long ago, give a just-started lookup this long to answer first. */
+export const FILLER_GRACE_MS = 250;
+/** A turn end older than this belongs to an earlier turn; time from the tool start instead. */
+const TURN_END_STALE_MS = 5_000;
+
+/** Short, varied fillers; the "one moment" style is weighted to come up only now and then. */
+export const FILLERS: ReadonlyArray<{ text: string; weight: number }> = [
+  { text: 'Mm-hm…', weight: 3 },
+  { text: 'Okay, let me see…', weight: 3 },
+  { text: 'Uh, one sec…', weight: 2 },
+  { text: 'Sure, so…', weight: 1 },
+  { text: 'Got it, one moment…', weight: 1 },
+];
+
+/** Weighted random filler that never repeats the previous pick. */
+export function fillerPicker(rand: () => number = Math.random): () => string {
+  let last = '';
+  return () => {
+    const pool = FILLERS.filter((f) => f.text !== last);
+    let r = rand() * pool.reduce((n, f) => n + f.weight, 0);
+    const pick = pool.find((f) => (r -= f.weight) < 0) ?? pool[pool.length - 1]!;
+    last = pick.text;
+    return pick.text;
+  };
+}
+
+/**
+ * Run a lookup; if it has not returned ~FILLER_AFTER_MS after the other person's turn ended, play one
+ * filler. The timer is anchored on the turn end when we know it, otherwise on the tool start.
+ */
+async function withFiller<T>(hooks: VoiceToolHooks, nextFiller: () => string, work: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  const turnEnd = hooks.turnEndedAt?.() ?? 0;
+  const anchor = turnEnd && started - turnEnd < TURN_END_STALE_MS ? turnEnd : started;
+  const delay = Math.max(FILLER_GRACE_MS, anchor + FILLER_AFTER_MS - started);
+  const timer = hooks.filler
+    ? setTimeout(() => void hooks.filler!(nextFiller()).catch(() => undefined), delay)
+    : undefined;
+  try {
+    return await work();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -85,6 +140,7 @@ async function endCall(hooks: VoiceToolHooks, reason: string) {
 export function outboundTools(server: VoiceServerClient, callId: string, hooks: VoiceToolHooks) {
   // The model may only hang up after the negotiator (decide or the approval poll) said next=end_call.
   let mayEnd = false;
+  const nextFiller = fillerPicker();
   const track = <T extends { next?: string }>(res: T): T => {
     if (res.next === 'end_call') mayEnd = true;
     return res;
@@ -92,11 +148,11 @@ export function outboundTools(server: VoiceServerClient, callId: string, hooks: 
   return {
     decide: llm.tool({
       name: 'decide',
-      description: "Call after EVERY turn of the other person that is real English speech (not noise). Pass their exact words. Then say the returned 'say' text word for word, never improvising; if it is empty, stay silent.",
+      description: "Call after EVERY turn of the other person that is real English speech (not noise), straight away and without speaking first. Pass their exact words. Then say the returned 'say' text word for word, warmly and conversationally, never improvising or adding filler; if it is empty, stay silent.",
       parameters: z.object({ utterance: z.string().describe("The other person's exact words") }),
       execute: async ({ utterance }) => {
         try {
-          const res = track(await server.decide(callId, utterance));
+          const res = track(await withFiller(hooks, nextFiller, () => server.decide(callId, utterance)));
           // Nothing to say means silence: make that unmistakable to the model.
           return res.say?.trim() ? res : { ...res, say: '', note: 'Nothing to say. Stay silent and listen.' };
         } catch (err) {
@@ -127,14 +183,15 @@ export function outboundTools(server: VoiceServerClient, callId: string, hooks: 
 }
 
 export function inboundTools(server: VoiceServerClient, callId: string, hooks: VoiceToolHooks) {
+  const nextFiller = fillerPicker();
   return {
     verify_pin: llm.tool({
       name: 'verify_pin',
-      description: "Check the caller's spoken PIN digits. Speak the returned 'say' text exactly.",
+      description: "Check the caller's spoken PIN digits, without speaking first. Then speak the returned 'say' text exactly, warmly and conversationally.",
       parameters: z.object({ digits: z.string().describe('The digits as spoken, e.g. "1234"') }),
       execute: async ({ digits }) => {
         try {
-          return await server.verifyPin(callId, digits);
+          return await withFiller(hooks, nextFiller, () => server.verifyPin(callId, digits));
         } catch (err) {
           console.error('[voice] verify_pin failed', (err as Error).message);
           return { ok: false, say: 'Sorry, I could not check that. Please say the PIN again.' };
@@ -143,11 +200,11 @@ export function inboundTools(server: VoiceServerClient, callId: string, hooks: V
     }),
     ask_pacepay: llm.tool({
       name: 'ask_pacepay',
-      description: "Answer the caller's question. Speak the returned 'say' text exactly.",
+      description: "Answer the caller's question, without speaking first. Then speak the returned 'say' text exactly, warmly and conversationally.",
       parameters: z.object({ question: z.string() }),
       execute: async ({ question }) => {
         try {
-          return await server.ask(callId, question);
+          return await withFiller(hooks, nextFiller, () => server.ask(callId, question));
         } catch (err) {
           console.error('[voice] ask_pacepay failed', (err as Error).message);
           return { say: 'Sorry, I could not look that up right now.' };

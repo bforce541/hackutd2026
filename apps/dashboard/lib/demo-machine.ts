@@ -5,7 +5,10 @@
  *
  * Stages follow the mockup: home (Heads up) -> limits -> call (scripted lender lines; every offer
  * checked by checkOffer, and PacePay's answers follow the verdicts) -> approve -> done, plus the
- * what-if panel (simulate) and the day-11 CD alert (cdOptions). Each action appends the iMessage
+ * what-if panel (simulate) and the day-11 CD alert (cdOptions). After the deal, the paycheck-late
+ * follow-up (v2.md demo script 5-6): "What if my paycheck is late?" gets the engine's answer and an
+ * offer to watch, and "My paycheck is going to be late" puts it in the forecast and opens a new
+ * Heads up with the call first. The demo ends there: picking an option makes no second call. Each action appends the iMessage
  * thread and Activity log entries the mockup shows; derive (demo-derive.ts) turns the machine into
  * a DashboardState.
  *
@@ -26,6 +29,8 @@ import {
   formatWholeDollars,
   limitsText,
   parseReply,
+  paycheckDependsText,
+  paycheckWatchKeptText,
   reminderText,
   type ActivityType,
   type Message,
@@ -54,12 +59,16 @@ import {
   checkedLogLine,
   inCall,
   lastOffer,
+  lateCase,
+  latePaycheck,
   lowestLogLine,
   needsHelp,
   nextCallLine,
   openingLine,
   optionsLogLine,
   pacepayReply,
+  paycheckAnswer,
+  paycheckIntent,
   planChanges,
   rankedOptions,
   savingsAmount,
@@ -72,6 +81,7 @@ import { derive } from './demo-derive';
 const NO_WHAT_IF: WhatIfToggles = { car: false, late: false, card: false, cd: false };
 const DAY11 = 11;
 const D11 = 'd11-'; // id prefix for entries that belong to the day-11 jump (removed on "Back")
+const DEMO_END = 'The demo ends here. A second call is not part of it.';
 
 // ---------------------------------------------------------------------------
 // Thread and log helpers (pure: return a new machine)
@@ -165,6 +175,7 @@ export function initialMachine(keep: Partial<Pick<DemoMachine, 'rules'>> & { pre
     deal: null,
     cdOpen: false,
     cdAnswered: false,
+    paycheck: 'on_time',
     thread: [],
     activity: [],
     seq: 0,
@@ -179,6 +190,7 @@ export function initialMachine(keep: Partial<Pick<DemoMachine, 'rules'>> & { pre
 // ---------------------------------------------------------------------------
 
 function pickOption(m: DemoMachine, id: OptionId, viaText = false): DemoMachine {
+  if (lateOpen(m)) return { ...m, notice: DEMO_END };
   if (m.stage !== 'home' || !needsHelp(m)) return m;
   const ranked = rankedOptions(m);
   const n = ranked.findIndex((o) => o.id === id) + 1;
@@ -309,7 +321,14 @@ function approveDeal(m: DemoMachine, viaText = false): DemoMachine {
   const done: DemoMachine = { ...m, stage: 'done', chosen: 'move_payment' };
   m = log(m, { type: 'forecast.updated', model: 'engine', title: `Updated the forecast: lowest ${formatMoney(caseLowestAfter(done))}` });
   m = log(m, { type: 'tool.result', model: 'code', tool: 'schedule_followup', title: `Set a reminder for ${formatDate(posts - 1)}` });
-  return { ...m, stage: 'done', chosen: 'move_payment' };
+  // Proactive: the new date leans on Thursday's paycheck, so say so and watch for it (NO skips).
+  const after: DemoMachine = { ...m, stage: 'done', chosen: 'move_payment' };
+  const lp = latePaycheck(after);
+  if (!lp || !paycheckAnswer(after)?.watch) return after;
+  m = out(after, paycheckDependsText({ payDay: lp.payday }));
+  m = log(m, { type: 'message.out', model: 'code', tool: 'send_message', title: `Told Yoshua the new date leans on the ${formatDate(lp.payday)} paycheck` });
+  m = log(m, { type: 'tool.result', model: 'code', tool: 'schedule_followup', title: `Set a check for ${formatDate(lp.payday)}, 8:00 PM: has the paycheck landed?` });
+  return { ...m, paycheck: 'watching' };
 }
 
 function decline(m: DemoMachine, viaText = false): DemoMachine {
@@ -356,7 +375,7 @@ function skipClock(m: DemoMachine): DemoMachine {
   const plan = planChanges(m);
 
   // The night-before reminder (schedule_followup), only for a moved payment.
-  if (m.stage === 'done' && m.chosen === 'move_payment' && m.deal) {
+  if (m.stage === 'done' && m.chosen === 'move_payment' && m.deal && m.paycheck !== 'late') {
     const posts = checkFor(m, m.deal).postsOnDay;
     const at = dayAt(posts - 1, 20, 0);
     const fc = runForecast(m.rules, plan, CASE_DAY, posts + 1);
@@ -411,6 +430,42 @@ function skipClock(m: DemoMachine): DemoMachine {
 }
 
 // ---------------------------------------------------------------------------
+// The paycheck-late follow-up (after the deal, on the case day)
+// ---------------------------------------------------------------------------
+
+const paycheckReady = (m: DemoMachine) => m.stage === 'done' && m.day === CASE_DAY && m.paycheck !== 'late';
+/** The late-paycheck Heads up is showing (its options end the demo). */
+const lateOpen = (m: DemoMachine) => m.stage === 'done' && m.paycheck === 'late' && m.day === CASE_DAY;
+
+/** "What if my paycheck is late?": the engine's answer, and PacePay watches for it by default. */
+function paycheckWhatIf(m: DemoMachine): DemoMachine {
+  const a = paycheckAnswer(m);
+  if (!a) return m;
+  m = log(m, { type: 'tool.result', model: 'engine', tool: 'simulate', title: a.log });
+  m = out(m, a.text);
+  m = log(m, { type: 'message.out', model: 'nemotron-super', tool: 'send_message', title: 'Answered Yoshua: what if the paycheck is late' });
+  if (!a.watch) return m;
+  const pay = latePaycheck(m)?.payday;
+  if (pay !== undefined) m = log(m, { type: 'tool.result', model: 'code', tool: 'schedule_followup', title: `Set a check for ${formatDate(pay)}, 8:00 PM: has the paycheck landed?` });
+  return { ...m, paycheck: 'watching' };
+}
+
+/** "My paycheck is going to be late": it goes in the forecast, and a new Heads up, call first. */
+function paycheckIsLate(m: DemoMachine): DemoMachine {
+  const lc = lateCase(m);
+  m = yoshua(m, 'Said the paycheck will be late');
+  if (!lc) {
+    const a = paycheckAnswer(m);
+    return a ? out(m, a.text) : m;
+  }
+  m = { ...m, paycheck: 'late', ui: { ...m.ui, whatIfOpen: false, whatIf: NO_WHAT_IF } };
+  m = log(m, { type: 'forecast.updated', model: 'engine', tool: 'get_forecast', title: `Moved the paycheck to ${formatDate(lc.late.late)}: lowest ${formatMoney(lc.lowest.amount)} on ${formatDate(lc.lowest.day)}` });
+  m = log(m, { type: 'tool.result', model: 'engine', tool: 'simulate', title: lc.optionsLog });
+  m = out(m, lc.alert);
+  return log(m, { type: 'message.out', model: 'nemotron-super', tool: 'send_message', title: 'Texted Yoshua the options again, the call first' });
+}
+
+// ---------------------------------------------------------------------------
 // Messages: typed in the coach chat, handled like a text from Yoshua
 // ---------------------------------------------------------------------------
 
@@ -418,9 +473,12 @@ function sendMessage(m: DemoMachine, text: string): DemoMachine {
   const t = text.trim();
   if (!t) return m;
   const cdPending = m.day >= DAY11 && m.cdOpen && !m.cdAnswered;
-  const choiceCount = m.stage === 'home' && needsHelp(m) ? rankedOptions(m).length : cdPending ? 2 : 0;
+  const lateChoices = lateOpen(m) ? (lateCase(m)?.options.length ?? 0) : 0;
+  const choiceCount = m.stage === 'home' && needsHelp(m) ? rankedOptions(m).length : cdPending ? 2 : lateChoices;
   const parsed = parseReply(t, { billUnconfirmed: m.stage === 'home' && m.day === 0, choiceCount });
   const at11 = m.day >= DAY11 ? { at: dayAt(DAY11, 9, 5), prefix: D11 } : {};
+  const intent = paycheckReady(m) ? paycheckIntent(t) : null;
+  if (intent) m = tick(m, intent === 'what_if' ? MINUTE.paycheckAsk : MINUTE.paycheckLate);
   m = msg(m, 'in', { text: t }, { channel: 'dashboard', ...at11 });
 
   if (parsed.kind === 'correction') {
@@ -429,6 +487,17 @@ function sendMessage(m: DemoMachine, text: string): DemoMachine {
     m = out(m, ackText({ merchant: REPAIR_MERCHANT, amount: parsed.amount, dueDay: CASE_DAY, today: CASE_DAY }));
     return analyze(m, false);
   }
+  if (intent) return intent === 'what_if' ? paycheckWhatIf(m) : paycheckIsLate(m);
+  if (m.paycheck === 'watching' && parsed.kind === 'no') {
+    m = yoshua(m, 'Said skip the paycheck check');
+    m = out(m, "OK, I won't watch for it.");
+    return { ...m, paycheck: 'on_time' };
+  }
+  if (m.paycheck === 'watching' && parsed.kind === 'yes') {
+    m = out(m, paycheckWatchKeptText());
+    return m;
+  }
+  if (lateChoices && parsed.kind === 'choice') return { ...m, notice: DEMO_END };
   if (cdPending && parsed.kind === 'choice') {
     const maturesOn = cdMaturesOn(m.rules);
     m = log(m, { type: 'message.in', title: parsed.choice === 1 ? 'Picked 1: pay off the card' : 'Picked 2: renew the CD', ...at11 });

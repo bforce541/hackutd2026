@@ -14,6 +14,14 @@ import { MessageBubble } from './messages/MessageBubble';
 const GAP_MS = 60 * 60 * 1000;
 
 const SUGGESTIONS = ['What did the lender say?', 'What if I skip the repair?', "How's my cash cushion?", 'Can I afford a $900 bill?'];
+const PAYCHECK_LATE = 'My paycheck is going to be late';
+
+/** After the deal (PacePay said it leans on the paycheck), lead with the late-paycheck report. */
+function suggestions(state: DashboardProps['state']): string[] {
+  const said = state.thread.some((m) => m.text?.toLowerCase().includes(PAYCHECK_LATE.toLowerCase()));
+  if (state.panel.step !== 'done' || said) return SUGGESTIONS;
+  return [PAYCHECK_LATE, ...SUGGESTIONS];
+}
 
 function stamp(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
@@ -114,7 +122,7 @@ export function MessagesTab({ state, actions }: DashboardProps) {
 
         <p className="eyebrow mt-8 text-muted">Try asking</p>
         <ul className="pp-write m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
-          {SUGGESTIONS.map((q) => (
+          {suggestions(state).map((q) => (
             <li key={q}>
               <button
                 type="button"

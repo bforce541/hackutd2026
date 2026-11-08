@@ -1,8 +1,9 @@
 /**
  * SPEC §11 negotiation variants, scripted through the lender console (POST /api/negotiations/:id/lender)
- * against the v2.md repair case. Deterministic by default: a scripted classifier stands in for the
- * 'decide' model (it only labels each line the way the prompt asks). PACEPAY_LIVE_MODELS=1 runs the
- * same script against the real model client (needs keys: run through dotenvx from the repo root).
+ * and the voice decide endpoint against the v2.md repair case. Code reads almost every lender line
+ * itself; a scripted classifier stands in for the 'decide' model on the rest (it only labels each
+ * line the way the prompt asks). PACEPAY_LIVE_MODELS=1 runs the same script against the real model
+ * client (needs keys: run through dotenvx from the repo root).
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
@@ -25,7 +26,8 @@ import { registerAllTools } from '../src/tools';
 import type { ToolContext } from '../src/tools/registry';
 import type { ServerContext } from '../src/context';
 import { negotiationRoutes } from '../src/api/negotiations';
-import { dealChanges } from '../src/agent/negotiator';
+import { voiceRoutes } from '../src/api/voice';
+import { dealChanges, extractReference } from '../src/agent/negotiator';
 import { resolveApproval, timeoutApproval } from '../src/approvals';
 import { newId, nowIso } from '../src/ids';
 
@@ -42,9 +44,12 @@ const SCRIPT: Record<string, unknown> = {
   'Friday, with a twenty dollar fee.': { kind: 'offer', offer: { day: 'Friday', fee: 20 } },
 };
 
+let modelCalls = 0;
+
 function scriptedModels(): ModelClient {
   return {
     async chat(req) {
+      modelCalls += 1;
       const user = req.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
       const said = /LENDER JUST SAID: (.*)$/m.exec(user)?.[1]?.trim() ?? '';
       const json = SCRIPT[said];
@@ -62,7 +67,7 @@ function scriptedModels(): ModelClient {
 
 const FORBIDDEN = /\$|balance|payday|paycheck|limit|floor|afford|overdraft|savings|because/i;
 
-function setup() {
+function setup(channel: 'text' | 'voice' = 'text') {
   const household = structuredClone(engine.fixtures.household);
   const store = createStore({ household, dataDir: mkdtempSync(join(tmpdir(), 'pacepay-neg-')), restore: false, snapshotDelayMs: 0 });
   const bus = createBus();
@@ -89,7 +94,8 @@ function setup() {
     caseId: 'case_test',
     counterpartyId: 'auto_lender',
     itemId: 'auto_payment',
-    channel: 'text',
+    channel,
+    ...(channel === 'voice' ? { callId: 'call_test' } : {}),
     callPlan: {
       goal: 'Move the car payment to a later day',
       targetDay: targets.targetDay,
@@ -106,9 +112,23 @@ function setup() {
   store.put('cases', { id: 'case_test', title: 'The $650 repair', state: 'TEXT_NEGOTIATION', kind: 'bill', billId, chosenOption: 'move_payment', negotiationId: negotiation.id, approvalIds: [], baseChanges, openedAt: nowIso() });
   store.setCurrentCase('case_test');
   store.put('negotiations', negotiation);
+  if (channel === 'voice') {
+    store.put('calls', { id: 'call_test', direction: 'outbound', counterpartyId: 'auto_lender', phone: '+15555550100', room: 'photon-call_test', status: 'active', negotiationId: negotiation.id, transcript: [], startedAt: nowIso() });
+  }
 
   const app = new Hono();
   app.route('/api', negotiationRoutes(ctx as ServerContext));
+  app.route('/api', voiceRoutes(ctx as ServerContext));
+  const post = async <T>(path: string, body: unknown): Promise<T> => {
+    // The voice routes accept localhost only: present the request as coming from 127.0.0.1.
+    const local = { incoming: { socket: { remoteAddress: '127.0.0.1' } } };
+    const res = await app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }, local);
+    expect(res.status).toBe(200);
+    return (await res.json()) as T;
+  };
+  /** The voice worker's decide call: what PacePay says next on the phone. */
+  const callSays = (utterance: string) => post<{ say: string; next: string; state: string }>('/api/voice/calls/call_test/decide', { utterance });
+  const poll = () => post<{ status: string; say?: string; next?: string }>('/api/voice/calls/call_test/approval', {});
   const lender = async (text: string): Promise<LenderSaysResponse> => {
     const res = await app.request(`/api/negotiations/${negotiation.id}/lender`, { method: 'POST', body: JSON.stringify({ text }), headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(200);
@@ -116,7 +136,7 @@ function setup() {
   };
   const get = async (): Promise<Negotiation> => (await (await app.request(`/api/negotiations/${negotiation.id}`)).json()) as Negotiation;
   const ended = () => enqueued.filter((e) => e.type === 'CALL_ENDED');
-  return { ctx, store, lender, get, ended, targetDay: targets.targetDay, negotiationId: negotiation.id };
+  return { ctx, store, lender, get, ended, callSays, poll, targetDay: targets.targetDay, negotiationId: negotiation.id };
 }
 
 describe('negotiator via the lender console (SPEC §11 variants)', { timeout: LIVE ? 60_000 : 5_000 }, () => {
@@ -241,5 +261,60 @@ describe('negotiator via the lender console (SPEC §11 variants)', { timeout: LI
     const c = await lender('Sure, reference 4 4 7 1 9.');
     expect(c.state).toBe('closed');
     expect((await get()).referenceNumber).toBe('44719');
+  });
+  it("Ram's off-script call: the fee in the same breath, \"Yeah.\" confirms, no model calls, no refusal", async () => {
+    const { callSays, store } = setup('voice');
+    modelCalls = 0;
+    await callSays('We can do Wednesday.');
+    expect((await callSays('Yes.')).say).toMatch(/Friday the 13th.*with no fee\?$/);
+    const offer = await callSays("Friday works, but there's a twenty dollar fee.");
+    expect(offer.say).toMatch(/Friday the 13th with a twenty-dollar fee/);
+    expect(offer.say).not.toMatch(/can't|cannot|won't|waive/i);
+    const hold = await callSays('Yeah.');
+    expect(hold.next).toBe('await_approval');
+    expect(hold.say).toMatch(/Yoshua/);
+    expect(store.pendingApprovals().some((a) => a.kind === 'deal')).toBe(true);
+    expect(modelCalls).toBe(0);
+  });
+
+  it('speech-to-text "How it works, but there\'s a $35 fee" after asking for Friday is Friday at $35, read back', async () => {
+    const { callSays } = setup('voice');
+    await callSays('We can do Wednesday.');
+    await callSays('Yes.');
+    const a = await callSays("How it works, but there's a $35 fee.");
+    expect(a.say).toMatch(/Friday the 13th with a thirty-five-dollar fee\?/);
+    expect((await callSays('Yeah.')).say).toMatch(/waive/i);
+    expect((await callSays('I can do twenty.')).say).toMatch(/Friday the 13th with a twenty-dollar fee/);
+  });
+
+  it('the same terms said again in other words confirm the read-back instead of a second read-back', async () => {
+    const { callSays } = setup('voice');
+    await callSays("Friday's fine but it'll be twenty bucks.");
+    const b = await callSays('Yeah Friday, twenty dollar fee.');
+    expect(b.next).toBe('await_approval');
+  });
+
+  it('after Yoshua approves on a call, the approved line is said once, then the spoken reference is captured', async () => {
+    const { ctx, store, callSays, poll, get } = setup('voice');
+    await callSays('Friday, with a twenty dollar fee.');
+    await callSays('Yes.');
+    resolveApproval(ctx, store.pendingApprovals().find((x) => x.kind === 'deal')!.id, 'yes');
+    const first = await callSays('Hello?'); // the lender speaks before the worker polls
+    expect(first.say).toMatch(/Yoshua approved.*reference number/);
+    expect((await poll()).say).toBe(''); // never said twice
+    const done = await callSays('Okay, your reference number is A 7 7 3 2.');
+    expect(done.next).toBe('end_call');
+    expect((await get()).referenceNumber).toBe('A7732');
+  });
+
+  it('reads reference numbers however they are spoken, never the account digits', () => {
+    expect(extractReference('Okay, your reference number is A 7 7 3 2.')).toBe('A7732');
+    expect(extractReference('A as in apple, seven seven three two.')).toBe('A7732');
+    expect(extractReference("It's A7732.")).toBe('A7732');
+    expect(extractReference('Reference A seven seven three two.')).toBe('A7732');
+    expect(extractReference('alpha seven seven three two')).toBe('A7732');
+    expect(extractReference('R dash 5 5 8 2 1')).toBe('R-55821');
+    expect(extractReference('the loan ending 4417, reference 9 9 2 1', ['4417'])).toBe('9921');
+    expect(extractReference('Friday the 13th with a $20 fee')).toBeNull();
   });
 });

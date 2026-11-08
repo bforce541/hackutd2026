@@ -219,6 +219,8 @@ export interface VoiceApprovalResponse {
   status: Extract<ApprovalStatus, 'pending' | 'approved' | 'declined' | 'timeout'>;
   say?: string;
   next?: 'listen' | 'end_call';
+  /** While pending: the lines PacePay may say next (the approved line's wordings, the hold lines), for the worker to synthesize ahead. */
+  prepare?: string[];
 }
 
 /** POST /api/voice/calls/:id/events -> 204 */

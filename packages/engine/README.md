@@ -42,7 +42,7 @@ Speed on a laptop: `simulate` ≈ 0.6 ms, `checkOffer` ≈ 0.4 ms, `buildOptions
 ## Behavior worth knowing
 
 - **Ids in the fixture:** accounts `checking savings cd ira auto_loan personal_loan card mortgage`; scheduled items `paycheck mortgage_payment auto_payment personal_payment card_autopay utilities phone_internet car_insurance card_spend`. Only `auto_payment` and `personal_payment` are `movable`.
-- **Posting:** bank transfers (`paycheck bill loan_payment card_autopay transfer`) dated on a weekend post the next Monday; card spending, fees and one-off charges post on their own day. On any day, debits post before credits, so `intradayLow` is the balance after the day's debits and before its credits.
+- **Posting:** bank transfers (`paycheck bill loan_payment card_autopay transfer`) dated on a weekend post the next Monday; card spending, fees and one-off charges post on their own day. On any day, deposits post before debits, so `intradayLow` is the lower of the day's opening and closing balance. A payment moved onto a payday still fails by rule (`PAYDAY_SAME_DAY`).
 - **Moving a payment** (`move_item`, or `offerChanges`) moves one occurrence: the last one due on or before the new date. On day 0 that's Tuesday's car payment; after the clock jumps, the same call moves December's. The moved occurrence gets the id `auto_payment@<day>`; the series keeps its usual dates.
 - **Causes** of a dip are the scheduled debits since the last credit. One-off charges (the repair) are the trigger, not a cause.
 - **Horizons:** scores and offer checks look 30 days ahead from `fromDay`; `forecast` defaults to 60 days for the chart.

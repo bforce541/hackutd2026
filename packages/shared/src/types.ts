@@ -136,7 +136,7 @@ export interface ForecastDay {
   weekday: Weekday;
   open: Cents;
   close: Cents;
-  intradayLow: Cents; // debits post before credits on the same day
+  intradayLow: Cents; // deposits post before debits on the same day: min(open, close)
   items: ForecastItem[];
   belowFloor: boolean; // intradayLow < checkingFloor
   negative: boolean; // intradayLow < 0

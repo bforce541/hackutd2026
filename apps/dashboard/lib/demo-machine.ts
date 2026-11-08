@@ -474,8 +474,16 @@ function sendMessage(m: DemoMachine, text: string): DemoMachine {
   if (!t) return m;
   const cdPending = m.day >= DAY11 && m.cdOpen && !m.cdAnswered;
   const lateChoices = lateOpen(m) ? (lateCase(m)?.options.length ?? 0) : 0;
-  const choiceCount = m.stage === 'home' && needsHelp(m) ? rankedOptions(m).length : cdPending ? 2 : lateChoices;
-  const parsed = parseReply(t, { billUnconfirmed: m.stage === 'home' && m.day === 0, choiceCount });
+  // The options on offer, in the order texted, so "call them" or "savings" picks that option's number.
+  const optionIds: OptionId[] =
+    m.stage === 'home' && needsHelp(m)
+      ? rankedOptions(m).map((o) => o.id)
+      : cdPending
+        ? ['cd_payoff_card', 'cd_renew']
+        : lateChoices
+          ? (lateCase(m)?.options.map((o) => o.id) ?? [])
+          : [];
+  const parsed = parseReply(t, { billUnconfirmed: m.stage === 'home' && m.day === 0, ...(optionIds.length ? { optionIds } : {}) });
   const at11 = m.day >= DAY11 ? { at: dayAt(DAY11, 9, 5), prefix: D11 } : {};
   const intent = paycheckReady(m) ? paycheckIntent(t) : null;
   if (intent) m = tick(m, intent === 'what_if' ? MINUTE.paycheckAsk : MINUTE.paycheckLate);

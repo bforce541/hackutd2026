@@ -44,8 +44,8 @@ A pnpm workspaces monorepo. Everything is TypeScript.
    │     ├─ messaging/     # port.ts + Photon 2.0 adapter (photon.ts) + chart.ts (section 6)
    │     ├─ voice/         # dispatch.ts (LiveKit API calls)
    │     └─ prompts/       # *.md system prompts (section 8)
-   ├─ voice/               # @pacepay/voice: LiveKit Agents worker, GPT realtime voice
-   │  └─ src/agent.ts, tools.ts, prompts/voice.md
+   ├─ voice/               # @pacepay/voice: LiveKit Agents worker; realtime model only listens, code picks every line
+   │  └─ src/agent.ts, conductor.ts (turn logic), speech.ts (TTS), server.ts
    └─ dashboard/           # @pacepay/dashboard: Next.js App Router, shadcn/ui, visx (look and behavior: UI.md)
 ```
 
@@ -158,7 +158,7 @@ export interface ForecastDay {
   weekday: 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
   open: Cents;
   close: Cents;
-  intradayLow: Cents;          // debits post before credits on the same day
+  intradayLow: Cents;          // deposits post before debits on the same day: min(open, close)
   items: { itemId: string; label: string; amount: Cents }[];
   belowFloor: boolean;         // intradayLow < checkingFloor
   negative: boolean;           // intradayLow < 0
@@ -402,7 +402,7 @@ export const fixtures: { household: Household };                    // the v2.md
 | Horizon | Scores and offer checks look 30 days ahead; the chart shows 60. |
 | Weekends | Bank transfers (`paycheck`, `bill`, `loan_payment`, `card_autopay`, `transfer`) and offers dated Saturday or Sunday post on the next business day. Offers get `WEEKEND_ROLLS_FORWARD`. Card spending (`card_spend`) posts on its own day, weekends included. |
 | Card spending | Modeled exactly as `v2.md` describes it: a weekly `card_spend` item on the card account. It changes the card balance (credit use, the CD payoff amount), never checking. |
-| Same-day posting | On any day, debits post before credits. `intradayLow` is the balance after all debits and before any credits. |
+| Same-day posting | On any day, deposits post before debits (as most banks do), so `intradayLow` is the lower of the day's opening and closing balance. A moved payment that lands on payday still fails by rule (`PAYDAY_SAME_DAY`). |
 | Payday is risky | An offer whose posting day is a payday fails with `PAYDAY_SAME_DAY`, even when the end-of-day balance is fine. |
 | Affordability | `affordable` = the intraday low stays at or above `checkingFloor` for 30 days (reasons `BELOW_FLOOR`, plus `NEGATIVE_BALANCE` under $0). |
 | Limits | `withinLimits` = fee ≤ `feeLimit`, no off-limits account used, savings ≥ `savingsFloor`. Affordability and limits are reported separately, so "affordable but over your fee limit" is expressible. |

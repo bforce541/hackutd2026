@@ -147,8 +147,8 @@ export function buildGeometry(inp: GeometryInput): ChartGeometry {
     return boxes.some((o) => o.x1 > r.x0 && o.x0 < r.x1 && o.y1 > r.y0 && o.y0 < r.y1);
   };
 
-  // The lowest point is the day's intraday low (debits post before credits), which can sit below
-  // that day's closing step. Use the named day when it is in view, else the lowest visible day.
+  // The lowest point is the day's intraday low (deposits post before debits, so min(open, close)): on a day that
+  // closes higher than it opened, that's the opening balance, below the closing step. Use the named day when it is in view, else the lowest visible day.
   let loIdx = days.findIndex((d) => d.day === inp.lowestDay);
   if (loIdx < 0 && lows.length) loIdx = lows.indexOf(Math.min(...lows));
   let low: ChartGeometry['low'] = null;

@@ -377,6 +377,8 @@ export async function answerQuestion(
         ? 'No lists or bullets: answer in plain sentences.'
         : VERDICT.test(text)
         ? 'Don\'t say whether he can or can\'t afford it, or that a payment is or isn\'t late; give the numbers or the scheduled day and let him decide.'
+        : /\b(FACTS|the facts|in the facts|(?:not|isn'?t|wasn'?t) (?:provided|given|listed|mentioned)|tool results?)\b/.test(text)
+        ? 'Never mention FACTS, "the facts", tool results, or what was or wasn\'t provided; just answer him directly, as PacePay.'
         : null;
     if (style && attempt < 2) {
       ctx.bus.emit({ type: 'tool.result', model: 'nemotron-super', caseId, level: 'warn', title: `Answer broke a style rule; rewriting`, detail: { text } });

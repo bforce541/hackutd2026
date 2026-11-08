@@ -518,6 +518,7 @@ export const VoiceApprovalResponseSchema = z.object({
   status: z.enum(['pending', 'approved', 'declined', 'timeout']),
   say: z.string().optional(),
   next: z.enum(['listen', 'end_call']).optional(),
+  prepare: z.array(z.string()).optional(),
 }) satisfies z.ZodType<A.VoiceApprovalResponse>;
 export const VoiceInboundResponseSchema = z.object({
   callId: z.string(),

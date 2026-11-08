@@ -2,63 +2,59 @@
  * The LiveKit Agents worker (SPEC §7.2). Implemented by: voice.
  * Run: `pnpm --filter @pacepay/voice dev` (through dotenvx; needs LIVEKIT_* and OPENAI_API_KEY).
  *
- * Outbound: the job's metadata is { callId } (DispatchMetadata on the server); fetch the brief,
- * start a realtime session (OPENAI_REALTIME_MODEL, voice 'marin', falling back to gpt-realtime-2,
- * then gpt-realtime), open with the brief's greeting, post every transcript line to /events.
- * Inbound: no metadata; read the caller's number from the SIP participant attributes
- * (sip.phoneNumber), POST /api/voice/inbound, then the PIN flow (prompts/voice-inbound.md).
+ * Code drives every turn; no model ever chooses PacePay's words:
+ *  - The realtime model (OPENAI_REALTIME_MODEL, falling back to gpt-realtime-2, then gpt-realtime) only
+ *    listens: server VAD ends each turn and transcribes it, with create_response off and no tools, so
+ *    it never answers on its own.
+ *  - conductor.ts takes each final turn to the server (decide; verify-pin / ask on inbound calls) and
+ *    speech.ts speaks the returned `say` verbatim with TTS (voice marin).
+ * Outbound: the job's metadata is { callId }; fetch the brief, open with its greeting once the lender
+ * picks up, post every transcript line to /events. Inbound: no metadata; read the caller's number from
+ * the SIP participant attributes (sip.phoneNumber), POST /api/voice/inbound, then the PIN flow.
  */
 import { cli, defineAgent, ServerOptions, voice, type JobContext } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import { ParticipantKind, RoomEvent, type RemoteParticipant } from '@livekit/rtc-node';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { Speaker } from '@pacepay/shared';
 import { createServerClient, type VoiceServerClient } from './server';
-import { inboundTools, outboundTools, type VoiceToolHooks } from './tools';
+import { FILLERS, holdUpdates, InboundConductor, likelyLines, OutboundConductor, type CallPort, type Conductor, type LineKind } from './conductor';
+import { audioFor, isReady, lastTtsInfo, prewarm, prewarmOpeners } from './speech';
 
 export const AGENT_NAME = process.env.PACEPAY_VOICE_AGENT_NAME || 'pacepay-voice';
 const MODEL_FALLBACKS = ['gpt-realtime-2.1', 'gpt-realtime-2', 'gpt-realtime'];
-const here = dirname(fileURLToPath(import.meta.url));
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), '[voice]', ...a);
 
-function prompt(name: 'voice' | 'voice-inbound', vars: Record<string, string>): string {
-  let text = readFileSync(join(here, 'prompts', `${name}.md`), 'utf8').replace(/<!--[\s\S]*?-->\s*/g, '');
-  for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`{{${k}}}`, v);
-  return text.trim();
-}
-
-const STYLE =
-  '\nDelivery: sound like a warm, relaxed person on the phone, not a newsreader. Natural pacing, small ' +
-  'pauses at commas, contractions exactly as written. Change how you say a line, never its words. ' +
-  'Never add filler of your own: no "one moment", no "mm-hm", nothing before calling a tool. Short ' +
-  'acknowledgements are played for you by the system when a lookup is slow.';
-
-/** Speak a fixed line (a realtime model has no TTS, so session.say() would throw). No tools on these. */
-const EXACT = (text: string) => `Say exactly this and nothing else, then stop and listen: "${text}"`;
-const FILLER = (text: string) =>
-  `Say only this short acknowledgement, softly and casually like a person thinking, then stop: "${text}"`;
+/** Only used if TTS is down: the realtime model reads the line instead (no tools, exact words). */
+const LISTENER_INSTRUCTIONS =
+  'You are the voice of PacePay on a phone call. You never choose words yourself: you only ever say the exact ' +
+  'line you are given, word for word, warmly and naturally, like a relaxed person on the phone. Never add, ' +
+  'remove or rephrase anything, never answer the other person on your own, never ask questions of your own.';
+const EXACT = (text: string) => `Say exactly this and nothing else, then stop: "${text}"`;
 
 /**
- * Phone-line turn-taking. Server VAD is less jumpy than the default semantic VAD on 8 kHz line noise
- * and echo: a 0.7 threshold, 300 ms of audio kept before speech, and 700 ms of silence to end a turn.
- * The server must not cancel our reply on a noise burst either, so interrupt_response is false.
+ * Phone-line turn-taking. Server VAD is less jumpy than semantic VAD on 8 kHz line noise and echo: a
+ * 0.7 threshold, 300 ms of audio kept before speech, 500 ms of silence to end a turn (a
+ * sentence split at a pause is merged back by the Conductor). create_response
+ * is off: the model never answers by itself; the Conductor decides what is said.
  */
 const PHONE_TURN_DETECTION = {
   type: 'server_vad' as const,
   threshold: 0.7,
   prefix_padding_ms: 300,
-  silence_duration_ms: 700,
-  create_response: true,
+  silence_duration_ms: Number(process.env.PACEPAY_VOICE_SILENCE_MS) || 500,
+  create_response: false,
   interrupt_response: false,
 };
 const PHONE_NOISE_REDUCTION = { type: 'near_field' as const };
 const PHONE_TRANSCRIPTION = {
   model: 'gpt-4o-mini-transcribe',
   language: 'en',
-  prompt: 'A short phone call in English between an assistant and a loan servicer about a payment date, a fee and a reference number.',
+  prompt:
+    'A short phone call in English between an assistant and a loan servicer about a payment date, a fee and a ' +
+    'reference number. Reference numbers are read out as single letters and digits, like "A 7 7 3 2".',
 };
 
 function modelOrder(): string[] {
@@ -71,8 +67,8 @@ function roomClient(): RoomServiceClient {
   return new RoomServiceClient(e.LIVEKIT_URL!.replace(/^wss:/, 'https:'), e.LIVEKIT_API_KEY!, e.LIVEKIT_API_SECRET!);
 }
 
-/** Start the realtime session, trying each model in turn if one is not available. */
-async function startSession(ctx: JobContext, agent: voice.Agent): Promise<voice.AgentSession> {
+/** Start the listening session, trying each realtime model in turn if one is not available. */
+async function startSession(ctx: JobContext): Promise<voice.AgentSession> {
   let lastErr: unknown;
   for (const model of modelOrder()) {
     const session = new voice.AgentSession({
@@ -84,16 +80,17 @@ async function startSession(ctx: JobContext, agent: voice.Agent): Promise<voice.
         inputAudioTranscription: PHONE_TRANSCRIPTION,
       }),
       turnHandling: {
-        // The realtime model's own server VAD decides turns; no separate TurnDetector (it was ignored and warned).
         turnDetection: 'realtime_llm',
-        // Our lines are one or two short sentences and a noise burst must not cut them off. While PacePay
-        // speaks, input audio is dropped, which also keeps echo out of the model. The lender waits their turn.
-        interruption: { enabled: false },
+        // The other person can talk over PacePay: the line stops and their words are the next turn.
+        // The greeting and the goodbye are spoken without interruption (see speak()).
+        interruption: { enabled: true, discardAudioIfUninterruptible: true },
+        preemptiveGeneration: { enabled: false },
       },
     });
     try {
-      await session.start({ agent, room: ctx.room });
-      log('realtime session started with', model);
+      // No tools at all: the model cannot decide, approve or hang up.
+      await session.start({ agent: new voice.Agent({ instructions: LISTENER_INSTRUCTIONS, tools: [] }), room: ctx.room });
+      log('listening session started with', model);
       return session;
     } catch (err) {
       lastErr = err;
@@ -122,18 +119,34 @@ export default defineAgent({
   },
 });
 
-interface Wired {
-  session: voice.AgentSession;
-  hooks: VoiceToolHooks;
-  finish(reason: string): Promise<void>;
+/**
+ * Warm the lines we know ahead of time so they play instantly, a few at a time (a burst of TTS
+ * requests gets throttled and would slow the live lines). Failures only cost latency.
+ */
+async function warm(lines: string[], parallel = 3): Promise<void> {
+  const queue = [...new Set(lines)];
+  await Promise.all(
+    Array.from({ length: parallel }, async () => {
+      for (let l = queue.shift(); l !== undefined; l = queue.shift()) await prewarm(l).catch(() => undefined);
+    }),
+  );
 }
 
-/** Transcript posting, hang-up and the once-only "ended" event, shared by both directions. */
-function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: string, otherSpeaker: Speaker) {
-  let session: voice.AgentSession | undefined;
-  let lastSpeech: voice.SpeechHandle | undefined;
+/**
+ * Wire a session to a Conductor: transcripts in, exact lines out, the once-only "ended" event and the
+ * hang-up. Any reply the model starts on its own (there should be none) is cut off at once.
+ */
+function wire(
+  ctx: JobContext,
+  server: VoiceServerClient,
+  callId: string,
+  room: string,
+  otherSpeaker: Speaker,
+  session: voice.AgentSession,
+  make: (port: CallPort) => Conductor,
+) {
   let ended = false;
-  let turnEndedAt = 0;
+  let ours = false;
   const post = (speaker: Speaker, text: string) => {
     if (!text.trim()) return;
     void server.event(callId, { type: 'transcript', speaker, text: text.trim() }).catch((e) => log('transcript post failed', e.message));
@@ -141,90 +154,95 @@ function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: 
   const finish = async (reason: string) => {
     if (ended) return;
     ended = true;
+    conductor.stop();
     log('call ended:', reason);
-    try {
-      await lastSpeech?.waitForPlayout();
-    } catch {
-      /* nothing playing */
-    }
     await server.event(callId, { type: 'ended' }).catch((e) => log('ended post failed', e.message));
   };
-  const hooks: VoiceToolHooks = {
-    // A realtime model has no TTS, so session.say() would throw; have the model speak the line instead.
-    // The line is posted to the transcript by the ConversationItemAdded listener, not here.
-    say: async (text) => {
-      session?.generateReply({ instructions: EXACT(text), toolChoice: 'none' });
+  async function schedule(text: string, kind: LineKind): Promise<{ playout: Promise<void>; interrupted(): boolean } | undefined> {
+    if (ended) return undefined;
+    const allowInterruptions = kind !== 'greeting' && kind !== 'goodbye';
+    let audio: Awaited<ReturnType<typeof audioFor>> | undefined;
+    const t0 = Date.now();
+    try {
+      audio = await audioFor(text);
+      if (kind !== 'filler') log(`audio ready in ${Date.now() - t0} ms (${lastTtsInfo})`);
+    } catch (err) {
+      log(`TTS failed, the realtime voice reads the line instead: ${(err as Error).message}`);
+    }
+    if (ended) return undefined;
+    // Posted as it starts, so the transcript keeps the order of the call (fillers are not posted).
+    if (kind !== 'filler') post('pacepay', text);
+    ours = true;
+    let handle: voice.SpeechHandle;
+    try {
+      handle = audio
+        ? session.say(text, { audio, allowInterruptions, addToChatCtx: kind !== 'filler' })
+        : session.generateReply({ instructions: EXACT(text), toolChoice: 'none', allowInterruptions });
+    } finally {
+      ours = false;
+    }
+    return { playout: handle.waitForPlayout().catch(() => undefined), interrupted: () => handle.interrupted };
+  }
+  // Lines are scheduled one at a time, in the order asked, even when one waits on TTS longer.
+  let queue: Promise<unknown> = Promise.resolve();
+  const port: CallPort = {
+    speak(text: string, kind: LineKind) {
+      // A filler only makes sense right now: play it from memory or not at all, never queued.
+      if (kind === 'filler') return isReady(text) ? schedule(text, kind) : Promise.resolve(undefined);
+      const turn = queue.then(() => schedule(text, kind));
+      queue = turn.catch(() => undefined);
+      return turn;
     },
-    // Chosen in code (tools.ts) only when a lookup is slow. Skipped if we are already talking.
-    filler: async (text) => {
-      if (ended || !session || session.agentState === 'speaking') return;
-      log('filler:', text);
-      session.generateReply({ instructions: FILLER(text), toolChoice: 'none' });
-    },
-    turnEndedAt: () => turnEndedAt,
-    // Wait until the agent has stopped speaking: let a pending goodbye start, then require the state to
-    // stay 'listening' (and the last speech handle done) for a moment. Capped so it cannot hang.
-    settle: async (maxMs) => {
-      const deadline = Date.now() + maxMs;
-      const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      await nap(600);
-      let quietSince = 0;
-      while (Date.now() < deadline && !ended) {
-        const quiet = session?.agentState === 'listening' && (lastSpeech?.done() ?? true);
-        if (!quiet) quietSince = 0;
-        else if (!quietSince) quietSince = Date.now();
-        else if (Date.now() - quietSince >= 500) return;
-        await nap(100);
-      }
-    },
-    hangUp: async () => {
+    userSpeaking: () => session.userState === 'speaking',
+    agentSpeaking: () => session.agentState === 'speaking',
+    hangUp: async (reason: string) => {
+      await finish(reason);
       await roomClient().deleteRoom(room).catch((e) => log('deleteRoom failed', e.message));
     },
-    end: finish,
+    prepare: (lines: string[]) => void warm(lines, 2),
+    log: (...a: unknown[]) => log(...a),
   };
-  const attach = (s: voice.AgentSession) => {
-    session = s;
-    s.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
-      lastSpeech = ev.speechHandle;
-    });
-    s.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
-      if (ev.oldState === 'speaking' && ev.newState === 'listening') turnEndedAt = ev.createdAt ?? Date.now();
-    });
-    s.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
-      if (ev.isFinal) post(otherSpeaker, ev.transcript);
-    });
-    s.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
-      const item = ev.item as { type?: string; role?: string; textContent?: string };
-      if (item.type === 'message' && item.role === 'assistant' && item.textContent) post('pacepay', item.textContent);
-    });
-    s.on(voice.AgentSessionEventTypes.Error, (ev) => log('session error:', String((ev.error as Error)?.message ?? ev.error)));
-  };
+  const conductor = make(port);
+
+  session.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
+    if (ours) return;
+    log(`blocked a reply PacePay did not ask for (${ev.source})`);
+    try {
+      ev.speechHandle.interrupt(true);
+    } catch {
+      /* already done */
+    }
+  });
+  session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => conductor.onUserState(ev.newState === 'speaking'));
+  session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+    if (!ev.isFinal) return;
+    post(otherSpeaker, ev.transcript);
+    if (!ended) conductor.onTranscript(ev.transcript);
+  });
+  session.on(voice.AgentSessionEventTypes.Error, (ev) => log('session error:', String((ev.error as Error)?.message ?? ev.error)));
   // The other side hanging up (or the room closing) ends the call.
   ctx.room.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
-    if (p.kind === ParticipantKind.SIP) void finish('caller hung up');
+    if (p.kind === ParticipantKind.SIP || p.identity === 'counterparty' || otherSpeaker === 'customer') void finish('the other side hung up');
   });
   ctx.room.on(RoomEvent.Disconnected, () => void finish('room closed'));
-  return { attach, hooks, finish, post };
+  return { conductor, port };
 }
 
 async function runOutbound(ctx: JobContext, server: VoiceServerClient, callId: string, room: string): Promise<void> {
   const brief = await server.brief(callId);
-  const instructions =
-    prompt('voice', {
-      counterparty_name: brief.counterpartyName ?? 'the lender',
-      person_name: brief.personName,
-      greeting: brief.greeting,
-    }) + STYLE;
-  const w = wire(ctx, server, callId, room, 'counterparty');
-  const agent = new voice.Agent({ instructions, tools: Object.values(outboundTools(server, callId, w.hooks)) });
-  const session = await startSession(ctx, agent);
-  w.attach(session);
+  const warming = warm([brief.greeting, ...FILLERS.map((f) => f.text)]);
+  // Not awaited: the lines that may come later (the hold line after "yes" above all).
+  void warming.then(() => warm([...likelyLines(brief.personName), ...holdUpdates(brief.personName)], 2)).then(prewarmOpeners);
+  const session = await startSession(ctx);
+  const w = wire(ctx, server, callId, room, 'counterparty', session, (port) => new OutboundConductor(port, server, callId, brief.personName));
 
   // The SIP participant joins the room only once the lender picks up.
   const counterparty = await ctx.waitForParticipant('counterparty');
   log('answered by', counterparty.identity);
   await server.event(callId, { type: 'answered' }).catch((e) => log('answered post failed', e.message));
-  session.generateReply({ instructions: EXACT(brief.greeting), toolChoice: 'none' });
+  await Promise.race([warming, new Promise((r) => setTimeout(r, 2_500))]);
+  await w.port.speak(brief.greeting, 'greeting');
+  log(`say (greeting): "${brief.greeting}"`);
 }
 
 async function runInbound(ctx: JobContext, server: VoiceServerClient, room: string): Promise<void> {
@@ -232,14 +250,17 @@ async function runInbound(ctx: JobContext, server: VoiceServerClient, room: stri
   const phone = caller.attributes?.['sip.phoneNumber'] ?? '';
   log('inbound caller number present:', phone ? 'yes' : 'no');
   const inbound = await server.inbound({ room, callerPhone: phone });
-  const instructions =
-    prompt('voice-inbound', { person_name: 'Yoshua', greeting: inbound.greeting }) + STYLE;
-  const w = wire(ctx, server, inbound.callId, room, 'customer');
-  const agent = new voice.Agent({ instructions, tools: Object.values(inboundTools(server, inbound.callId, w.hooks)) });
-  const session = await startSession(ctx, agent);
-  w.attach(session);
-  session.generateReply({ instructions: EXACT(inbound.greeting), toolChoice: 'none' });
+  const warming = warm([inbound.greeting, ...FILLERS.map((f) => f.text)]);
+  void warming.then(prewarmOpeners);
+  const session = await startSession(ctx);
+  const w = wire(ctx, server, inbound.callId, room, 'customer', session, (port) => new InboundConductor(port, server, inbound.callId));
+  await Promise.race([warming, new Promise((r) => setTimeout(r, 2_500))]);
+  await w.port.speak(inbound.greeting, 'greeting');
+  log(`say (greeting): "${inbound.greeting}"`);
 }
 
 const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName: AGENT_NAME }));
+if (isMain) {
+  const port = Number(process.env.PACEPAY_VOICE_PORT) || undefined;
+  cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName: AGENT_NAME, ...(port ? { port } : {}) }));
+}

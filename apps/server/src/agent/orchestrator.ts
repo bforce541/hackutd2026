@@ -43,6 +43,9 @@ import {
   limitsText,
   movePaymentOptionText,
   normalizeReply,
+  isPaycheckNews,
+  parseReply,
+  reaskText,
   paycheckLateAckText,
   paycheckLateCondition,
   paycheckWatchCancelledText,
@@ -85,7 +88,7 @@ import { needsBillCheck } from '../tools/read_bill';
 import { unsupportedNumbers } from '../tools/send_message';
 import { currentForecast, publishForecast } from '../forecast';
 import { sendText } from '../messaging/outbox';
-import { timeoutApproval } from '../approvals';
+import { pendingApproval, timeoutApproval } from '../approvals';
 import { loadPrompt } from '../prompts/load';
 import { newId } from '../ids';
 import type { ChatMessage } from '../models';
@@ -108,11 +111,10 @@ const baseItemId = (id: string) => id.split('@')[0]!.split(':')[0]!;
 
 // "What if my paycheck is late?" and "My paycheck is going to be late, it's landing Monday": code paths,
 // not model luck, so the demo's question always gets the engine's answer.
-const PAYCHECK_WORDS = /\b(pay ?check|paycheque|pay ?day|direct deposit|salary|wages|my pay)\b/i;
-const LATE_WORDS = /\b(late|delay(?:ed)?|slips?|slipped|pushed|won'?t (?:come|land|arrive|hit|clear)|doesn'?t (?:come|land|arrive|hit|clear)|(?:landing|lands|coming|arrives?|arriving|hits?|clears?) (?:on )?(?:mon|tues?|wed|thu|fri|sat|sun|next))/i;
 const HYPOTHETICAL = /\b(what if|what happens|what would|suppose|in case|if)\b/i;
-const WATCH_NO = /^(no|n|nah|nope|dont|do not|dont bother|dont watch|skip|skip it|no thanks|no thank you|stop|cancel|never ?mind|not needed)\b/;
-const WATCH_OK = /^(ok|okay|k|kk|yes|y|yep|yeah|ya|sure|thanks|thank you|thx|ty|cool|great|perfect|sounds good|got it|good|nice|awesome|please|pls|do it|keep watching)\b/;
+// Replies to "I'll watch for it ... Reply NO to skip" (normalizeReply text). "No worries" / "no problem" are thanks, not a no.
+const WATCH_NO = /^(?:no|n|nah|naw|nope|dont|do not|skip|stop|cancel|never ?mind|nvm|not needed|no need|unnecessary)\b(?! (?:worries|worry|problem|prob|biggie)\b)|\b(?:dont bother|dont watch|no need to|dont need (?:to|you to)|dont worry about it|skip it|no thanks|no thank you)\b/;
+const WATCH_OK = /^(?:ok|okay|okk|k|kk|yes|y|yep|yeah|yea|ya|sure|thanks|thank you|thx|ty|tysm|cool|great|perfect|sounds good|got it|good|nice|awesome|appreciate it|please|pls|do it|keep watching|watch it|no worries|no problem|bet|word|alright|aight)\b/;
 const WEEKDAY_WORD = /\b(mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b/i;
 
 export function createRealAgent(ctx: ToolContext): Agent {
@@ -1452,7 +1454,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
   }
 
   function paycheckIntent(text: string): 'what_if' | 'late' | null {
-    if (!PAYCHECK_WORDS.test(text) || !LATE_WORDS.test(text)) return null;
+    if (!isPaycheckNews(text)) return null;
     if (HYPOTHETICAL.test(text)) return 'what_if';
     if (/\?\s*$/.test(text)) return null; // "Is my paycheck late?" is a question for Q&A
     return 'late';
@@ -1521,13 +1523,20 @@ export function createRealAgent(ctx: ToolContext): Agent {
   async function onPaycheckWatchReply(text: string): Promise<boolean> {
     if (!paycheckWatch?.awaitingReply) return false;
     const n = normalizeReply(text);
-    if (WATCH_NO.test(n)) {
+    // "My paycheck is late, it lands Monday" is news, not a reply to the watch: the late path takes it.
+    if (paycheckIntent(text)) {
+      paycheckWatch.awaitingReply = false;
+      return false;
+    }
+    const parsed = parseReply(text);
+    if (parsed.kind === 'no' || WATCH_NO.test(n)) {
       cancelPaycheckWatch('Yoshua said no');
       await sendCaseless(paycheckWatchCancelledText(), {});
       return true;
     }
     paycheckWatch.awaitingReply = false;
-    if (WATCH_OK.test(n) && !text.includes('?') && n.split(' ').length <= 4) {
+    const plainOk = parsed.kind === 'yes' || (WATCH_OK.test(n) && !/\bbut\b/.test(n) && n.split(' ').length <= 8);
+    if (plainOk && !text.includes('?')) {
       await sendCaseless(paycheckWatchKeptText(), {});
       return true;
     }
@@ -1590,6 +1599,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
       ctx.bus.emit({ type: 'step.failed', model: 'nemotron-super', caseId, level: 'warn', title: `Q&A failed: ${(err as Error).message}` });
       answer = CANNED_QA;
     }
+    // A side question while PacePay waits on him ("what's the fee?"): answer it, then re-ask in one line.
+    const open = pendingApproval(ctx);
+    if (open) answer = `${answer}\n${reaskText(open.kind, open.optionIds?.length ?? open.choices.length)}`;
     await sendText(ctx, answer, { caseId, model: 'nemotron-super' });
     ctx.bus.emit({ type: 'step.completed', model: 'nemotron-super', caseId, title: "Answered Yoshua's question" });
   }

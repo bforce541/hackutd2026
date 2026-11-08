@@ -3,7 +3,8 @@
  * Mounted at /api by app.ts. Endpoints this router owns:
  *   GET  /voice/calls/:id/brief (allowlist only: no balances, limits or reasons)
  *   POST /voice/calls/:id/decide (runTool('decide', { negotiationId: call.negotiationId, utterance }, ctx, { caller: 'voice' }))
- *   POST /voice/calls/:id/approval (agent/negotiator.ts approvalOutcome(ctx, call.negotiationId))
+ *   POST /voice/calls/:id/approval (agent/negotiator.ts approvalOutcomeForCall(ctx, call.negotiationId): the
+ *        outcome line comes back once; if decide already said it on the call, `say` is empty)
  *   POST /voice/calls/:id/events -> 204 (answered: status 'active', 'call.answered', publish 'call' (case state is the agent's);
  *        transcript: append to Call.transcript, 'call.transcript', publish 'call'; ended: status 'ended',
  *        endedAt, then ctx.enqueue CALL_ENDED if the negotiation has an outcome, else CALL_FAILED
@@ -36,7 +37,7 @@ import type { ServerContext } from '../context';
 import { env } from '../env';
 import { newId, nowIso } from '../ids';
 import { runTool } from '../tools/registry';
-import { accountReference, approvalOutcome, greetingLine } from '../agent/negotiator';
+import { accountReference, approvalOutcomeForCall, greetingLine } from '../agent/negotiator';
 import { answerQuestion } from '../agent/qa';
 import { roomForCall } from '../voice/dispatch';
 import { apiError, HttpError, localOnly, parseBody } from './http';
@@ -150,7 +151,7 @@ export function voiceRoutes(ctx: ServerContext): Hono {
 
   r.post('/voice/calls/:id/approval', async (c) => {
     const call = getCall(c.req.param('id') ?? '');
-    const out = await approvalOutcome(ctx, negotiationIdOf(call));
+    const out = await approvalOutcomeForCall(ctx, negotiationIdOf(call));
     if (!isOver(call)) {
       const status = out.status === 'pending' ? 'holding_for_approval' : 'active';
       if (call.status !== status) {

@@ -1,0 +1,805 @@
+[
+ {
+  "id": "bill-01",
+  "note": null,
+  "exp": {
+   "merchant": "Lone Star Auto Repair",
+   "amount": 82150,
+   "day": 7
+  },
+  "got": {
+   "merchant": "Lone Star Auto Repair",
+   "amount": 82150,
+   "dueDay": 7,
+   "description": "Front brake pads and rotors",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 82150,
+    "dueDay": 7
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 2895
+ },
+ {
+  "id": "bill-02",
+  "note": "due at pickup",
+  "exp": {
+   "merchant": "Plano Transmission Works",
+   "amount": 99900,
+   "day": null
+  },
+  "got": {
+   "merchant": "Plano Transmission Works",
+   "amount": 99900,
+   "dueDay": null,
+   "description": "Repair transmission",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 99900
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 3506
+ },
+ {
+  "id": "bill-03",
+  "note": null,
+  "exp": {
+   "merchant": "Oncor Electric Delivery",
+   "amount": 13813,
+   "day": 14
+  },
+  "got": {
+   "merchant": "Oncor Electric Delivery",
+   "amount": 13813,
+   "dueDay": 14,
+   "description": "Utility bill for energy, delivery, taxes and fees",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 13813,
+    "dueDay": 14
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 2656
+ },
+ {
+  "id": "bill-04",
+  "note": null,
+  "exp": {
+   "merchant": "North Texas Water District",
+   "amount": 8625,
+   "day": 21
+  },
+  "got": {
+   "merchant": "North Texas Water District",
+   "amount": 8625,
+   "dueDay": 21,
+   "description": "Water usage 7,400 gal",
+   "confidence": 0.98,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 8625,
+    "dueDay": 21
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 3519
+ },
+ {
+  "id": "bill-05",
+  "note": null,
+  "exp": {
+   "merchant": "Atmos Energy",
+   "amount": 6642,
+   "day": 25
+  },
+  "got": {
+   "merchant": "Atmos Energy",
+   "amount": 6642,
+   "dueDay": 25,
+   "description": "Gas usage 38 CCF",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 6642,
+    "dueDay": 25
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 7136
+ },
+ {
+  "id": "bill-06",
+  "note": null,
+  "exp": {
+   "merchant": "Frontier Fiber Internet",
+   "amount": 9587,
+   "day": 11
+  },
+  "got": {
+   "merchant": "Frontier Fiber Internet",
+   "amount": 9587,
+   "dueDay": 11,
+   "description": "Internet service for one gigabit connection, router rental, and taxes/fees.",
+   "confidence": 0.9,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 9587,
+    "dueDay": 11
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10600
+ },
+ {
+  "id": "bill-07",
+  "note": null,
+  "exp": {
+   "merchant": "Mint Wireless",
+   "amount": 8520,
+   "day": 18
+  },
+  "got": {
+   "merchant": "Mint Wireless",
+   "amount": 8520,
+   "dueDay": 18,
+   "description": "Unlimited plan 2 lines",
+   "confidence": 0.89,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 8520,
+    "dueDay": 18
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11196
+ },
+ {
+  "id": "bill-08",
+  "note": "due on receipt",
+  "exp": {
+   "merchant": "Richardson Family Medicine",
+   "amount": 5700,
+   "day": null
+  },
+  "got": {
+   "merchant": "Richardson Family Medicine",
+   "amount": 5700,
+   "dueDay": null,
+   "description": "Office visit copay and lab draw fee",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 5700
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10333
+ },
+ {
+  "id": "bill-09",
+  "note": null,
+  "exp": {
+   "merchant": "Texas Health Urgent Care",
+   "amount": 38700,
+   "day": 28
+  },
+  "got": {
+   "merchant": "Texas Health Urgent Care",
+   "amount": 38700,
+   "dueDay": 28,
+   "description": "Urgent care visit level 3",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 38700,
+    "dueDay": 28
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 9321
+ },
+ {
+  "id": "bill-10",
+  "note": "due on receipt",
+  "exp": {
+   "merchant": "Park Cities Pediatrics",
+   "amount": 4000,
+   "day": null
+  },
+  "got": {
+   "merchant": "Park Cities Pediatrics",
+   "amount": 4000,
+   "dueDay": null,
+   "description": "Well child visit copay, Flu vaccine admin fee",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 4000
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 9002
+ },
+ {
+  "id": "bill-11",
+  "note": null,
+  "exp": {
+   "merchant": "Dallas Imaging Center",
+   "amount": 62500,
+   "day": 35
+  },
+  "got": {
+   "merchant": "Dallas Imaging Center",
+   "amount": 62500,
+   "dueDay": 35,
+   "description": "MRI knee without contrast",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 62500,
+    "dueDay": 35
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10133
+ },
+ {
+  "id": "bill-12",
+  "note": "due at pickup",
+  "exp": {
+   "merchant": "Preston Hollow Animal Hospital",
+   "amount": 20000,
+   "day": null
+  },
+  "got": {
+   "merchant": "Preston Hollow Animal Hospital",
+   "amount": 20000,
+   "dueDay": null,
+   "description": "Annual exam, vaccines, and parasite prevention",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 20000
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10340
+ },
+ {
+  "id": "bill-13",
+  "note": null,
+  "exp": {
+   "merchant": "Paws and Claws Veterinary",
+   "amount": 44200,
+   "day": 13
+  },
+  "got": {
+   "merchant": "Paws and Claws Veterinary",
+   "amount": 44200,
+   "dueDay": 13,
+   "description": "Vet services for emergency exam and treatments",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 44200,
+    "dueDay": 13
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11802
+ },
+ {
+  "id": "bill-14",
+  "note": null,
+  "exp": {
+   "merchant": "Reliable Rooter Plumbing",
+   "amount": 44750,
+   "day": 23
+  },
+  "got": {
+   "merchant": "Reliable Rooter Plumbing",
+   "amount": 44750,
+   "dueDay": 23,
+   "description": "Clear main line blockage",
+   "confidence": 0.85,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 44750,
+    "dueDay": 23
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11309
+ },
+ {
+  "id": "bill-15",
+  "note": "due on receipt",
+  "exp": {
+   "merchant": "Mckinney Plumbing Co",
+   "amount": 110300,
+   "day": null
+  },
+  "got": {
+   "merchant": "Mckinney Plumbing Co",
+   "amount": 110300,
+   "dueDay": null,
+   "description": "Replace water heater, install kit, haul away",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 110300
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11889
+ },
+ {
+  "id": "bill-16",
+  "note": null,
+  "exp": {
+   "merchant": "Bright Smile Dental",
+   "amount": 42000,
+   "day": 31
+  },
+  "got": {
+   "merchant": "Bright Smile Dental",
+   "amount": 42000,
+   "dueDay": 31,
+   "description": "Routine cleaning and two surface composite filling",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 42000,
+    "dueDay": 31
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11558
+ },
+ {
+  "id": "bill-17",
+  "note": null,
+  "exp": {
+   "merchant": "Lakewood Orthodontics",
+   "amount": 37000,
+   "day": 8
+  },
+  "got": {
+   "merchant": "Lakewood Orthodontics",
+   "amount": 37000,
+   "dueDay": 8,
+   "description": "Monthly aligner adjustment, retainer replacement",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 37000,
+    "dueDay": 8
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11116
+ },
+ {
+  "id": "bill-18",
+  "note": null,
+  "exp": {
+   "merchant": "Allstate Auto Insurance",
+   "amount": 21175,
+   "day": 20
+  },
+  "got": {
+   "merchant": "Allstate Auto Insurance",
+   "amount": 21175,
+   "dueDay": 20,
+   "description": "Car Insurance Premium",
+   "confidence": 0.98,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 21175,
+    "dueDay": 20
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10394
+ },
+ {
+  "id": "bill-19",
+  "note": null,
+  "exp": {
+   "merchant": "Progressive Insurance",
+   "amount": 21460,
+   "day": 33
+  },
+  "got": {
+   "merchant": "Progressive Insurance",
+   "amount": 21460,
+   "dueDay": 33,
+   "description": "CAR INSURANCE PREMIUM",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 21460,
+    "dueDay": 33
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11959
+ },
+ {
+  "id": "bill-20",
+  "note": null,
+  "exp": {
+   "merchant": "Cedar Ridge HOA",
+   "amount": 57000,
+   "day": 24
+  },
+  "got": {
+   "merchant": "Cedar Ridge HOA",
+   "amount": 57000,
+   "dueDay": 24,
+   "description": "HOA DUES",
+   "confidence": 1,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 57000,
+    "dueDay": 24
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11760
+ },
+ {
+  "id": "bill-21",
+  "note": null,
+  "exp": {
+   "merchant": "Willow Creek Community Association",
+   "amount": 28000,
+   "day": 2
+  },
+  "got": {
+   "merchant": "Willow Creek Community Association",
+   "amount": 28000,
+   "dueDay": 2,
+   "description": "HOA fees for fence repair",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 28000,
+    "dueDay": 2
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 12258
+ },
+ {
+  "id": "bill-22",
+  "note": "due at pickup",
+  "exp": {
+   "merchant": "Texas Appliance Doctors",
+   "amount": 32900,
+   "day": null
+  },
+  "got": {
+   "merchant": "Texas Appliance Doctors",
+   "amount": 32900,
+   "dueDay": null,
+   "description": "Refrigerator compressor relay",
+   "confidence": 0.8,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 32900
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10840
+ },
+ {
+  "id": "bill-23",
+  "note": null,
+  "exp": {
+   "merchant": "Fix-It Fast Appliance Repair",
+   "amount": 34923,
+   "day": 6
+  },
+  "got": {
+   "merchant": "Fix-It Fast Appliance Repair",
+   "amount": 34923,
+   "dueDay": 6,
+   "description": "Washing machine repair: drain pump replacement, labor cost included",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 34923,
+    "dueDay": 6
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 12162
+ },
+ {
+  "id": "bill-24",
+  "note": null,
+  "exp": {
+   "merchant": "Mesa Heating and Air",
+   "amount": 70400,
+   "day": 37
+  },
+  "got": {
+   "merchant": "Mesa Heating and Air",
+   "amount": 70400,
+   "dueDay": 37,
+   "description": "HVAC repair services including capacitor replacement and refrigerant recharge",
+   "confidence": 0.95,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 70400,
+    "dueDay": 37
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 12839
+ },
+ {
+  "id": "bill-25",
+  "note": null,
+  "exp": {
+   "merchant": "Spectrum Internet and TV",
+   "amount": 14641,
+   "day": 15
+  },
+  "got": {
+   "merchant": "Spectrum Internet and TV",
+   "amount": 14641,
+   "dueDay": 15,
+   "description": "Internet 500 Mbps TV Select package Broadcast TV fee Taxes and fees",
+   "confidence": 0.85,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 14641,
+    "dueDay": 15
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 12128
+ },
+ {
+  "id": "bill-26",
+  "note": null,
+  "exp": {
+   "merchant": "Verizon Wireless",
+   "amount": 23007,
+   "day": 12
+  },
+  "got": {
+   "merchant": "Verizon Wireless",
+   "amount": 23007,
+   "dueDay": 12,
+   "description": "Verizon Wireless PHONE BILL Plan 3 lines Device payment Taxes and surcharges Total due $230.07 Due Nov 19, 2026",
+   "confidence": 0.93,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 23007,
+    "dueDay": 12
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 11710
+ },
+ {
+  "id": "bill-27",
+  "note": "due at pickup",
+  "exp": {
+   "merchant": "Frisco Tire and Lube",
+   "amount": 77799,
+   "day": null
+  },
+  "got": {
+   "merchant": "Frisco Tire and Lube",
+   "amount": 77799,
+   "dueDay": null,
+   "description": "Auto repair services for four tires 235/55R18",
+   "confidence": 0.9,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 77799
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10875
+ },
+ {
+  "id": "bill-28",
+  "note": null,
+  "exp": {
+   "merchant": "Legacy Pet Dental Clinic",
+   "amount": 55500,
+   "day": 38
+  },
+  "got": {
+   "merchant": "Legacy Pet Dental Clinic",
+   "amount": 55500,
+   "dueDay": 38,
+   "description": "Dental cleaning and tooth extraction for pets",
+   "confidence": 0.98,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 55500,
+    "dueDay": 38
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10632
+ },
+ {
+  "id": "bill-29",
+  "note": null,
+  "exp": {
+   "merchant": "Greenway Pest Control",
+   "amount": 20000,
+   "day": 0
+  },
+  "got": {
+   "merchant": "Greenway Pest Control",
+   "amount": 20000,
+   "dueDay": 0,
+   "description": "0",
+   "confidence": 0.8,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 20000,
+    "dueDay": 0
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 10875
+ },
+ {
+  "id": "bill-30",
+  "note": null,
+  "exp": {
+   "merchant": "Texas Gas Service Plumbing Repair",
+   "amount": 58500,
+   "day": 26
+  },
+  "got": {
+   "merchant": "Texas Gas Service Plumbing Repair",
+   "amount": 58500,
+   "dueDay": 26,
+   "description": "Gas line leak repair",
+   "confidence": 0.9,
+   "crossCheck": {
+    "agrees": true,
+    "amount": 58500,
+    "dueDay": 26
+   }
+  },
+  "amountOk": true,
+  "dueOk": true,
+  "claudeAmountOk": true,
+  "claudeDueOk": true,
+  "ask": false,
+  "ms": 12088
+ }
+]

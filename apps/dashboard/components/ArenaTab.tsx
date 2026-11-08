@@ -41,8 +41,10 @@ function useDemoResults(enabled: boolean): ArenaResults | null {
 
 export function ArenaTab({ state, actions }: DashboardProps) {
   const { arenaProgress } = state;
-  const demoResults = useDemoResults(state.mode === 'demo');
-  const arena = state.mode === 'demo' ? (demoResults ?? state.arena) : state.arena;
+  // Live mode falls back to the shipped results when the server has none yet (a demo reset clears them).
+  const serverHasRuns = !!state.arena && !state.arena.sample && state.arena.runs.length > 0;
+  const demoResults = useDemoResults(state.mode === 'demo' || !serverHasRuns);
+  const arena = state.mode === 'demo' || !serverHasRuns ? (demoResults ?? state.arena) : state.arena;
   const running = arenaProgress !== null && arenaProgress.done < arenaProgress.total;
   const clean = arena && arena.limitViolations === 0 && arena.disclosures === 0;
 

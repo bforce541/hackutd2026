@@ -31,6 +31,19 @@ export function createApp(ctx: ServerContext): Hono {
     }),
   );
 
+  // Requests that arrive through the public tunnel (Tailscale Funnel or any reverse proxy) are
+  // view-only: anyone on pacepay.work can watch the live demo, but only this laptop can act on it.
+  // The voice worker's endpoints are local-only, so they're closed to the tunnel entirely.
+  app.use('/api/*', async (c, next) => {
+    if (isProxied(c.req.raw.headers)) {
+      if (c.req.path.startsWith('/api/voice/')) return apiError(c, 403, 'read_only', 'Not available through the public tunnel');
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
+        return apiError(c, 403, 'read_only', 'The public dashboard is view-only');
+      }
+    }
+    await next();
+  });
+
   app.onError((err, c) => {
     if (err instanceof HttpError) return apiError(c, err.status, err.code, err.message);
     const code = (err as { code?: string }).code;
@@ -42,7 +55,13 @@ export function createApp(ctx: ServerContext): Hono {
   });
 
   app.get('/api/health', (c) => {
-    const body: HealthResponse = { ok: true, day: ctx.clock.today(), provider: ctx.models.provider(), agent: ctx.agentMode };
+    const body: HealthResponse = {
+      ok: true,
+      day: ctx.clock.today(),
+      provider: ctx.models.provider(),
+      agent: ctx.agentMode,
+      ...(isProxied(c.req.raw.headers) ? { readOnly: true } : {}),
+    };
     return c.json(body);
   });
 
@@ -62,4 +81,9 @@ export function createApp(ctx: ServerContext): Hono {
 
   app.notFound((c) => apiError(c, 404, 'not_found', `${c.req.method} ${c.req.path} not found`));
   return app;
+}
+
+/** True when a request came through a tunnel or proxy rather than straight from this machine. */
+export function isProxied(headers: Headers): boolean {
+  return headers.has('tailscale-funnel-request') || headers.has('x-forwarded-for') || headers.has('forwarded');
 }

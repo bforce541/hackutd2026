@@ -42,6 +42,7 @@ export type ApiErrorCode =
   | 'bad_request'
   | 'not_found'
   | 'forbidden' // /api/voice/* from a non-localhost address
+  | 'read_only' // addition: a write through the public tunnel (the public dashboard is view-only)
   | 'conflict' // e.g. a gate in machine.ts refused the transition
   | 'not_implemented'
   | 'internal';
@@ -304,4 +305,6 @@ export interface HealthResponse {
   day: Day;
   provider: 'gateway' | 'nvidia' | 'none';
   agent: 'stub' | 'real';
+  /** Addition: true when this request came through the public tunnel. The server is view-only there: every write returns 403 `read_only`. */
+  readOnly?: boolean;
 }

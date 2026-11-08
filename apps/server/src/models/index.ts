@@ -17,6 +17,8 @@ import type OpenAI from 'openai';
 import type { z } from 'zod';
 import type { ModelJob, ModelProvider, ModelRole, ToolName } from '@pacepay/shared';
 import type { Bus } from '../bus';
+import { createGatewayClient } from './gateway';
+import { createNvidiaClient } from './nvidia';
 
 export type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export type ChatTool = OpenAI.Chat.Completions.ChatCompletionTool;
@@ -118,32 +120,8 @@ export interface ModelClientDeps {
   env?: NodeJS.ProcessEnv;
 }
 
-/**
- * Stub until the models stream lands: reports the provider and emits a 'model.called' warn event
- * on every call, then throws ModelUnavailableError, so callers exercise their fallbacks.
- */
+/** Picks the provider by whether TRUEFOUNDRY_API_KEY is set (gateway) or not (NVIDIA mode). */
 export function createModelClient(deps: ModelClientDeps): ModelClient {
   const env = deps.env ?? process.env;
-  const provider: ModelProvider = env.TRUEFOUNDRY_API_KEY ? 'gateway' : 'nvidia';
-  const fail = (job: ModelJob, extra?: { caseId?: string; stepId?: string; title?: string }): never => {
-    deps.bus.emit({
-      type: 'model.called',
-      model: modelRoleFor(job, provider),
-      caseId: extra?.caseId,
-      stepId: extra?.stepId,
-      title: extra?.title ?? `Model call (${job}) skipped: model client not implemented yet`,
-      level: 'warn',
-      ms: 0,
-    });
-    throw new ModelUnavailableError(`models.${job}: not implemented yet`);
-  };
-  return {
-    chat: async (req) => fail(req.role, req),
-    embed: async (_texts, opts) => fail('embed', opts),
-    image: async () => fail('image'),
-    tts: async () => fail('tts'),
-    provider: () => provider,
-    available: (role) => provider === 'gateway' || !['claude', 'image', 'tts'].includes(role),
-    roleFor: (job) => modelRoleFor(job, provider),
-  };
+  return env.TRUEFOUNDRY_API_KEY ? createGatewayClient(deps.bus, env) : createNvidiaClient(deps.bus, env);
 }

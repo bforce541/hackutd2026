@@ -1,14 +1,18 @@
 /**
  * The Photon 2.0 adapter for MessagingPort (SPEC §6). Implemented by: photon.
  *
- * - Client: `@photon-ai/api` with PHOTON_API_KEY against https://api.photon.codes/v1; always send a User-Agent.
- * - Receive: poll listMessages every 2 s (direction received, order asc, follow nextPageToken).
- *   Accept only CUSTOMER_PHONE (normalize to E.164). Restart the loop 2 s after a throw and log a warn.
- * - Send text into PHOTON_CUSTOMER_SPACE_ID as PHOTON_AGENT_SENDER_ID with an idempotency key.
- * - Send image: upload via attachments (multipart/related, two parts), then send { type: 'attachment' }.
- * - fetchImage: GET /v1/projects/{id}/attachments/{attachmentId}/content.
+ * Raw REST against https://api.photon.codes/v1 (the verified recipe; no SDK needed):
+ * - Every request carries a User-Agent (Photon's bot filter rejects default clients) and the bearer key.
+ * - Receive: poll listMessages (direction received, order asc, createdSince, follow nextPageToken)
+ *   every 2 s. Only CUSTOMER_PHONE (normalized to E.164) is accepted. A throw restarts the loop
+ *   2 s later and reports a warn through onWarn.
+ * - Send text into the customer space as the agent sender, with an Idempotency-Key.
+ * - Send image: POST /attachments as multipart/related (JSON part, then bytes), then send
+ *   { type: 'attachment', attachmentId } with NO metadata.
+ * - fetchImage: GET /attachments/{id}/content.
  */
-import type { MessagingPort } from './port';
+import { randomUUID } from 'node:crypto';
+import type { InboundMessage, MessagingPort } from './port';
 
 export interface PhotonOptions {
   apiKey: string;
@@ -21,12 +25,140 @@ export interface PhotonOptions {
   onWarn?: (title: string, detail?: unknown) => void;
 }
 
-export function createPhotonMessaging(_opts: PhotonOptions): MessagingPort {
-  const notYet = (what: string) => Promise.reject(new Error(`photon.${what}: not implemented yet`));
+const BASE = 'https://api.photon.codes/v1';
+const USER_AGENT = 'pacepay/0.1';
+
+/** "(214) 555-1234" / "2145551234" / "+12145551234" -> "+12145551234" (US default for 10 digits). */
+export function toE164(raw: string | undefined | null): string {
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  if (raw.trim().startsWith('+')) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return `+${digits}`;
+}
+
+interface PhotonMessage {
+  id: string;
+  content?: { type?: string; text?: string; attachmentId?: string };
+  createdAt?: string;
+  space?: { id?: string };
+  sentBy?: { handle?: string; kind?: string } | string;
+}
+
+interface Page {
+  items?: PhotonMessage[];
+  nextPageToken?: string | null;
+}
+
+export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
+  const project = `${BASE}/projects/${opts.projectId}`;
+  const pollMs = opts.pollMs ?? 2000;
+  const customer = toE164(opts.customerPhone);
+  const warn = opts.onWarn ?? ((t, d) => console.warn(`[photon] ${t}`, d ?? ''));
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  function headers(extra: Record<string, string> = {}): Record<string, string> {
+    return { authorization: `Bearer ${opts.apiKey}`, 'user-agent': USER_AGENT, ...extra };
+  }
+
+  async function fail(what: string, res: Response): Promise<never> {
+    const body = (await res.text().catch(() => '')).slice(0, 300);
+    throw new Error(`Photon ${what} failed: ${res.status} ${body}`);
+  }
+
+  async function listPage(createdSince: string, pageToken?: string): Promise<Page> {
+    const q = new URLSearchParams({ direction: 'received', order: 'asc', pageSize: '100', platform: 'imessage', createdSince });
+    if (pageToken) q.set('pageToken', pageToken);
+    const res = await fetch(`${project}/messages?${q}`, { headers: headers() });
+    if (!res.ok) await fail('listMessages', res);
+    return (await res.json()) as Page;
+  }
+
+  async function postMessage(content: Record<string, unknown>): Promise<{ id: string }> {
+    const res = await fetch(`${project}/messages`, {
+      method: 'POST',
+      headers: headers({ 'content-type': 'application/json', 'idempotency-key': `pacepay:${randomUUID()}` }),
+      body: JSON.stringify({ spaceId: opts.spaceId, senderId: opts.senderId, content }),
+    });
+    if (!res.ok) await fail('sendMessage', res);
+    const j = (await res.json()) as { id?: string };
+    return { id: j.id ?? '' };
+  }
+
+  function toInbound(m: PhotonMessage): InboundMessage | null {
+    const sender = typeof m.sentBy === 'object' && m.sentBy ? m.sentBy : undefined;
+    const from = toE164(sender?.handle);
+    if (!customer || from !== customer) return null;
+    const c = m.content ?? {};
+    if (c.type === 'text' && c.text) return { id: m.id, from, text: c.text, at: m.createdAt ?? new Date().toISOString() };
+    if (c.type === 'attachment' && c.attachmentId) return { id: m.id, from, imageRef: c.attachmentId, at: m.createdAt ?? new Date().toISOString() };
+    return null; // other content kinds (polls, etc.) are ignored
+  }
+
+  async function pollForever(onInbound: (m: InboundMessage) => Promise<void>): Promise<void> {
+    // Start from now: older messages were handled (or deliberately ignored) in earlier runs.
+    let since = new Date().toISOString();
+    const seen = new Set<string>();
+    for (;;) {
+      try {
+        let token: string | undefined;
+        do {
+          const page = await listPage(since, token);
+          for (const m of page.items ?? []) {
+            if (seen.has(m.id)) continue;
+            seen.add(m.id);
+            if (m.createdAt && m.createdAt > since) since = m.createdAt;
+            const inbound = toInbound(m);
+            if (inbound) await onInbound(inbound);
+          }
+          token = page.nextPageToken ?? undefined;
+        } while (token);
+        if (seen.size > 2000) seen.clear(); // createdSince keeps old ones out; the set only covers the boundary
+      } catch (err) {
+        warn(`Photon receive loop failed, restarting in 2 s: ${(err as Error).message}`, { error: String(err) });
+        await sleep(2000);
+        continue;
+      }
+      await sleep(pollMs);
+    }
+  }
+
   return {
-    start: () => notYet('start'),
-    sendText: () => notYet('sendText'),
-    sendImage: () => notYet('sendImage'),
-    fetchImage: () => notYet('fetchImage'),
+    async start(onInbound) {
+      void pollForever(onInbound);
+    },
+
+    sendText: (text) => postMessage({ type: 'text', format: 'plain', text }),
+
+    async sendImage(png, name) {
+      const boundary = `pacepay-${randomUUID()}`;
+      const meta = JSON.stringify({ contentType: 'image/png', sizeBytes: png.length, filename: name });
+      const body = Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: image/png\r\n\r\n`),
+        png,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+      const res = await fetch(`${project}/attachments`, {
+        method: 'POST',
+        headers: headers({
+          'content-type': `multipart/related; boundary=${boundary}`,
+          'content-length': String(body.length),
+          'idempotency-key': `pacepay:${randomUUID()}`,
+        }),
+        body,
+      });
+      if (!res.ok) await fail('attachment upload', res);
+      const att = (await res.json()) as { id?: string };
+      if (!att.id) throw new Error('Photon attachment upload returned no id');
+      return postMessage({ type: 'attachment', attachmentId: att.id });
+    },
+
+    async fetchImage(ref) {
+      const res = await fetch(`${project}/attachments/${encodeURIComponent(ref)}/content`, { headers: headers() });
+      if (!res.ok) await fail('attachment download', res);
+      return Buffer.from(await res.arrayBuffer());
+    },
   };
 }

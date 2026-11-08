@@ -7,8 +7,18 @@
  */
 import { Hono } from 'hono';
 import type { ServerContext } from '../context';
+import { apiError } from './http';
 
-export function mediaRoutes(_ctx: ServerContext): Hono {
+export function mediaRoutes(ctx: ServerContext): Hono {
   const r = new Hono();
+
+  r.get('/media/:id', (c) => {
+    const found = ctx.store.getMedia(c.req.param('id'));
+    if (!found) return apiError(c, 404, 'not_found', `media ${c.req.param('id')} not found`);
+    return new Response(new Uint8Array(found.data), {
+      headers: { 'Content-Type': found.meta.contentType, 'Cache-Control': 'private, max-age=3600' },
+    });
+  });
+
   return r;
 }

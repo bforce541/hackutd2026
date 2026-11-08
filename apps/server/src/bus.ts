@@ -36,15 +36,31 @@ export function createBus(opts: BusOptions = {}): Bus {
   const buffer: SseEvent[] = [];
   const subs = new Set<(e: SseEvent) => void>();
 
+  // A subscriber may publish while an event is being delivered (the agent follows an approval by
+  // publishing the case). Those events wait in `pending` so every subscriber sees seq order; the
+  // SSE writer skips any seq lower than one it already sent, so out-of-order delivery lost events.
+  const pending: SseEvent[] = [];
+  let delivering = false;
+
   function deliver(e: SseEvent): void {
     buffer.push(e);
     if (buffer.length > replaySize) buffer.splice(0, buffer.length - replaySize);
-    for (const fn of subs) {
-      try {
-        fn(e);
-      } catch (err) {
-        console.error('[bus] subscriber threw', err);
+    pending.push(e);
+    if (delivering) return;
+    delivering = true;
+    try {
+      while (pending.length) {
+        const next = pending.shift()!;
+        for (const fn of subs) {
+          try {
+            fn(next);
+          } catch (err) {
+            console.error('[bus] subscriber threw', err);
+          }
+        }
       }
+    } finally {
+      delivering = false;
     }
   }
 

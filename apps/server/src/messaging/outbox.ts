@@ -58,6 +58,15 @@ function heldBack(ctx: Ctx, rules: Rules, opts: OutboundOptions): 'quiet_hours' 
   return null;
 }
 
+/**
+ * Why an unprompted text would be held right now (quiet hours or Pause), or null. The watcher
+ * asks before it starts a case whose first text is unprompted (the CD alert, a shortfall alert),
+ * because those texts go out as approval prompts, which are never held themselves.
+ */
+export function unpromptedHoldReason(ctx: Ctx): 'quiet_hours' | 'paused' | null {
+  return heldBack(ctx, ctx.store.rules(), { unprompted: true });
+}
+
 function record(ctx: Ctx, m: Message, opts: OutboundOptions, title: string): void {
   ctx.store.appendMessage(m);
   ctx.bus.emit({ type: m.direction === 'out' ? 'message.out' : 'message.in', model: opts.model ?? 'code', caseId: opts.caseId, stepId: opts.stepId, title, detail: { messageId: m.id } });

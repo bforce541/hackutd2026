@@ -218,7 +218,9 @@ const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x
 const scrollFor = (n) => Math.max(0, n - SLOTS) * STEP;
 
 function drawWave(turn, tt, speaking) {
-  const env = speaking ? 0.55 + 0.45 * Math.abs(Math.sin(tt * 2.6)) : 0;
+  // the real loudness of the call audio at this frame when we have it, else a stand-in pulse
+  const real = CALL.env ? CALL.env[Math.min(CALL.env.length - 1, Math.max(0, Math.round(tt * 30)))] : null;
+  const env = !speaking ? 0 : real !== null ? Math.min(1, 0.12 + 0.95 * real) : 0.55 + 0.45 * Math.abs(Math.sin(tt * 2.6));
   turn.rects.forEach((r, i) => {
     const x = i / (BARS - 1);
     const taper = Math.pow(Math.sin(Math.PI * x), 0.9);
@@ -264,13 +266,28 @@ function render(t) {
     const speaking = isNewest && tt <= line.end;
     el.classList.toggle('done', !isNewest);
 
-    // caption types on over 80% of the line, then holds
-    const p = Math.min(1, Math.max(0, (tt - line.start) / ((line.end - line.start) * 0.8)));
-    const key = p < 1 ? `t${Math.round(line.text.length * p)}` : 'full';
+    // caption: word by word as each is spoken (line.words from word-times.mjs), else evenly over 80% of the line
+    let nChars, p;
+    if (line.words && line.words.length) {
+      const W = line.words;
+      let k = -1;
+      while (k + 1 < W.length && W[k + 1].s <= tt) k++;
+      if (k < 0) nChars = 0;
+      else {
+        const prevEnd = k > 0 ? W[k - 1].j : 0, w = W[k];
+        const f = Math.min(1, Math.max(0, (tt - w.s) / Math.max(0.05, w.e - w.s)));
+        nChars = Math.round(prevEnd + (w.j - prevEnd) * f);
+      }
+      p = k === W.length - 1 && tt >= W[k].e ? 1 : nChars / line.text.length;
+      if (p >= 1) nChars = line.text.length;
+    } else {
+      p = Math.min(1, Math.max(0, (tt - line.start) / ((line.end - line.start) * 0.8)));
+      nChars = Math.round(line.text.length * p);
+    }
+    const key = p < 1 ? `t${nChars}` : 'full';
     if (key !== turn.state) {
       turn.state = key;
-      const shown = line.text.slice(0, Math.round(line.text.length * p));
-      turn.caption.innerHTML = esc(shown) + (p < 1 ? '<span class="cursor"></span>' : '');
+      turn.caption.innerHTML = esc(line.text.slice(0, nChars)) + (p < 1 ? '<span class="cursor"></span>' : '');
     }
 
     if (speaking || turn.waveLive !== false) { drawWave(turn, tt, speaking); turn.waveLive = speaking; }

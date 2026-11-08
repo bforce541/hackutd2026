@@ -302,8 +302,12 @@ try {
     let cuts = existsSync(cutsFile) ? JSON.parse(await readFile(cutsFile, 'utf8')) : null;
     cuts = Array.isArray(cuts) ? cuts : cuts?.cuts;
     if (!cuts?.length) cuts = [{ in: 0, out: callLen }];
-    cuts.forEach((c, j) => aFilt.push(`[${k}:a]atrim=${c.in}:${c.out},asetpts=PTS-STARTPTS[c${j}]`));
-    aFilt.push(`${cuts.map((_, j) => `[c${j}]`).join('')}concat=n=${cuts.length}:v=0:a=1,atrim=0:${callLen},adelay=${call.start * 1000}:all=1,volume=${TL.audio_mix.call}[call]`);
+    // every piece gets a short fade in and out, so the joins don't click; then a light cleanup:
+    // rumble cut, hiss reduction (noise floor measured at about -66 dB in the hold), presence kept
+    const F = 0.025;
+    cuts.forEach((c, j) => aFilt.push(`[${k}:a]atrim=${c.in}:${c.out},asetpts=PTS-STARTPTS,afade=t=in:d=${F},afade=t=out:st=${Math.max(0, c.out - c.in - F).toFixed(3)}:d=${F}[c${j}]`));
+    aFilt.push(`${cuts.map((_, j) => `[c${j}]`).join('')}concat=n=${cuts.length}:v=0:a=1,atrim=0:${callLen},` +
+      `highpass=f=85,afftdn=nf=-60:nr=14:nt=w,lowpass=f=9000,adelay=${call.start * 1000}:all=1,volume=${TL.audio_mix.call}[call]`);
     voiceLabels.push('[call]');
   }
   for (const s of TL.scenes.filter((s) => s.voice)) {

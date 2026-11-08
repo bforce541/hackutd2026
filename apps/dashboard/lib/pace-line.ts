@@ -86,7 +86,8 @@ export function buildGeometry(inp: GeometryInput): ChartGeometry {
   const days = inp.line.days.slice(0, n);
   const bal = days.map((d) => d.close);
   const ghostBal = inp.ghost ? inp.ghost.days.slice(0, n).map((d) => d.close) : [];
-  const all = [...bal, ...ghostBal];
+  const lows = days.map((d) => d.intradayLow);
+  const all = [...bal, ...lows, ...ghostBal];
 
   const top = Math.ceil((Math.max(...all, 0) + 30000) / 100000) * 100000;
   const bot = Math.min(-100000, Math.floor((Math.min(...all, 0) - 30000) / 50000) * 50000);
@@ -138,14 +139,16 @@ export function buildGeometry(inp: GeometryInput): ChartGeometry {
     return boxes.some((o) => o.x1 > r.x0 && o.x0 < r.x1 && o.y1 > r.y0 && o.y0 < r.y1);
   };
 
-  // The lowest point: the day whose number matches, else the smallest close.
+  // The lowest point is the day's intraday low (debits post before credits), which can sit below
+  // that day's closing step. Use the named day when it is in view, else the lowest visible day.
   let loIdx = days.findIndex((d) => d.day === inp.lowestDay);
-  if (loIdx < 0 && bal.length) loIdx = bal.indexOf(Math.min(...bal));
+  if (loIdx < 0 && lows.length) loIdx = lows.indexOf(Math.min(...lows));
   let low: ChartGeometry['low'] = null;
   if (loIdx >= 0) {
     const lx = ((loIdx + 0.5) / n) * W;
-    const ly = y(bal[loIdx]);
-    low = { x: lx, y: ly, negative: bal[loIdx] < 0 };
+    const lowAmount = lows[loIdx];
+    const ly = y(lowAmount);
+    low = { x: lx, y: ly, negative: lowAmount < 0 };
     boxes.push({ x0: lx - 8, x1: lx + 8, y0: ly - 8, y1: ly + 8 });
   }
 

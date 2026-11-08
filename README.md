@@ -11,6 +11,16 @@
 - [SPEC.md](SPEC.md): how we're building it
 - [UI.md](UI.md): how it looks and behaves, based on research
 
+## Deploy
+
+Every push to `main` deploys to **https://pacepay.work** through Vercel (project `pacepay` on Yoshua's Vercel account, connected to this repo). Nobody needs to run a deploy command.
+
+- Vercel builds `apps/dashboard` (Next.js) from the pnpm workspace. A push that changes nothing in `apps/dashboard` or the packages it uses (docs, for example) skips the build.
+- `www.pacepay.work` serves the site, and `pacepay.work` redirects to it. DNS is at Porkbun: an A record for `@` and a CNAME for `www`, both pointing at Vercel.
+- Builds fail with "root directory does not exist" until `apps/dashboard` lands. That's expected.
+- The repo has to stay public: on Vercel's Hobby plan, pushes from anyone but Yoshua only deploy from a public repo.
+- The deployed dashboard can't reach a server on `localhost`. To show live data on pacepay.work, give the server a public URL (for example a tunnel on `api.pacepay.work`) and set `SERVER_URL` in the Vercel project's environment variables. Otherwise demo the dashboard locally.
+
 ## Setup
 
 This repo is public, so every key lives in `.env` **encrypted** with [dotenvx](https://dotenvx.com). You need one file to unlock it.

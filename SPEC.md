@@ -54,6 +54,7 @@ A pnpm workspaces monorepo. Everything is TypeScript.
 - **Hono for the server.** It's small, TypeScript-first, and has a built-in SSE helper.
 - **In-memory state with a JSON snapshot instead of a database.** One server process owns all state, and the demo resets dozens of times. A database adds migrations and setup with no benefit here. `DATABASE_URL` is kept in the env but unused unless you switch the store to Postgres later.
 - **No public URL needed.** Photon messages are fetched from Photon's API (polling, or Socket.IO live events), the voice worker connects out to LiveKit Cloud, and the voice worker reaches the server on localhost. The whole system runs on one laptop.
+- **The dashboard also deploys to https://pacepay.work.** Vercel builds `apps/dashboard` on every push to `main` (details in [README.md › Deploy](README.md#deploy)). The deployed copy needs a public `SERVER_URL` to show live data; the demo itself runs locally.
 
 **Ports:** server `8787`, dashboard `3000`. `SERVER_URL` defaults to `http://localhost:8787` and `DASHBOARD_URL` to `http://localhost:3000`. The dashboard reads the server URL through `next.config` (`env: { NEXT_PUBLIC_SERVER_URL: process.env.SERVER_URL }`), so there's no extra env var.
 

@@ -163,10 +163,10 @@
   "audio_mix": {
     "call": 1,
     "voice": 0.85,
-    "music": 0.24,
+    "music": 0.3,
     "duck_music_under_voice": true,
     "loudness_lufs": -16,
-    "_music_note": "music.wav is about -20.6 LUFS; 0.24 puts it near -33 LUFS under the -16 LUFS voices, more in the boost windows, ducked under speech"
+    "_music_note": "music.wav is normalized to -18 LUFS by make-music.mjs; 0.3 puts it near -28.5 LUFS under the -16 LUFS voices, louder in the boost windows, ducked under speech"
   },
   "captions": {
     "burn_in": [
@@ -200,12 +200,12 @@
       [
         62,
         66,
-        1.4
+        3
       ],
       [
         112,
         118,
-        1.8
+        3.2
       ]
     ]
   },

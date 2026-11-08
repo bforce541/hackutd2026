@@ -84,14 +84,34 @@ const LINES = {
   closeNoReference: 'Thank you for your help. Yoshua will follow up. Goodbye.',
   modelFailed: "One moment. Let me check on that and call you back. Thank you, goodbye.",
   ended: 'This conversation has ended. Thank you.',
-  safeAnswer: "I'm an AI assistant contacting you on Yoshua's behalf, with Yoshua's permission, about moving this month's payment.",
-  privateDetails: "I'm not able to share details about Yoshua's finances, but I'd appreciate your help moving this month's payment.",
+  privateDetails: "I'm not able to share details about Yoshua's finances.",
+  takeYourTime: 'Sure, take your time.',
+  sayAgain: 'Sorry, could you say that again?',
   areYouAPerson: "I'm an AI assistant contacting you on Yoshua's behalf, with Yoshua's permission, and this conversation is transcribed.",
 } as const;
 
-/** "Friday, Nov 13" (works spoken and typed). */
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** "Friday, November 13" (reads well spoken and typed). */
 function speakDate(day: Day, day0Date: string): string {
-  return `${formatWeekdayLong(day, day0Date)}, ${formatShortDate(day, day0Date)}`;
+  const [, mm, dd] = dayToISODate(day, day0Date).split('-').map(Number) as [number, number, number];
+  return `${formatWeekdayLong(day, day0Date)}, ${MONTHS_LONG[mm - 1] ?? formatShortDate(day, day0Date)} ${dd}`;
+}
+
+/** The opening ask from the CallPlan: the target day with no fee. Said at the end of the greeting and whenever the lender asks what PacePay wants. */
+export function openingAsk(ctx: ToolContext, n: Negotiation): string {
+  return `${n.channel === 'text' ? "I'm reaching out" : "I'm calling"} to ask if this month's payment can move to ${speakDate(n.callPlan.targetDay, day0(ctx))}, with no fee.`;
+}
+
+/** The first thing PacePay says, on a call (the voice brief's greeting) or in the lender console. Ends with the ask. */
+export function greetingLine(ctx: ToolContext, n: Negotiation, channel: 'voice' | 'text' = n.channel === 'text' ? 'text' : 'voice'): string {
+  const person = personName(ctx);
+  const how = channel === 'voice' ? 'calling' : 'contacting you';
+  const what = channel === 'voice' ? 'call' : 'conversation';
+  return (
+    `Hi, I'm PacePay, an AI assistant ${how} on behalf of ${person}, with ${person}'s permission, about the ${accountReference(ctx, n)}. ` +
+    `This ${what} is transcribed. ${openingAsk(ctx, n)}`
+  );
 }
 
 function feeWords(fee: Cents): string {
@@ -208,6 +228,10 @@ interface Memory {
   counters: number;
   pushbacks: number;
   waitedForReference: boolean;
+  /** The last ask PacePay said in words (a counter, a waiver, "what day"); repeated when the lender asks what PacePay wants. Null means the opening ask. */
+  askLine: string | null;
+  /** PacePay already asked the lender to repeat a garbled line (asked once, then silence until a real turn). */
+  saidSayAgain: boolean;
 }
 
 const memory = new Map<string, Memory>();
@@ -227,6 +251,8 @@ function mem(n: Negotiation): Memory {
       counters: 0,
       pushbacks: 0,
       waitedForReference: false,
+      askLine: null,
+      saidSayAgain: false,
     };
     memory.set(n.id, m);
   }
@@ -367,6 +393,22 @@ function feeDollars(v: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const ONES: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+const TEENS: Record<string, number> = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+
+/** A fee in what the lender said, typed ("$35", "35 dollars") or spoken ("thirty-five dollar fee", "a hundred dollars"). */
+export function feeAmount(text: string): Cents | null {
+  const typed = findDollarAmount(text);
+  if (typed !== null) return typed;
+  const t = text.toLowerCase();
+  if (/\b(a|one) hundred (dollars?|bucks)\b/.test(t)) return dollarsToCents(100);
+  const m = /\b(?:(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[\s-](one|two|three|four|five|six|seven|eight|nine))?|(ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)|(one|two|three|four|five|six|seven|eight|nine))\s+(?:dollars?|bucks)\b/.exec(t);
+  if (!m) return null;
+  const dollars = m[1] ? TENS[m[1]]! + (m[2] ? ONES[m[2]]! : 0) : m[3] ? TEENS[m[3]]! : ONES[m[4]!]!;
+  return dollarsToCents(dollars);
+}
+
 const YES = /^(y|yes|yep|yeah|yup|ok|okay|correct|right|thats right|thats correct|that is correct|sure|confirmed|exactly)$/;
 const NO = /^(n|no|nope|nah|not quite|thats not right|incorrect)$/;
 
@@ -413,35 +455,89 @@ function modelLabel(ctx: ToolContext): string {
 const LEAK_WORDS =
   /\b(balance|pay ?checks?|payday|paid|pays|salary|wages?|income|deposits?|limit|floor|afford\w*|overdra\w*|savings|checking|mortgage|cushion|budget|dollars?|bucks|cents|money|cash|funds?|bills?|rent|repairs?|expenses?|emergenc\w*|unexpected|short|tight|hardship|struggl\w*|trouble|behind|late|debt|owe[sd]?|because|due to|since|reasons?|conflicts?|schedul\w*|hundred|thousand|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|agree\w*|accept\w*|approv\w*|deal|go ahead|sounds good|works for|confirm\w*|authori[sz]e[sd]? (?:me|you|the|this|it|that)|promise\w*)\b/i;
 
-/** Keeps a small-talk answer inside the brief: no money, no reasons, no agreeing, no account numbers beyond the reference. */
-function safeSay(ctx: ToolContext, n: Negotiation, say: string | null | undefined): string {
+/**
+ * Keeps a small-talk answer inside the brief: no money, no reasons, no agreeing, no account numbers
+ * beyond the reference. Anything unsafe is replaced by the current ask (never an improvised line).
+ */
+function safeSay(ctx: ToolContext, n: Negotiation, m: Memory, say: string | null | undefined): string {
+  const fallback = currentAsk(ctx, n, m);
   const s = (say ?? '').trim();
-  if (!s) return LINES.safeAnswer;
-  if (/[$%#]/.test(s)) return LINES.safeAnswer;
-  if (LEAK_WORDS.test(s)) return LINES.safeAnswer;
+  if (!s) return fallback;
+  if (/[$%#]/.test(s)) return fallback;
+  if (LEAK_WORDS.test(s)) return fallback;
   // The only digits allowed are the account reference's own ("4417").
   const allowed: string[] = accountReference(ctx, n).match(/\d+/g) ?? [];
   const digits = s.match(/\d+/g) ?? [];
-  if (digits.some((d) => !allowed.includes(d))) return LINES.safeAnswer;
+  if (digits.some((d) => !allowed.includes(d))) return fallback;
   return s.split(/(?<=[.?!])\s+/).slice(0, 2).join(' ');
 }
 
+/** What PacePay is asking for right now, in words: the pending read-back, the last counter, or the opening ask. */
+function currentAsk(ctx: ToolContext, n: Negotiation, m: Memory): string {
+  const pending = n.pendingOfferId ? n.offers.find((o) => o.id === n.pendingOfferId) : undefined;
+  if (pending) return readBackLine(pending, day0(ctx));
+  return m.askLine ?? openingAsk(ctx, n);
+}
+
 const ASKS_A_QUESTION = /\?|^\s*(what|why|how|when|where|who|which|is|are|does|do|did|can|could|would|will|tell me|explain)\b/i;
+/** Fishing for Yoshua's finances, his reasons, or PacePay's limits. "Why are you calling" is about the request, not a reason. */
 const ABOUT_FINANCES =
-  /\b(why|reasons?|balance|paid|pay ?checks?|payday|salary|wages?|income|savings|checking|afford\w*|money|funds|cash|bills?|budget|financ\w*|trouble|struggl\w*|hardship|limit|floor|most|max(imum)?|how much|willing|bounce|overdra\w*|short|behind|other (payments|loans|debts?|accounts?))\b/i;
+  /\b(why(?! (are|were|did) you (calling|call|reaching))|reasons?|balance|paid|pay ?checks?|payday|salary|wages?|income|savings|checking account|afford\w*|money|funds|cash|bills?|budget|financ\w*|trouble|struggl\w*|hardship|limit|floor|the most|max(imum)?|how much|willing to pay|bounce|overdra\w*|short on|behind on|other (payments|loans|debts?|accounts?))\b/i;
 const ABOUT_BEING_AI = /\b(real person|a person|human|robot|a bot|an ai|automated|machine|recording|recorded)\b/i;
+/**
+ * Ordinary questions about the request itself ("How can I help?", "Do you not want to move the
+ * payment?", "Which payment?", "What date?"): the answer is the ask. Tested on normalizeReply text
+ * (lowercase, no punctuation or apostrophes).
+ */
+const ABOUT_THE_REQUEST =
+  /\b(how (can|may|could) (i|we) help|what can (i|we) do|what do you (need|want)|what (did|do|would) you (need|want|like)|what would you like|what are you (asking|calling|looking)|whats (this|it) (about|regarding)|what is (this|it) (about|regarding)|(why|what) (are|were|did) you (calling|call|reaching)|which (payment|account|loan|one|bill)|what (payment|account|loan)|(what|which) (date|day)|when (do|would) you (want|like)|(do|did) you (not )?(want|need) (to|me to|us to) move|you (want|need|would like) (to|me to|us to) move|move (the|which|what|my|your|his|this) payment|(say|repeat) (that|it) again|repeat that|come again|pardon|what was that)\b/;
+/** "Hold on, let me pull that up": the lender is working on it. */
+const HOLDING = /\b(hold on|one (moment|sec|second|minute)|just a (moment|sec|second|minute)|give me a (moment|sec|second|minute)|let me (pull|check|look|see|find|bring)|bear with me|pulling (it|that|the account) up)\b/;
 
 /**
- * Lender questions code answers without the model: whether PacePay is a person, and anything about
- * Yoshua's money or why he wants the change. Lines that carry an offer (a day or an amount) still
- * go to the model, which only extracts the offer from them.
+ * Lender questions code answers without the model: whether PacePay is a person, anything about
+ * Yoshua's money or why he wants the change, and what PacePay is asking for. Lines that carry an
+ * offer (a day or an amount) still go to the model, which only extracts the offer from them.
  */
-function presetAnswer(ctx: ToolContext, utterance: string): string | null {
-  if (!ASKS_A_QUESTION.test(utterance)) return null;
-  if (findDollarAmount(utterance) !== null || parseDayPhrase(utterance, ctx.clock.today(), day0(ctx)) !== null) return null;
-  if (ABOUT_BEING_AI.test(utterance)) return LINES.areYouAPerson;
-  if (ABOUT_FINANCES.test(utterance)) return LINES.privateDetails;
+function presetAnswer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string): string | null {
+  if (feeAmount(utterance) !== null || parseDayPhrase(utterance, ctx.clock.today(), day0(ctx)) !== null) return null;
+  const plain = normalizeReply(utterance);
+  if (ASKS_A_QUESTION.test(utterance)) {
+    if (ABOUT_BEING_AI.test(utterance)) return LINES.areYouAPerson;
+    if (ABOUT_FINANCES.test(utterance)) return `${LINES.privateDetails} ${currentAsk(ctx, n, m)}`;
+  }
+  if (ABOUT_THE_REQUEST.test(plain)) return currentAsk(ctx, n, m);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Garbage turns (line noise, echo, half-heard fragments)
+// ---------------------------------------------------------------------------
+
+/** Short replies that mean something on their own ("Yes.", "Sure.", "Hello?"). */
+const SHORT_OK =
+  /^(y|yes|yeah|yep|yup|ya|yah|no|n|nope|nah|ok|okay|k|sure|correct|right|done|fine|great|perfect|hello|hi|hey|thanks|thank you|go ahead|hold on|one moment|one sec|sorry|pardon|what|huh|deal|absolutely|alright|all right|of course|got it|sounds good|that works|thats right|thats fine|thats correct|no problem|not really|bye|goodbye|uh huh|mhm|mm hmm|yes please|no thanks|i can|we can|i cant|we cant|it is|it does|you too)$/;
+/** Words that make a short line a real turn. */
+const CONTENT_WORDS =
+  /\b(i|im|ill|ive|id|we|were|well|weve|wed|you|your|youre|he|hes|his|him|she|shes|her|they|their|can|could|would|will|cant|wont|dont|do|does|did|is|are|was|not|what|whats|which|when|whens|why|how|hows|who|whos|where|wheres|yes|no|move|moved|moving|payment|pay|fee|fees|waive|waived|charge|day|date|week|month|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|dollars?|reference|number|account|loan|hold|moment|second|minute|wait|verify|help|sorry|okay|sure|fine|works|thats|deal|done|customer|yoshua|person|ai|calling|call)\b/;
+
+/**
+ * Line noise and echo that the speech-to-text turned into words ("까지", "Aha.", "It only this
+ * visible."): 'silent' gets no reply, 'repeat' gets "Sorry, could you say that again?". Either way
+ * nothing is recorded and no state changes. Null means a real turn.
+ */
+function garbage(utterance: string): 'silent' | 'repeat' | null {
+  const letters = utterance.match(/\p{L}/gu) ?? [];
+  if (/\d/.test(utterance)) return null;
+  if (letters.length === 0) return 'silent';
+  const latin = letters.filter((ch) => /[A-Za-z]/.test(ch)).length;
+  if (latin / letters.length < 0.6) return 'silent';
+  const plain = normalizeReply(utterance);
+  if (SHORT_OK.test(plain)) return null;
+  if (ABOUT_BEING_AI.test(utterance) || ABOUT_FINANCES.test(utterance) || ABOUT_THE_REQUEST.test(plain)) return null;
+  const words = plain.split(' ').filter(Boolean);
+  if (words.length > 5 || CONTENT_WORDS.test(plain)) return null;
+  return words.length <= 1 ? 'silent' : 'repeat';
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +587,7 @@ function counterOrClose(ctx: ToolContext, n: Negotiation, m: Memory): DecideResu
   if (!c) return close(ctx, n.id, LINES.noDeal, 'no_deal');
   m.counters += 1;
   m.lastAsk = c.ask;
+  m.askLine = c.say;
   ctx.bus.emit({ type: 'offer.checked', model: 'code', caseId: n.caseId, title: `Countered: "${c.say}"`, detail: { negotiationId: n.id, ask: c.ask } });
   return reply(ctx, n.id, c.say, { state: 'countering', pendingOfferId: undefined });
 }
@@ -507,12 +604,27 @@ export async function decide(ctx: ToolContext, negotiationId: string, utterance:
 async function decideLocked(ctx: ToolContext, id: string, utterance: string): Promise<DecideResult> {
   let n = load(ctx, id);
   if (n.state === 'closed') return { say: LINES.ended, next: 'end_call', state: 'closed' };
-  if (n.channel === 'text' && !(n.transcript ?? []).some((l) => l.speaker === 'pacepay')) openingLine(ctx, id);
+
+  // 0. Line noise, echo and fragments: no reply (or one "say that again"), nothing recorded, no state change.
+  const junk = garbage(utterance);
+  if (junk) {
+    const m0 = mem(n);
+    const say = junk === 'repeat' && !m0.saidSayAgain ? LINES.sayAgain : '';
+    if (say) m0.saidSayAgain = true;
+    ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Ignored a garbled line: "${utterance}"`, detail: { negotiationId: id, reply: say } });
+    return { say, next: n.state === 'awaiting_approval' ? 'await_approval' : 'listen', state: n.state };
+  }
+
+  // The greeting (which ends with the opening ask) is PacePay's first line on both channels. On a
+  // call the worker speaks it from the brief; record it here so the transcript and the model see it.
+  if (!(n.transcript ?? []).some((l) => l.speaker === 'pacepay')) openingLine(ctx, id);
 
   // 1. Append the utterance.
+  n = load(ctx, id);
   n = appendLines(ctx, id, [line(ctx, 'counterparty', utterance)], n.state === 'opening' ? { state: 'listening' } : {});
   emitLine(ctx, n, 'counterparty', utterance);
   const m = mem(n);
+  m.saidSayAgain = false;
   const d0 = day0(ctx);
 
   // Waiting on Yoshua: answer with the outcome if it's in, otherwise ask them to keep holding.
@@ -538,8 +650,8 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     return close(ctx, id, LINES.closeNoReference, n.outcome);
   }
 
-  // Questions about Yoshua's money, his reasons, or whether PacePay is a person: a fixed line, no model.
-  const preset = presetAnswer(ctx, utterance);
+  // Questions about Yoshua's money, his reasons, whether PacePay is a person, or what PacePay wants: a fixed line, no model.
+  const preset = presetAnswer(ctx, n, m, utterance);
   if (preset) {
     ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Answered a question with a fixed line: "${utterance}"`, detail: { negotiationId: id } });
     return reply(ctx, id, preset);
@@ -559,7 +671,17 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     ctx.bus.emit({ type: 'step.failed', model: ctx.models.roleFor('decide'), caseId: n.caseId, level: 'error', title: `Negotiator could not read the lender's words: ${(err as Error).message}`, detail: { negotiationId: id } });
     return close(ctx, id, LINES.modelFailed, 'no_deal');
   }
-  const kind: Kind = c.kind;
+  // A line that names a fee, or a day without a "not", carries an offer whatever the model called it
+  // ("Friday works, but there's a thirty-five dollar fee" is not a no).
+  let kind: Kind = c.kind;
+  if (kind !== 'offer' && kind !== 'verification_request') {
+    const namesFee = feeAmount(utterance) !== null;
+    const namesDay = parseDayPhrase(utterance, ctx.clock.today(), d0) !== null && !/\b(not|no|cant|can't|cannot|won't|wont)\b/i.test(utterance);
+    if (namesFee || namesDay) {
+      ctx.bus.emit({ type: 'offer.heard', model: 'code', caseId: n.caseId, title: `Read "${utterance}" as an offer (model said ${kind})`, detail: { negotiationId: id } });
+      kind = 'offer';
+    }
+  }
 
   switch (kind) {
     case 'offer':
@@ -576,8 +698,12 @@ async function decideLocked(ctx: ToolContext, id: string, utterance: string): Pr
     case 'verification_request':
       return reply(ctx, id, LINES.verification, { state: 'listening', outcome: 'handoff_verification', pendingOfferId: undefined });
     case 'question':
-    case 'chitchat':
-      return reply(ctx, id, safeSay(ctx, n, c.say));
+    case 'chitchat': {
+      if (HOLDING.test(normalizeReply(utterance))) return reply(ctx, id, LINES.takeYourTime);
+      // Before any offer is on the table the only thing worth saying is the ask itself.
+      if (n.offers.length === 0 && !pending) return reply(ctx, id, currentAsk(ctx, n, m));
+      return reply(ctx, id, safeSay(ctx, n, m, c.say));
+    }
   }
 }
 
@@ -588,6 +714,7 @@ function onPushback(ctx: ToolContext, n: Negotiation, m: Memory, refusal = false
     if (refusal || m.openQuestionAsked) return close(ctx, n.id, LINES.refusal, 'no_deal');
     m.openQuestionAsked = true;
     m.lastAsk = null;
+    m.askLine = LINES.whatDay;
     return reply(ctx, n.id, LINES.whatDay, { state: 'listening' });
   }
   if (refusal) {
@@ -605,7 +732,7 @@ function onOffer(ctx: ToolContext, n: Negotiation, m: Memory, utterance: string,
   if (day === null) day = parseDayPhrase(utterance, today, d0);
 
   // An amount written in the utterance is exact; otherwise the model's number (it hears "twenty dollars").
-  let fee: Cents | null = findDollarAmount(utterance);
+  let fee: Cents | null = feeAmount(utterance);
   const dollars = feeDollars(c.offer?.fee);
   if (fee === null && dollars !== null) fee = dollarsToCents(dollars);
   if (fee === null && /\b(no fee|without (a|any) fee|no charge|free of charge|waive)/i.test(utterance)) fee = 0;
@@ -743,7 +870,8 @@ function counterAfterDecline(ctx: ToolContext, n: Negotiation, m: Memory): Decid
     m.counters += 1;
     m.daysAsked.add(target);
     m.lastAsk = { newDay: target, fee: 0 };
-    const say = `Thanks for holding. Yoshua can't take that one. ${askDayLine(target, day0(ctx))}`;
+    m.askLine = askDayLine(target, day0(ctx));
+    const say = `Thanks for holding. Yoshua can't take that one. ${m.askLine}`;
     return reply(ctx, n.id, say, { state: 'countering' });
   }
   return close(ctx, n.id, `Thanks for holding. Yoshua isn't able to take that. ${LINES.noDeal}`, 'no_deal');
@@ -761,16 +889,16 @@ export function dealChanges(ctx: ToolContext, negotiationId: string): Change[] {
   return ctx.engine.offerChanges(ctx.store.household(), { itemId: offer.itemId, newDay: offer.newDay, fee: offer.fee });
 }
 
-/** The opening line for a text negotiation (the lender console's first PacePay line). */
+/**
+ * PacePay's first line, recorded once at the top of the transcript: the lender console's opening
+ * line, and on a call the greeting the worker spoke from the brief. It ends with the opening ask.
+ */
 export function openingLine(ctx: ToolContext, negotiationId: string): string {
   if (isScriptedNegotiation(negotiationId)) return scriptedOpeningLine(ctx, negotiationId);
   const n = load(ctx, negotiationId);
   const existing = (n.transcript ?? []).find((l) => l.speaker === 'pacepay');
   if (existing) return existing.text;
-  const person = personName(ctx);
-  const text =
-    `Hi, I'm PacePay, an AI assistant contacting you on behalf of ${person}, with ${person}'s permission, about the ${accountReference(ctx, n)}. ` +
-    `This conversation is transcribed. Could you move this month's payment to ${speakDate(n.callPlan.targetDay, day0(ctx))}, with no fee?`;
+  const text = greetingLine(ctx, n);
   const next = save(ctx, negotiationId, {
     transcript: [line(ctx, 'pacepay', text), ...(n.transcript ?? [])],
     state: n.state === 'opening' ? 'listening' : n.state,

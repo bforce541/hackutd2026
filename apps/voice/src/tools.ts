@@ -74,14 +74,22 @@ async function endCall(hooks: VoiceToolHooks, reason: string) {
 }
 
 export function outboundTools(server: VoiceServerClient, callId: string, hooks: VoiceToolHooks) {
+  // The model may only hang up after the negotiator (decide or the approval poll) said next=end_call.
+  let mayEnd = false;
+  const track = <T extends { next?: string }>(res: T): T => {
+    if (res.next === 'end_call') mayEnd = true;
+    return res;
+  };
   return {
     decide: llm.tool({
       name: 'decide',
-      description: "Call after the other person says anything about a date, an amount, a fee, verifying identity, or saying no. Speak the returned 'say' text exactly.",
+      description: "Call after EVERY turn of the other person that is real English speech (not noise). Pass their exact words. Then say the returned 'say' text word for word, never improvising; if it is empty, stay silent.",
       parameters: z.object({ utterance: z.string().describe("The other person's exact words") }),
       execute: async ({ utterance }) => {
         try {
-          return await server.decide(callId, utterance);
+          const res = track(await server.decide(callId, utterance));
+          // Nothing to say means silence: make that unmistakable to the model.
+          return res.say?.trim() ? res : { ...res, say: '', note: 'Nothing to say. Stay silent and listen.' };
         } catch (err) {
           console.error('[voice] decide failed', (err as Error).message);
           return { say: 'Sorry, I lost my place for a moment. Could you say that again?', next: 'listen' as const };
@@ -92,13 +100,19 @@ export function outboundTools(server: VoiceServerClient, callId: string, hooks: 
       name: 'await_approval',
       description: "Call when decide returned next=await_approval, after saying its line. Waits for Yoshua's answer.",
       parameters: z.object({}),
-      execute: async () => awaitApproval(server, callId, hooks),
+      execute: async () => track(await awaitApproval(server, callId, hooks)),
     }),
     end_call: llm.tool({
       name: 'end_call',
-      description: 'End the call after saying goodbye.',
+      description: 'End the call. Only allowed after decide or await_approval returned next=end_call.',
       parameters: z.object({ reason: z.string() }),
-      execute: async ({ reason }) => endCall(hooks, reason),
+      execute: async ({ reason }) => {
+        if (!mayEnd) {
+          console.warn('[voice] end_call refused: the negotiator has not closed the call', reason);
+          return { ok: false, note: 'Not allowed yet. Do not hang up. Stay on the line, keep listening, and call decide on the next turn.' };
+        }
+        return endCall(hooks, reason);
+      },
     }),
   };
 }

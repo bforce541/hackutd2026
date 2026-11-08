@@ -31,8 +31,28 @@ function prompt(name: 'voice' | 'voice-inbound', vars: Record<string, string>): 
 }
 
 const STYLE =
-  '\nSpeak at a natural pace, in one or two short sentences at a time. Use the exact words of any returned "say" text. ' +
-  'When you are about to call a tool, you may first say one short filler such as "One second, let me check that."';
+  '\nSpeak at a natural pace. Say any returned "say" text word for word. ' +
+  'While a tool runs you may say only "One moment." and nothing else.';
+
+/**
+ * Phone-line turn-taking. Server VAD is less jumpy than the default semantic VAD on 8 kHz line noise
+ * and echo: a 0.7 threshold, 300 ms of audio kept before speech, and 700 ms of silence to end a turn.
+ * The server must not cancel our reply on a noise burst either, so interrupt_response is false.
+ */
+const PHONE_TURN_DETECTION = {
+  type: 'server_vad' as const,
+  threshold: 0.7,
+  prefix_padding_ms: 300,
+  silence_duration_ms: 700,
+  create_response: true,
+  interrupt_response: false,
+};
+const PHONE_NOISE_REDUCTION = { type: 'near_field' as const };
+const PHONE_TRANSCRIPTION = {
+  model: 'gpt-4o-mini-transcribe',
+  language: 'en',
+  prompt: 'A short phone call in English between an assistant and a loan servicer about a payment date, a fee and a reference number.',
+};
 
 function modelOrder(): string[] {
   const preferred = process.env.OPENAI_REALTIME_MODEL;
@@ -48,7 +68,22 @@ function roomClient(): RoomServiceClient {
 async function startSession(ctx: JobContext, agent: voice.Agent): Promise<voice.AgentSession> {
   let lastErr: unknown;
   for (const model of modelOrder()) {
-    const session = new voice.AgentSession({ llm: new openai.realtime.RealtimeModel({ model, voice: 'marin' }) });
+    const session = new voice.AgentSession({
+      llm: new openai.realtime.RealtimeModel({
+        model,
+        voice: 'marin',
+        turnDetection: PHONE_TURN_DETECTION,
+        inputAudioNoiseReduction: PHONE_NOISE_REDUCTION,
+        inputAudioTranscription: PHONE_TRANSCRIPTION,
+      }),
+      turnHandling: {
+        // The realtime model's own server VAD decides turns; no separate TurnDetector (it was ignored and warned).
+        turnDetection: 'realtime_llm',
+        // Our lines are one or two short sentences and a noise burst must not cut them off. While PacePay
+        // speaks, input audio is dropped, which also keeps echo out of the model. The lender waits their turn.
+        interruption: { enabled: false },
+      },
+    });
     try {
       await session.start({ agent, room: ctx.room });
       log('realtime session started with', model);

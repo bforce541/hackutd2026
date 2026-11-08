@@ -36,7 +36,7 @@ import type { ServerContext } from '../context';
 import { env } from '../env';
 import { newId, nowIso } from '../ids';
 import { runTool } from '../tools/registry';
-import { accountReference, approvalOutcome } from '../agent/negotiator';
+import { accountReference, approvalOutcome, greetingLine } from '../agent/negotiator';
 import { answerQuestion } from '../agent/qa';
 import { roomForCall } from '../voice/dispatch';
 import { apiError, HttpError, localOnly, parseBody } from './http';
@@ -109,7 +109,7 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     }
     // Built by code from an allowlist: the lender's name, the loan's reference ("ending 4417"), and
     // the ask (the target day with no fee). Never the plan's model-written wording, a balance, the fee
-    // limit, the floors, or a reason.
+    // limit, the floors, or a reason. The greeting ends with the ask so the call opens with it.
     const neg = call.negotiationId ? store.getItem('negotiations', call.negotiationId) : undefined;
     const household = store.household();
     const item = neg ? household.scheduled.find((s) => s.id === neg.itemId) : undefined;
@@ -117,9 +117,9 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     const ref = neg ? accountReference(ctx, neg) : 'account';
     const about = `the ${ref}`;
     const reference = /ending \d+/.exec(ref)?.[0] ?? '';
-    const greeting =
-      `Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, ` +
-      `about ${about}. This call is transcribed.`;
+    const greeting = neg
+      ? greetingLine(ctx, neg, 'voice')
+      : `Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, about ${about}. This call is transcribed.`;
     const goal =
       neg && item
         ? `Ask to move this month's ${item.label.toLowerCase()} to ${formatWeekdayLong(neg.callPlan.targetDay, household.day0Date)}, ${formatShortDate(neg.callPlan.targetDay, household.day0Date)}, with no fee.`

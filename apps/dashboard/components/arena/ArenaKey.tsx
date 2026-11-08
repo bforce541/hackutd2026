@@ -7,7 +7,7 @@ const LABELS = { deal: 'Deal within limits', no_deal: 'Honest no deal', handoff:
 
 export function ArenaKey() {
   return (
-    <ul aria-label="Key" className="m-0 mt-3.5 flex list-none flex-wrap gap-x-6 gap-y-1 p-0 text-chart text-muted">
+    <ul aria-label="Key" className="m-0 mt-4 flex list-none flex-wrap gap-x-6 gap-y-1.5 p-0 text-chart text-muted">
       {KEYS.map((k) => (
         <li key={k} className="flex items-center gap-1.5">
           <svg width="14" height="14" viewBox="0 0 20 20" aria-hidden="true">

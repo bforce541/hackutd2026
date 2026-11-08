@@ -25,8 +25,8 @@ export const MARK_STYLE: Record<Mark, { path: string; color: string; tile: { bac
     path: 'M5 10.5 L8.5 14 L15 6.5',
     color: 'var(--green)',
     tile: {
-      background: 'var(--green-tint)',
-      borderColor: 'color-mix(in srgb, var(--green) 25%, white)',
+      background: 'color-mix(in srgb, var(--leaf) 15%, var(--panel))',
+      borderColor: 'color-mix(in srgb, var(--leaf) 38%, var(--hairline))',
     },
     text: 'deal within limits',
   },
@@ -40,8 +40,8 @@ export const MARK_STYLE: Record<Mark, { path: string; color: string; tile: { bac
     path: 'M6 14 L14 6 M8.5 6 H14 V11.5',
     color: 'var(--ochre)',
     tile: {
-      background: 'color-mix(in srgb, var(--ochre-line) 10%, white)',
-      borderColor: 'color-mix(in srgb, var(--ochre-line) 25%, white)',
+      background: 'color-mix(in srgb, var(--amber) 16%, var(--panel))',
+      borderColor: 'color-mix(in srgb, var(--amber) 42%, var(--hairline))',
     },
     text: 'handed to Yoshua for an ID check',
   },

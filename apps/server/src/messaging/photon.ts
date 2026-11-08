@@ -10,6 +10,7 @@
  * - Send image: POST /attachments as multipart/related (JSON part, then bytes), then send
  *   { type: 'attachment', attachmentId } with NO metadata.
  * - fetchImage: GET /attachments/{id}/content.
+ * - Read receipts: each of his messages is marked read (POST /messages/{id}/read) as soon as PacePay picks it up.
  */
 import { randomUUID } from 'node:crypto';
 import type { InboundMessage, MessagingPort } from './port';
@@ -87,6 +88,22 @@ export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
     return { id: j.id ?? '' };
   }
 
+  /** Read receipt: marks his message read (fire and forget; a failure only logs once a minute). */
+  let lastReadWarn = 0;
+  function markRead(messageId: string): void {
+    void fetch(`${project}/messages/${encodeURIComponent(messageId)}/read`, {
+      method: 'POST',
+      headers: headers({ 'idempotency-key': `pacepay-read:${messageId}` }),
+    })
+      .then(async (res) => {
+        if (!res.ok && Date.now() - lastReadWarn > 60_000) {
+          lastReadWarn = Date.now();
+          warn(`Photon mark-read failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        }
+      })
+      .catch(() => undefined);
+  }
+
   function toInbound(m: PhotonMessage): InboundMessage | null {
     const sender = typeof m.sentBy === 'object' && m.sentBy ? m.sentBy : undefined;
     const from = toE164(sender?.handle);
@@ -111,7 +128,10 @@ export function createPhotonMessaging(opts: PhotonOptions): MessagingPort {
             seen.add(m.id);
             if (m.createdAt && m.createdAt > since) since = m.createdAt;
             const inbound = toInbound(m);
-            if (inbound) await onInbound(inbound);
+            if (inbound) {
+              markRead(m.id);
+              await onInbound(inbound);
+            }
           }
           token = page.nextPageToken ?? undefined;
         } while (token);

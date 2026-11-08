@@ -118,10 +118,6 @@
   --gap-panel: 2.5rem;
 }
 
-html[data-presenter='true'] {
-  font-size: 125%;
-}
-
 @theme inline {
   --color-page: var(--page);
   --color-panel: var(--panel);

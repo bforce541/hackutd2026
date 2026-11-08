@@ -22,10 +22,6 @@ export default function Page() {
   const props = { state, actions };
 
   useEffect(() => {
-    document.documentElement.dataset.presenter = String(state.ui.presenter);
-  }, [state.ui.presenter]);
-
-  useEffect(() => {
     document.documentElement.dataset.readonly = String(state.readOnly === true);
   }, [state.readOnly]);
 

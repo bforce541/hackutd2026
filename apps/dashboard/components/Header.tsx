@@ -80,14 +80,6 @@ export function Header({ state, actions }: DashboardProps) {
           )}
 
           <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-hairline" />
-          <button
-            type="button"
-            aria-pressed={state.ui.presenter}
-            onClick={actions.togglePresenter}
-            className={cn(GHOST, state.ui.presenter && 'bg-green-tint !text-green')}
-          >
-            Presenter
-          </button>
           {!state.readOnly && (
             <button type="button" onClick={actions.reset} className={GHOST}>
               Reset

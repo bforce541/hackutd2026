@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PacePay dashboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F1ED;color:#1C1B19;font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button,input{font-family:inherit}
+button:focus-visible,input:focus-visible{outline:3px solid #1C6B4A;outline-offset:2px}
+button[data-kind="primary"]:hover{filter:brightness(0.88)}
+button[data-kind="secondary"]:hover{background-color:#F4F3EF !important}
+button[data-kind="row"]:hover > span:first-child > span:first-child{text-decoration:underline}
+#pp-msg::placeholder{color:#64615A}
+</style>
+</helmet>
+<div style="font-size: {{ ui.base }}; min-height: 100vh; background: #F2F1ED; color: #1C1B19; line-height: 1.45">
+
+<header style="border-bottom: 1px solid #E0DED7">
+  <div style="padding: 0 2em; display: flex; flex-wrap: wrap; align-items: stretch; column-gap: 2.5em; min-height: 3.75em">
+    <div style="display: flex; align-items: center; gap: 0.5em">
+      <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true"><path d="M3 9 H9 V19 H15 V7 H25" fill="none" stroke="#1C6B4A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      <span style="font-weight: 600; font-size: 1.0625em; letter-spacing: -0.01em">PacePay</span>
+    </div>
+    <nav aria-label="Main" style="display: flex; align-items: stretch; gap: 1.75em">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+        <button type="button" onClick="{{ t.pick }}" aria-current="{{ t.current }}" style="{{ t.style }}">{{ t.label }}</button>
+      </sc-for>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 0.25em">
+      <span style="font-size: 0.875em; font-weight: 600; padding: 0 0.25em">{{ clock.label }}</span>
+      <sc-if value="{{ clock.canSkip }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ clock.toggle }}" style="border: 0; background: transparent; color: #1C6B4A; font-weight: 600; font-size: 0.875em; padding: 0 0.5em; min-height: 44px; border-radius: 8px; cursor: pointer">{{ clock.action }}</button>
+      </sc-if>
+      <span aria-hidden="true" style="width: 1px; height: 1.5em; background: #E0DED7; margin: 0 0.5em"></span>
+      <button type="button" onClick="{{ ui.togglePresenter }}" aria-pressed="{{ ui.presenterPressed }}" style="{{ ui.presenterStyle }}">Presenter</button>
+      <button type="button" onClick="{{ reset }}" style="border: 0; background: transparent; color: #64615A; font-weight: 500; font-size: 0.875em; padding: 0 0.75em; min-height: 44px; border-radius: 8px; cursor: pointer">Reset</button>
+      <span role="img" aria-label="Yoshua" style="margin-left: 0.5em; width: 2em; height: 2em; border-radius: 50%; background: #E2E0D9; font-weight: 600; font-size: 0.9375em; display: flex; align-items: center; justify-content: center">Y</span>
+    </div>
+  </div>
+</header>
+
+<main style="padding: 1.75em 2em 2em">
+
+  <sc-if value="{{ isHomeTab }}" hint-placeholder-val="{{ true }}">
+    <div style="display: flex; flex-wrap: wrap; gap: 2.5em; align-items: flex-start">
+
+      <div style="flex: 999 1 560px; min-width: 0">
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5em 1.5em">
+          <div>
+            <p style="margin: 0; font-size: 0.9375em; color: #64615A">Checking</p>
+            <p style="margin: 0.125em 0 0; font-size: 2.5em; font-weight: 500; line-height: 1.1; letter-spacing: -0.02em">{{ chart.balance }}</p>
+            <p style="margin: 0.625em 0 0; font-size: 0.9375em; display: flex; align-items: center; gap: 0.5em"><span aria-hidden="true" style="{{ chart.swatchStyle }}"></span><span>{{ chart.status }}</span></p>
+          </div>
+          <div style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5em 1.75em">
+            <sc-if value="{{ chart.showWhatIf }}" hint-placeholder-val="{{ true }}">
+              <button type="button" onClick="{{ chart.toggleWhatIf }}" aria-pressed="{{ chart.whatIfPressed }}" style="{{ chart.whatIfStyle }}">What if</button>
+            </sc-if>
+            <div role="group" aria-label="Forecast range" style="display: flex; align-items: center; gap: 1.25em">
+              <span style="font-size: 0.875em; color: #64615A">Next</span>
+              <sc-for list="{{ chart.ranges }}" as="r" hint-placeholder-count="3">
+                <button type="button" onClick="{{ r.pick }}" aria-pressed="{{ r.pressed }}" style="{{ r.style }}">{{ r.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="position: relative; margin: 1.5em 3.5em 2.25em 0; height: 300px">
+          <sc-for list="{{ chart.grid }}" as="g" hint-placeholder-count="4">
+            <div style="{{ g.style }}"><span style="{{ g.labelStyle }}">{{ g.label }}</span></div>
+          </sc-for>
+          <div style="position: absolute; left: 0; right: 0; top: {{ chart.minTop }}; border-top: 1.5px dashed #A36A00"></div>
+          <svg role="img" aria-label="{{ chart.aria }}" viewBox="0 0 1000 300" preserveAspectRatio="none" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible">
+            <defs>
+              <pattern id="pp-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="7" height="7" fill="#FBE8DF"></rect>
+                <line x1="0" y1="0" x2="0" y2="7" stroke="#C2410C" stroke-width="1.75"></line>
+              </pattern>
+              <clipPath id="pp-below-zero"><rect x="0" y="{{ chart.zeroY }}" width="1000" height="{{ chart.belowZeroH }}"></rect></clipPath>
+            </defs>
+            <polygon points="{{ chart.zeroArea }}" fill="url(#pp-hatch)" clip-path="url(#pp-below-zero)"></polygon>
+            <polyline points="{{ chart.ghost }}" fill="none" stroke="#8F8A80" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></polyline>
+            <polyline points="{{ chart.line }}" fill="none" stroke="#1C6B4A" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+          </svg>
+          <sc-for list="{{ chart.markers }}" as="m" hint-placeholder-count="4">
+            <div style="{{ m.style }}" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 14 14"><path d="{{ m.path }}" fill="{{ m.color }}"></path></svg></div>
+          </sc-for>
+          <div style="{{ chart.lowDotStyle }}" aria-hidden="true"></div>
+          <sc-for list="{{ chart.labels }}" as="lb" hint-placeholder-count="3">
+            <span style="{{ lb.style }}">{{ lb.text }}</span>
+          </sc-for>
+          <sc-for list="{{ chart.ticks }}" as="tk" hint-placeholder-count="5">
+            <span style="{{ tk.style }}">{{ tk.label }}</span>
+          </sc-for>
+        </div>
+
+        <ul aria-label="Chart key" style="list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25em 1.5em; color: #64615A; font-size: 0.8125em">
+          <li style="display: flex; align-items: center; gap: 0.375em"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1 L13 12 L1 12 Z" fill="#1C6B4A"></path></svg>Pay</li>
+          <li style="display: flex; align-items: center; gap: 0.375em"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 2 L13 2 L7 13 Z" fill="#7A766D"></path></svg>Bill</li>
+          <li style="display: flex; align-items: center; gap: 0.375em"><span aria-hidden="true" style="width: 1.25em; border-top: 1.5px dashed #A36A00"></span>$100 minimum</li>
+          <li style="display: flex; align-items: center; gap: 0.375em"><span aria-hidden="true" style="width: 0.875em; height: 0.75em; border-radius: 2px; background: repeating-linear-gradient(45deg, #C2410C 0 1.5px, #FBE8DF 1.5px 4.5px)"></span>Overdrawn</li>
+          <sc-if value="{{ chart.hasGhost }}" hint-placeholder-val="{{ false }}">
+            <li style="display: flex; align-items: center; gap: 0.375em"><span aria-hidden="true" style="width: 1.25em; border-top: 2px dashed #8F8A80"></span>{{ chart.ghostLabel }}</li>
+          </sc-if>
+        </ul>
+
+        <div style="display: flex; flex-wrap: wrap; margin-top: 1.75em; border-top: 1px solid #E0DED7">
+          <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+            <button type="button" onClick="{{ k.pick }}" aria-expanded="{{ k.expanded }}" style="{{ k.style }}">
+              <span style="display: block; font-size: 0.875em; color: #64615A">{{ k.name }}</span>
+              <span style="display: block; margin: 0.25em 0; font-size: 1.625em; font-weight: 500; line-height: 1.15; letter-spacing: -0.01em">{{ k.value }}</span>
+              <span style="{{ k.noteStyle }}">{{ k.note }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ stat.open }}" hint-placeholder-val="{{ false }}">
+          <p role="status" style="margin: 0.875em 0 0; font-size: 0.9375em"><strong style="font-weight: 600">{{ stat.name }}:</strong> <span style="color: #64615A">{{ stat.text }}</span></p>
+        </sc-if>
+      </div>
+
+      <section aria-label="PacePay" style="flex: 1 1 380px; min-width: 0; background: #FFFFFF; border: 1px solid #E0DED7; border-radius: 12px; box-shadow: 0 1px 2px rgba(28, 27, 25, 0.04), 0 8px 24px rgba(28, 27, 25, 0.06); padding: 1.5em">
+
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column">
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #B83A0B">Heads up</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.625em; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em">−$300 on Tue, Nov 10</p>
+            <p style="margin: 0.375em 0 0; color: #64615A">If you pay the $650 repair today.</p>
+            <div style="border-top: 1px solid #E0DED7; margin: 1.25em 0"></div>
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #1C6B4A">Best fix</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.125em; font-weight: 600; line-height: 1.3">Move your car payment to Fri</p>
+            <p style="margin: 0.25em 0 0; color: #64615A">Stays above $100. Fee up to $25.</p>
+            <button type="button" data-kind="primary" onClick="{{ pickCall }}" style="margin-top: 1em; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Ask my lender</button>
+            <p style="margin: 1.5em 0 0.25em; font-size: 0.875em; color: #64615A">Other options</p>
+            <button type="button" data-kind="row" onClick="{{ otherFix }}" style="display: flex; align-items: center; gap: 0.75em; width: 100%; text-align: left; padding: 0.625em 0; min-height: 48px; border: 0; border-top: 1px solid #E0DED7; background: transparent; color: #1C1B19; font-size: 1em; cursor: pointer">
+              <span style="flex: 1 1 auto; min-width: 0"><span style="display: block; font-weight: 500">Put it on your card</span><span style="display: block; font-size: 0.875em; color: #64615A">About $14/mo interest</span></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex: none"><path d="M6 3 L11 8 L6 13" fill="none" stroke="#7A766D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+            <button type="button" data-kind="row" onClick="{{ otherFix }}" style="display: flex; align-items: center; gap: 0.75em; width: 100%; text-align: left; padding: 0.625em 0; min-height: 48px; border: 0; border-top: 1px solid #E0DED7; background: transparent; color: #1C1B19; font-size: 1em; cursor: pointer">
+              <span style="flex: 1 1 auto; min-width: 0"><span style="display: block; font-weight: 500">Use $400 of savings</span><span style="display: block; font-size: 0.875em; color: #64615A">Below your $1,500 floor</span></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex: none"><path d="M6 3 L11 8 L6 13" fill="none" stroke="#7A766D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+            <sc-if value="{{ hasNote }}" hint-placeholder-val="{{ false }}">
+              <p role="status" style="margin: 0.75em 0 0; font-size: 0.875em; color: #64615A">{{ note }}</p>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isLimits }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #8A5A00">Your limits</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.375em; font-weight: 600; line-height: 1.25">PacePay will call your lender</p>
+            <dl style="margin: 1em 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr)">
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Ask for</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right; font-weight: 500">Fri, Nov 13</dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Most in fees</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right; font-weight: 500">$25</dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; color: #64615A">New credit</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; text-align: right; font-weight: 500">None</dd>
+            </dl>
+            <p style="margin: 0.75em 0 0; font-size: 0.875em; color: #64615A">It says it's an AI and never shares your balances.</p>
+            <div style="display: flex; gap: 0.5em; margin-top: 1.25em">
+              <button type="button" data-kind="primary" onClick="{{ startCall }}" style="flex: 1 1 0; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Call now</button>
+              <button type="button" data-kind="secondary" onClick="{{ backHome }}" style="flex: 1 1 0; border: 1px solid #CFCCC4; background: #FFFFFF; color: #1C1B19; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Cancel</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isCall }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <div style="display: flex; align-items: center; gap: 0.5em">
+              <span aria-hidden="true" style="{{ call.dotStyle }}"></span>
+              <p style="margin: 0; font-weight: 600">{{ call.title }}</p>
+              <span style="margin-left: auto; font-size: 0.875em; color: #64615A">{{ call.timer }}</span>
+            </div>
+            <sc-if value="{{ call.textMode }}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 0.25em 0 0; font-size: 0.875em; color: #64615A">The call dropped. Same negotiator, same limits.</p>
+            </sc-if>
+            <ol aria-label="Transcript" aria-live="polite" style="list-style: none; margin: 1em 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.75em">
+              <sc-for list="{{ call.lines }}" as="l" hint-placeholder-count="3">
+                <li><span style="{{ l.whoStyle }}">{{ l.who }}</span><span style="display: block; font-size: 0.9375em; line-height: 1.4">{{ l.text }}</span></li>
+              </sc-for>
+            </ol>
+            <sc-if value="{{ call.hasOffers }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top: 1.25em">
+                <p style="margin: 0 0 0.25em; font-size: 0.875em; color: #64615A">Offers checked</p>
+                <ul aria-label="Offers checked" style="list-style: none; margin: 0; padding: 0">
+                  <sc-for list="{{ call.offers }}" as="o" hint-placeholder-count="2">
+                    <li style="display: flex; align-items: center; gap: 0.625em; padding: 0.5em 0; border-top: 1px solid #E0DED7">
+                      <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" style="flex: none"><path d="{{ o.icon }}" fill="none" stroke="{{ o.color }}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                      <span style="flex: 1 1 auto; min-width: 0; font-size: 0.9375em">{{ o.label }}</span>
+                      <span style="flex: none; font-size: 0.9375em; font-weight: 600; color: {{ o.color }}">{{ o.verdict }}</span>
+                    </li>
+                  </sc-for>
+                </ul>
+              </div>
+            </sc-if>
+            <sc-if value="{{ call.textMode }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top: 1em; border: 1px solid #CFCCC4; border-radius: 8px; padding: 0.5em 0.75em; background: #FBFAF8">
+                <span style="display: block; font-size: 0.8125em; color: #64615A">Lender types here</span>
+                <span style="display: block; min-height: 1.45em">{{ call.lenderNext }}</span>
+              </div>
+            </sc-if>
+            <div style="display: flex; gap: 0.5em; margin-top: 1.25em">
+              <button type="button" data-kind="primary" onClick="{{ call.next }}" style="flex: 1 1 auto; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; padding: 0 1em; min-height: 48px; border-radius: 8px; cursor: pointer">{{ call.nextLabel }}</button>
+              <button type="button" data-kind="secondary" onClick="{{ backHome }}" style="flex: none; border: 1px solid #CFCCC4; background: #FFFFFF; color: #1C1B19; font-weight: 600; font-size: 1em; padding: 0 1.25em; min-height: 48px; border-radius: 8px; cursor: pointer">{{ call.endLabel }}</button>
+            </div>
+            <sc-if value="{{ call.canDrop }}" hint-placeholder-val="{{ true }}">
+              <button type="button" onClick="{{ call.drop }}" style="align-self: flex-start; margin-top: 0.25em; border: 0; background: transparent; color: #64615A; font-size: 0.875em; text-decoration: underline; text-underline-offset: 0.2em; min-height: 44px; padding: 0; cursor: pointer">Call dropped? Switch to text</button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isApprove }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #64615A">Lender's offer</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.375em; font-weight: 600; line-height: 1.25">Approve this deal?</p>
+            <dl style="margin: 1em 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr)">
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Payment</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right"><span style="color: #64615A">Tue, Nov 10 →</span> <strong style="font-weight: 600">Fri, Nov 13</strong></dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Fee</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right"><span style="color: #64615A">$0 →</span> <strong style="font-weight: 600">$20</strong></dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; color: #64615A">Lowest</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; text-align: right"><span style="color: #64615A">−$300 →</span> <strong style="font-weight: 600">$100</strong></dd>
+            </dl>
+            <div style="display: flex; gap: 0.5em; margin-top: 1.25em">
+              <button type="button" data-kind="primary" onClick="{{ approve }}" style="flex: 1 1 0; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Approve</button>
+              <button type="button" data-kind="secondary" onClick="{{ backHome }}" style="flex: 1 1 0; border: 1.5px solid #8F8A80; background: #FFFFFF; color: #1C1B19; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Decline</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <p style="margin: 0; display: flex; align-items: center; gap: 0.375em; font-size: 0.875em; font-weight: 600; color: #1C6B4A"><svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5 L8.5 15 L16 5.5" fill="none" stroke="#1C6B4A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>Done</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.375em; font-weight: 600; line-height: 1.25">Covered through Dec 7</p>
+            <dl style="margin: 1em 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr)">
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Car payment</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right; font-weight: 500">Fri, Nov 13</dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Fee</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right; font-weight: 500">$20</dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; color: #64615A">Lowest</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; text-align: right; font-weight: 500">$100</dd>
+              <dt style="padding: 0.625em 1em 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; color: #64615A">Reference</dt>
+              <dd style="margin: 0; padding: 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; text-align: right; font-weight: 500">A1B2C3</dd>
+            </dl>
+            <button type="button" data-kind="secondary" onClick="{{ showActivity }}" style="margin-top: 1.25em; border: 1px solid #CFCCC4; background: #FFFFFF; color: #1C1B19; font-weight: 600; font-size: 1em; min-height: 48px; border-radius: 8px; cursor: pointer">What happened</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isWhatIf }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1em">
+              <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #1C6B4A">What if</p>
+              <button type="button" onClick="{{ wi.close }}" style="border: 0; background: transparent; color: #64615A; font-weight: 500; font-size: 0.875em; min-height: 44px; padding: 0 0.25em; cursor: pointer">Close</button>
+            </div>
+            <p style="margin: 0; font-size: 0.875em; color: #64615A">{{ wi.lowLabel }}</p>
+            <p style="margin: 0.125em 0 0; font-size: 1.625em; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em">{{ wi.lowText }}</p>
+            <sc-for list="{{ wi.lines }}" as="ln" hint-placeholder-count="1">
+              <p style="margin: 0.375em 0 0; color: #64615A">{{ ln.text }}</p>
+            </sc-for>
+            <div style="border-top: 1px solid #E0DED7; margin-top: 1.25em"></div>
+            <sc-for list="{{ wi.toggles }}" as="tg" hint-placeholder-count="4">
+              <button type="button" role="checkbox" aria-checked="{{ tg.checked }}" onClick="{{ tg.flip }}" style="display: flex; align-items: center; gap: 0.75em; width: 100%; text-align: left; padding: 0.625em 0; min-height: 48px; border: 0; border-bottom: 1px solid #E0DED7; background: transparent; color: #1C1B19; font-size: 1em; cursor: pointer">
+                <span aria-hidden="true" style="{{ tg.boxStyle }}"><svg width="12" height="12" viewBox="0 0 20 20" style="{{ tg.checkStyle }}"><path d="M4 10.5 L8.5 15 L16 5.5" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+                <span style="flex: 1 1 auto; min-width: 0"><span style="display: block; font-weight: 500">{{ tg.label }}</span><span style="display: block; font-size: 0.875em; color: #64615A">{{ tg.detail }}</span></span>
+              </button>
+            </sc-for>
+            <p style="margin: 0.75em 0 0; font-size: 0.875em; color: #64615A">Nothing changes until you say so.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isCd }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #64615A">Coming up</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.625em; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em">Your $5,000 CD matures Fri, Nov 20</p>
+            <div style="border-top: 1px solid #E0DED7; margin: 1.25em 0"></div>
+            <p style="margin: 0; font-size: 0.875em; font-weight: 600; color: #1C6B4A">Best use</p>
+            <p style="margin: 0.25em 0 0; font-size: 1.125em; font-weight: 600; line-height: 1.3">Pay off your card, save the rest</p>
+            <p style="margin: 0.25em 0 0; color: #64615A">$2,214 to the card, $2,786 to savings. Saves about $550 a year, and your emergency fund goes from 0.6 to 1.5 months.</p>
+            <div style="display: flex; gap: 0.5em; margin-top: 1em">
+              <button type="button" data-kind="primary" onClick="{{ cd.compare }}" style="flex: 1 1 auto; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; padding: 0 1em; min-height: 48px; border-radius: 8px; cursor: pointer">Compare in what-if</button>
+              <button type="button" data-kind="secondary" onClick="{{ cd.later }}" style="flex: none; border: 1px solid #CFCCC4; background: #FFFFFF; color: #1C1B19; font-weight: 600; font-size: 1em; padding: 0 1.25em; min-height: 48px; border-radius: 8px; cursor: pointer">Later</button>
+            </div>
+            <p style="margin: 1.5em 0 0.25em; font-size: 0.875em; color: #64615A">Other option</p>
+            <div style="display: flex; align-items: baseline; gap: 0.75em; padding: 0.625em 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7">
+              <span style="flex: 1 1 auto; min-width: 0; font-weight: 500">Renew the CD</span>
+              <span style="flex: none; font-size: 0.875em; color: #64615A">Earns about $205 a year</span>
+            </div>
+            <p style="margin: 0.75em 0 0; font-size: 0.875em; color: #64615A">You make the move at your bank. PacePay never moves money.</p>
+          </div>
+        </sc-if>
+      </section>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isMessagesTab }}" hint-placeholder-val="{{ false }}">
+    <section aria-labelledby="msg-h" style="max-width: 640px; margin: 0 auto">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 1em; margin-bottom: 1em">
+        <h2 id="msg-h" style="margin: 0; font-size: 1.25em; font-weight: 600">Messages</h2>
+        <span style="font-size: 0.875em; color: #64615A">Same thread as iMessage</span>
+      </div>
+      <ol aria-label="Thread" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5em">
+        <sc-for list="{{ thread }}" as="msg" hint-placeholder-count="6">
+          <li style="{{ msg.style }}">
+            <sc-if value="{{ msg.isChart }}" hint-placeholder-val="{{ false }}">
+              <span style="display: block; font-weight: 600">Lowest: −$300 on Tue, Nov 10</span>
+              <span style="display: block; font-size: 0.8125em; color: #64615A; margin-bottom: 0.5em">Checking, next 14 days</span>
+              <svg role="img" aria-label="Chart image: checking drops to −$300 on Tue and Wed, then recovers on Thu payday" viewBox="0 0 260 98" style="display: block; width: 100%; height: auto">
+                <defs>
+                  <pattern id="pp-msg-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <rect width="6" height="6" fill="#FBE8DF"></rect>
+                    <line x1="0" y1="0" x2="0" y2="6" stroke="#C2410C" stroke-width="1.6"></line>
+                  </pattern>
+                </defs>
+                <rect x="55.71" y="76.6" width="37.15" height="11.4" fill="url(#pp-msg-hatch)"></rect>
+                <line x1="0" y1="76.6" x2="260" y2="76.6" stroke="#7A766D" stroke-width="1.5"></line>
+                <polyline points="0,27.2 37.14,27.2 37.14,72.8 55.71,72.8 55.71,88 92.86,88 92.86,12 167.14,12 167.14,20.36 222.86,20.36 222.86,48.86 260,48.86" fill="none" stroke="#1C6B4A" stroke-width="2.6" stroke-linejoin="round"></polyline>
+                <circle cx="65" cy="88" r="4.5" fill="#B83A0B" stroke="#FFFFFF" stroke-width="2"></circle>
+              </svg>
+            </sc-if>
+            <sc-if value="{{ msg.isText }}" hint-placeholder-val="{{ true }}">
+              <span style="white-space: pre-line">{{ msg.text }}</span>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ol>
+      <div style="display: flex; gap: 0.5em; margin-top: 1.25em">
+        <label for="pp-msg" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message PacePay</label>
+        <input id="pp-msg" type="text" placeholder="Message PacePay" style="flex: 1 1 auto; min-width: 0; min-height: 44px; box-sizing: border-box; border: 1px solid #CFCCC4; background: #FFFFFF; border-radius: 8px; padding: 0 0.875em; font-size: 1em; color: #1C1B19">
+        <button type="button" data-kind="primary" onClick="{{ sendMsg }}" style="flex: none; border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; padding: 0 1.25em; min-height: 44px; border-radius: 8px; cursor: pointer">Send</button>
+      </div>
+      <sc-if value="{{ hasTabNote }}" hint-placeholder-val="{{ false }}">
+        <p role="status" style="margin: 0.75em 0 0; font-size: 0.875em; color: #64615A">{{ tabNote }}</p>
+      </sc-if>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isActivityTab }}" hint-placeholder-val="{{ false }}">
+    <div style="display: flex; flex-wrap: wrap; gap: 2.5em; align-items: flex-start">
+      <section aria-labelledby="plan-h" style="flex: 1 1 320px; min-width: 0">
+        <h2 id="plan-h" style="margin: 0; font-size: 1.25em; font-weight: 600">Plan</h2>
+        <p style="margin: 0.25em 0 0.75em; font-size: 0.875em; color: #64615A">{{ plan.byline }}</p>
+        <ol style="list-style: none; margin: 0; padding: 0; border-bottom: 1px solid #E0DED7">
+          <sc-for list="{{ plan.steps }}" as="s" hint-placeholder-count="15">
+            <li style="display: flex; align-items: flex-start; gap: 0.75em; padding: 0.5em 0; border-top: 1px solid #E0DED7">
+              <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" style="flex: none; margin-top: 0.1em"><circle cx="10" cy="10" r="8.25" fill="{{ s.fill }}" stroke="{{ s.stroke }}" stroke-width="1.5"></circle><path d="{{ s.path }}" fill="{{ s.pathFill }}" stroke="{{ s.pathStroke }}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              <span style="flex: 1 1 auto; min-width: 0"><span style="{{ s.titleStyle }}">{{ s.title }}</span><span style="display: block; font-size: 0.8125em; color: #64615A">{{ s.who }}</span></span>
+              <span style="{{ s.statusStyle }}">{{ s.status }}</span>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+      <section aria-labelledby="log-h" style="flex: 2 1 480px; min-width: 0">
+        <h2 id="log-h" style="margin: 0; font-size: 1.25em; font-weight: 600">Log</h2>
+        <p style="margin: 0.25em 0 0.75em; font-size: 0.875em; color: #64615A">Newest first. Every model call, tool call and reply.</p>
+        <ol style="list-style: none; margin: 0; padding: 0; border-bottom: 1px solid #E0DED7">
+          <sc-for list="{{ log }}" as="e" hint-placeholder-count="8">
+            <li style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25em 1em; padding: 0.625em 0; border-top: 1px solid #E0DED7">
+              <span style="flex: none; width: 4.5em; font-size: 0.875em; color: #64615A">{{ e.time }}</span>
+              <span style="{{ e.whoStyle }}">{{ e.who }}</span>
+              <span style="flex: 1 1 260px; min-width: 0">{{ e.what }}</span>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isAccountsTab }}" hint-placeholder-val="{{ false }}">
+    <div style="display: flex; flex-wrap: wrap; gap: 2.5em; align-items: flex-start">
+      <section aria-labelledby="acct-h" style="flex: 1 1 360px; min-width: 0">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 1em">
+          <h2 id="acct-h" style="margin: 0; font-size: 1.25em; font-weight: 600">Accounts</h2>
+          <span style="color: #64615A">Net worth <strong style="color: #1C1B19; font-weight: 600">$60,650</strong></span>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; border-bottom: 1px solid #E0DED7">
+          <sc-for list="{{ acctRows }}" as="a" hint-placeholder-count="14">
+            <li style="{{ a.style }}">
+              <span style="flex: 1 1 auto; min-width: 0">{{ a.name }}</span>
+              <span style="flex: none; font-size: 0.875em; color: #64615A">{{ a.detail }}</span>
+              <span style="{{ a.amountStyle }}">{{ a.amount }}</span>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+      <div style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 2em">
+        <section aria-labelledby="up-h">
+          <h2 id="up-h" style="margin: 0 0 0.5em; font-size: 1.25em; font-weight: 600">Next 14 days</h2>
+          <ul style="list-style: none; margin: 0; padding: 0; border-bottom: 1px solid #E0DED7">
+            <sc-for list="{{ upcoming }}" as="u" hint-placeholder-count="8">
+              <li style="{{ u.style }}">
+                <span style="flex: none; width: 6.5em; color: #64615A">{{ u.date }}</span>
+                <span style="flex: 1 1 auto; min-width: 0">{{ u.name }}</span>
+                <span style="flex: none; text-align: right; font-weight: 500">{{ u.amount }}</span>
+              </li>
+            </sc-for>
+          </ul>
+        </section>
+        <section aria-labelledby="rules-h">
+          <h2 id="rules-h" style="margin: 0 0 0.5em; font-size: 1.25em; font-weight: 600">Your rules</h2>
+          <ul style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{ rules }}" as="rl" hint-placeholder-count="5">
+              <li style="display: flex; align-items: baseline; gap: 0.75em; padding: 0.625em 0; border-top: 1px solid #E0DED7">
+                <span style="flex: 1 1 auto; min-width: 0; color: #64615A">{{ rl.label }}</span>
+                <span style="flex: none; font-weight: 500">{{ rl.value }}</span>
+              </li>
+            </sc-for>
+          </ul>
+          <button type="button" role="switch" aria-checked="{{ pause.checked }}" onClick="{{ pause.flip }}" style="display: flex; align-items: center; gap: 0.75em; width: 100%; padding: 0.625em 0; min-height: 48px; border: 0; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7; background: transparent; color: #1C1B19; font-size: 1em; text-align: left; cursor: pointer">
+            <span style="flex: 1 1 auto; min-width: 0"><span style="display: block; font-weight: 500">Pause PacePay</span><span style="display: block; font-size: 0.875em; color: #64615A">{{ pause.detail }}</span></span>
+            <span aria-hidden="true" style="{{ pause.trackStyle }}"><span style="{{ pause.knobStyle }}"></span></span>
+          </button>
+        </section>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isArenaTab }}" hint-placeholder-val="{{ false }}">
+    <section aria-labelledby="arena-h">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5em 1em">
+        <h2 id="arena-h" style="margin: 0; font-size: 1.25em; font-weight: 600">Negotiation arena</h2>
+        <span style="font-size: 0.875em; font-weight: 600; color: #8A5A00">Sample results. The real run fills this in.</span>
+      </div>
+      <p style="margin: 0.25em 0 0; color: #64615A">50 simulated lenders played by Nemotron, graded by Claude.</p>
+      <div style="display: flex; flex-wrap: wrap; margin-top: 1.25em; border-top: 1px solid #E0DED7; border-bottom: 1px solid #E0DED7">
+        <sc-for list="{{ arena.stats }}" as="sx" hint-placeholder-count="6">
+          <div style="{{ sx.style }}"><span style="display: block; font-size: 0.875em; color: #64615A">{{ sx.label }}</span><span style="display: block; font-size: 1.625em; font-weight: 500; line-height: 1.2">{{ sx.value }}</span></div>
+        </sc-for>
+      </div>
+      <ul aria-label="Runs" style="list-style: none; margin: 1.25em 0 0; padding: 0; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 0.5em">
+        <sc-for list="{{ arena.runs }}" as="ar" hint-placeholder-count="50">
+          <li aria-label="{{ ar.aria }}" style="{{ ar.style }}">
+            <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="{{ ar.icon }}" fill="none" stroke="{{ ar.color }}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span style="font-size: 0.8125em; white-space: nowrap">{{ ar.persona }}</span>
+          </li>
+        </sc-for>
+      </ul>
+      <ul aria-label="Key" style="list-style: none; margin: 0.875em 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25em 1.5em; font-size: 0.8125em; color: #64615A">
+        <li style="display: flex; align-items: center; gap: 0.375em"><svg width="14" height="14" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10.5 L8.5 14 L15 6.5" fill="none" stroke="#1C6B4A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>Deal within limits</li>
+        <li style="display: flex; align-items: center; gap: 0.375em"><svg width="14" height="14" viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 10 H14.5" fill="none" stroke="#7A766D" stroke-width="2.4" stroke-linecap="round"></path></svg>Honest no deal</li>
+        <li style="display: flex; align-items: center; gap: 0.375em"><svg width="14" height="14" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14 L14 6 M8.5 6 H14 V11.5" fill="none" stroke="#8A5A00" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>Handed to Yoshua (ID check)</li>
+      </ul>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.75em 1.25em; margin-top: 1.5em">
+        <button type="button" data-kind="primary" onClick="{{ arena.runLive }}" style="border: 0; background: #1C6B4A; color: #FFFFFF; font-weight: 600; font-size: 1em; padding: 0 1.5em; min-height: 48px; border-radius: 8px; cursor: pointer">Run 3 live</button>
+        <sc-if value="{{ hasTabNote }}" hint-placeholder-val="{{ false }}">
+          <p role="status" style="margin: 0; font-size: 0.875em; color: #64615A">{{ tabNote }}</p>
+        </sc-if>
+      </div>
+    </section>
+  </sc-if>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = this.fresh();
+  }
+
+  fresh() {
+    return { stage: 'home', step: 0, range: 14, presenter: false, tab: 'home', note: '', day: 0, cdOpen: false, whatIf: false, wi: { car: false, late: false, card: false, cd: false }, textMode: false, stat: -1, paused: false, tabNote: '' };
+  }
+
+  dayDate(d) {
+    return new Date(2026, 10, 7 + d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  shortDate(d) {
+    return new Date(2026, 10, 7 + d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  money(n) {
+    var a = Math.abs(n);
+    return (n < 0 ? '−$' : '$') + a.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+
+  axisMoney(n) {
+    if (n === 0) return '$0';
+    return (n < 0 ? '−' : '') + '$' + Math.abs(n / 1000) + 'k';
+  }
+
+  signed(n) {
+    return (n > 0 ? '+' : '') + this.money(n);
+  }
+
+  events(scn) {
+    var ev = [];
+    if (!scn.repairCard) ev.push({ day: 0, amt: -650, name: 'Brake repair', short: 'Repair' });
+    var payDays = scn.payLate ? [9, 19, 33, 47] : [5, 19, 33, 47];
+    var recurring = [
+      { days: [2, 32], amt: -1200, name: 'Mortgage', short: 'Mortgage' },
+      { days: [9, 39], amt: -220, name: 'Utilities', short: 'Utilities' },
+      { days: [12, 42], amt: -750, name: 'Credit card payment', short: 'Card' },
+      { days: [16, 46], amt: -120, name: 'Phone and internet', short: 'Phone' },
+      { days: [23, 53], amt: -150, name: 'Personal loan', short: 'Loan' },
+      { days: [25, 56], amt: -180, name: 'Car insurance', short: 'Insurance' },
+      { days: payDays, amt: 2000, name: 'Paycheck', short: 'Pay' }
+    ];
+    recurring.forEach(function (r) {
+      r.days.forEach(function (d) { ev.push({ day: d, amt: r.amt, name: r.name, short: r.short }); });
+    });
+    var moved = scn.carDay !== 3;
+    ev.push({ day: scn.carDay, amt: -400, name: moved ? 'Car payment (moved)' : 'Car payment', short: 'Car', moved: moved });
+    ev.push({ day: 33, amt: -400, name: 'Car payment', short: 'Car' });
+    if (scn.fee) ev.push({ day: scn.carDay, amt: -scn.fee, name: 'Date-change fee', short: 'Fee', moved: true, fee: true });
+    return ev;
+  }
+
+  balances(scn, n) {
+    var ev = this.events(scn);
+    var b = 1950;
+    var out = [];
+    for (var d = 0; d < n; d++) {
+      for (var i = 0; i < ev.length; i++) { if (ev[i].day === d) b += ev[i].amt; }
+      out.push(b);
+    }
+    return out;
+  }
+
+  lowest(arr) {
+    var lo = 0;
+    for (var i = 1; i < arr.length; i++) { if (arr[i] < arr[lo]) lo = i; }
+    return { day: lo, value: arr[lo] };
+  }
+
+  cardBalance(d) {
+    var b = 2800;
+    for (var s = 7; s < d; s += 7) b += 164;
+    if (d > 12) b -= 750;
+    return b;
+  }
+
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var n = st.range;
+    var D = st.day;
+    var MIN = 100;
+    var C = { ink: '#1C1B19', muted: '#64615A', rule: '#E0DED7', page: '#F2F1ED', green: '#1C6B4A', tint: '#E6F0EA', red: '#B83A0B', ochre: '#8A5A00', gray: '#7A766D' };
+    var NOWI = { car: false, late: false, card: false, cd: false };
+    var BASE = { carDay: 3, fee: 0 };
+    var FIXED = { carDay: 6, fee: 20 };
+    var SCRIPT = [
+      { who: 'PacePay', text: "Hi, I'm PacePay, an AI assistant calling for Yoshua. This call is transcribed." },
+      { who: 'Lender', text: 'Sure, how can I help?' },
+      { who: 'PacePay', text: 'Can the Nov 10 payment move to Fri, Nov 13?' },
+      { who: 'Lender', text: 'I can do Wed, Nov 11.', offer: { carDay: 4, fee: 0 } },
+      { who: 'PacePay', text: "Wed, Nov 11? That won't work. Is Friday possible?" },
+      { who: 'Lender', text: 'Friday, with a $35 fee.', offer: { carDay: 6, fee: 35 } },
+      { who: 'PacePay', text: 'Could you waive the fee?' },
+      { who: 'Lender', text: 'I can do $20.', offer: { carDay: 6, fee: 20 } },
+      { who: 'PacePay', text: 'Fri with a $20 fee. Let me check with Yoshua.' }
+    ];
+    var stage = st.stage;
+    var inCall = stage === 'call' || stage === 'approve';
+    var revealed = inCall ? SCRIPT.slice(0, st.step) : [];
+    var lastOffer = null;
+    revealed.forEach(function (l) { if (l.offer) lastOffer = l.offer; });
+    var planScn = stage === 'done' ? FIXED : BASE;
+    var wiOn = st.whatIf && !inCall;
+    var wiAny = wiOn && (st.wi.car || st.wi.late || st.wi.card);
+    var wiScn = {
+      carDay: wiOn && st.wi.car ? FIXED.carDay : planScn.carDay,
+      fee: wiOn && st.wi.car ? FIXED.fee : planScn.fee,
+      payLate: wiOn && st.wi.late,
+      repairCard: wiOn && st.wi.card
+    };
+    var scn = BASE;
+    var ghostScn = null;
+    var ghostLabel = 'Before';
+    if (wiOn) {
+      scn = wiScn;
+      if (wiAny) { ghostScn = planScn; ghostLabel = 'Current plan'; }
+    } else if (stage === 'done') {
+      scn = FIXED;
+      ghostScn = BASE;
+    } else if (inCall && lastOffer) {
+      scn = lastOffer;
+      ghostScn = BASE;
+    }
+    var ghostOn = !!ghostScn;
+
+    var bal = this.balances(scn, D + n).slice(D);
+    var ghost = ghostOn ? this.balances(ghostScn, D + n).slice(D) : [];
+    var all = bal.concat(ghost);
+    var top = Math.ceil((Math.max.apply(null, all) + 300) / 1000) * 1000;
+    var bot = Math.min(-1000, Math.floor((Math.min.apply(null, all) - 300) / 500) * 500);
+    var H = 300;
+    var pad = 10;
+    function y(v) { return pad + (top - v) / (top - bot) * (H - 2 * pad); }
+    function x(i) { return i * 1000 / n; }
+    function pct(v) { return (v / H * 100).toFixed(2) + '%'; }
+    function stepPts(arr) {
+      var p = [];
+      for (var i = 0; i < arr.length; i++) {
+        var yy = y(arr[i]).toFixed(1);
+        p.push(x(i).toFixed(1) + ',' + yy);
+        p.push(x(i + 1).toFixed(1) + ',' + yy);
+      }
+      return p.join(' ');
+    }
+    var line = stepPts(bal);
+    var minY = y(MIN);
+    var zeroY = y(0);
+
+    var grid = [];
+    for (var v = Math.floor(top / 1000) * 1000; v >= bot; v -= 1000) {
+      var isZero = v === 0;
+      grid.push({
+        label: self.axisMoney(v),
+        style: 'position: absolute; left: 0; right: 0; top: ' + pct(y(v)) + '; border-top: ' + (isZero ? '1.5px solid ' + C.gray : '1px solid #E4E2DB'),
+        labelStyle: 'position: absolute; left: 100%; margin-left: 0.75em; transform: translateY(-50%); font-size: 0.8125em; white-space: nowrap; color: ' + (isZero ? C.ink : C.muted) + '; font-weight: ' + (isZero ? '600' : '400')
+      });
+    }
+
+    // Chart labels never cover a line: try a few spots and skip a label that fits nowhere.
+    var W = 900;
+    var fpx = 13 * (st.presenter ? 1.25 : 1);
+    var lh = fpx * 1.5;
+    function px(i) { return i / n * W; }
+    var segs = [];
+    function addLine(arr) {
+      for (var i = 0; i < arr.length; i++) {
+        segs.push({ h: true, a: px(i), b: px(i + 1), c: y(arr[i]) });
+        if (i > 0 && arr[i] !== arr[i - 1]) {
+          segs.push({ h: false, a: Math.min(y(arr[i - 1]), y(arr[i])), b: Math.max(y(arr[i - 1]), y(arr[i])), c: px(i) });
+        }
+      }
+    }
+    addLine(bal);
+    if (ghostOn) addLine(ghost);
+    var boxes = [];
+    function blocked(r) {
+      if (r.x0 < 0 || r.x1 > W || r.y0 < 0 || r.y1 > H) return true;
+      for (var i = 0; i < segs.length; i++) {
+        var s = segs[i];
+        if (s.h) {
+          if (s.c >= r.y0 - 3 && s.c <= r.y1 + 3 && s.b > r.x0 && s.a < r.x1) return true;
+        } else if (s.c >= r.x0 - 3 && s.c <= r.x1 + 3 && s.b > r.y0 && s.a < r.y1) {
+          return true;
+        }
+      }
+      for (var j = 0; j < boxes.length; j++) {
+        var o = boxes[j];
+        if (o.x1 > r.x0 && o.x0 < r.x1 && o.y1 > r.y0 && o.y0 < r.y1) return true;
+      }
+      return false;
+    }
+
+    var lo = this.lowest(bal);
+    var loX = (lo.day + 0.5) / n * W;
+    var loY = y(lo.value);
+    boxes.push({ x0: loX - 8, x1: loX + 8, y0: loY - 8, y1: loY + 8 });
+
+    var evs = this.events(scn).filter(function (e) { return e.day > D && e.day < D + n && !e.fee; });
+    evs.sort(function (a, b) { return a.day - b.day; });
+    var markers = [];
+    var queue = [];
+    var labeled = {};
+    evs.forEach(function (e) {
+      var up = e.amt > 0;
+      var rel = e.day - D;
+      var yy = y(bal[rel]);
+      var cx = (rel + 0.5) / n * W;
+      if (up || rel !== lo.day) {
+        var my = up ? yy - 10 : yy + 9;
+        boxes.push({ x0: cx - 7, x1: cx + 7, y0: my - 7, y1: my + 7 });
+        markers.push({
+          style: 'position: absolute; left: ' + ((rel + 0.5) / n * 100).toFixed(2) + '%; top: ' + pct(yy) + '; transform: translate(-50%, ' + (up ? '-120%' : '20%') + '); line-height: 0',
+          path: up ? 'M7 1 L13 12 L1 12 Z' : 'M1 2 L13 2 L7 13 Z',
+          color: up ? C.green : C.gray
+        });
+      }
+      if (!labeled[e.short] && (e.short === 'Pay' || e.short === 'Mortgage' || e.short === 'Car')) {
+        labeled[e.short] = true;
+        queue.push({ e: e, rel: rel, up: up });
+      }
+    });
+
+    var labels = [];
+    queue.forEach(function (q) {
+      var e = q.e;
+      var text = self.signed(e.amt) + ' ' + e.short;
+      var w = text.length * fpx * 0.58 + fpx * 0.6;
+      var yPrev = y(bal[q.rel - 1]);
+      var yNew = y(bal[q.rel]);
+      var hi = Math.min(yPrev, yNew);
+      var low = Math.max(yPrev, yNew);
+      var xs = q.rel / n * W;
+      var xc = (q.rel + 0.5) / n * W;
+      var cands = [];
+      ['center', 'left', 'right'].forEach(function (al) {
+        cands.push({ ax: q.up ? xc : xs, al: al, top: hi - 6 - lh - (q.up ? 12 : 0) });
+      });
+      ['center', 'left', 'right'].forEach(function (al) {
+        cands.push({ ax: xc, al: al, top: low + 6 + (q.up ? 0 : 14) });
+      });
+      for (var k = 0; k < cands.length; k++) {
+        var c = cands[k];
+        var x0 = c.al === 'center' ? c.ax - w / 2 : (c.al === 'left' ? c.ax : c.ax - w);
+        var r = { x0: x0, x1: x0 + w, y0: c.top, y1: c.top + lh };
+        if (!blocked(r)) {
+          boxes.push(r);
+          labels.push({
+            text: text,
+            style: 'position: absolute; left: ' + (c.ax / W * 100).toFixed(2) + '%; top: ' + c.top.toFixed(1) + 'px; transform: translateX(' + (c.al === 'center' ? '-50%' : (c.al === 'left' ? '0' : '-100%')) + '); font-size: 0.8125em; line-height: 1.5; font-weight: 500; color: #3D3B37; background: rgba(242, 241, 237, 0.92); padding: 0 0.3em; border-radius: 4px; white-space: nowrap'
+          });
+          return;
+        }
+      }
+    });
+
+    var loColor = lo.value < 0 ? C.red : C.green;
+    var lowDotStyle = 'position: absolute; left: ' + ((lo.day + 0.5) / n * 100).toFixed(2) + '%; top: ' + pct(loY) + '; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%); background: ' + loColor + '; border: 2.5px solid ' + C.page + '; box-shadow: 0 0 0 1.5px ' + loColor;
+
+    var tickStep = n <= 14 ? 3 : (n <= 30 ? 7 : 14);
+    var ticks = [];
+    for (var d = 0; d < n; d += tickStep) {
+      ticks.push({
+        label: d === 0 ? 'Today' : self.shortDate(D + d),
+        style: 'position: absolute; top: calc(100% + 0.625em); left: ' + (d / n * 100).toFixed(2) + '%; transform: translateX(' + (d === 0 ? '0' : '-50%') + '); font-size: 0.8125em; color: ' + C.muted + '; white-space: nowrap'
+      });
+    }
+
+    var loDate = self.dayDate(D + lo.day);
+    var status;
+    if (wiAny) status = 'What if: lowest ' + self.money(lo.value) + ' on ' + loDate;
+    else if (stage === 'done') status = 'Lowest ' + self.money(lo.value) + ' on ' + loDate + ' · on track';
+    else if (inCall && lastOffer) status = 'This offer: lowest ' + self.money(lo.value) + ' on ' + loDate;
+    else status = 'Lowest ' + self.money(lo.value) + ' on ' + loDate;
+    var swatchStyle = lo.value < 0
+      ? 'flex: none; width: 0.875em; height: 0.875em; border-radius: 2px; background: repeating-linear-gradient(45deg, #C2410C 0 1.5px, #FBE8DF 1.5px 4.5px)'
+      : 'flex: none; width: 0.625em; height: 0.625em; border-radius: 50%; background: ' + C.green;
+
+    var nowBal = D === 0 ? 1950 : this.balances(planScn, D)[D - 1];
+
+    var ranges = [14, 30, 60].map(function (r) {
+      var on = r === n;
+      return {
+        label: r + ' days',
+        pressed: on ? 'true' : 'false',
+        pick: function () { self.setState({ range: r }); },
+        style: 'border: 0; background: transparent; padding: 0 0.125em; min-height: 44px; font-size: 0.875em; cursor: pointer; font-weight: ' + (on ? '600' : '500') + '; color: ' + (on ? C.ink : C.muted) + (on ? '; text-decoration: underline; text-decoration-color: ' + C.green + '; text-decoration-thickness: 2px; text-underline-offset: 0.45em' : '; text-decoration: none')
+      };
+    });
+
+    // What-if panel
+    var planBal = this.balances(planScn, D + n).slice(D);
+    var planLo = this.lowest(planBal);
+    function below(arr) {
+      var c = 0;
+      for (var i = 0; i < arr.length; i++) { if (arr[i] < 0) c++; }
+      return c;
+    }
+    var wiLines = [];
+    if (wiAny) {
+      var b0 = below(planBal);
+      var b1 = below(bal);
+      if (b0 || b1) wiLines.push({ text: 'Days below $0: ' + b0 + ' → ' + b1 });
+    }
+    if (wiOn && st.wi.card) {
+      var cb = self.cardBalance(D);
+      wiLines.push({ text: 'Card use: ' + Math.round(cb / 50) + '% → ' + Math.round((cb + 650) / 50) + '%, about $14/mo interest' });
+    }
+    if (wiOn && st.wi.cd) wiLines.push({ text: 'Emergency fund: 0.6 → 1.5 months, about $550 a year saved' });
+    if (wiOn && !st.wi.car && !st.wi.late && !st.wi.card && !st.wi.cd) wiLines.push({ text: 'Pick a change below to see what happens.' });
+    var toggles = [];
+    function tog(key, label, detail) {
+      var on = !!st.wi[key];
+      toggles.push({
+        label: label,
+        detail: detail,
+        checked: on ? 'true' : 'false',
+        flip: function () { var w = Object.assign({}, st.wi); w[key] = !on; self.setState({ wi: w }); },
+        boxStyle: 'flex: none; width: 1.25em; height: 1.25em; box-sizing: border-box; border-radius: 4px; display: flex; align-items: center; justify-content: center; background: ' + (on ? C.green : '#FFFFFF') + '; border: 1.5px solid ' + (on ? C.green : '#8F8A80'),
+        checkStyle: on ? 'display: block' : 'display: none'
+      });
+    }
+    if (D === 0) {
+      if (stage !== 'done') tog('car', 'Move the car payment to Fri', 'Fri, Nov 13 with a $20 fee');
+      tog('late', 'Paycheck lands Mon, not Thu', 'Mon, Nov 16 instead of Thu, Nov 12');
+      tog('card', 'Put the repair on your card', 'About $14/mo interest');
+    }
+    tog('cd', 'Use the CD to pay off your card', 'When it matures Fri, Nov 20');
+
+    // Health stats
+    var cardNow = self.cardBalance(D);
+    var kpis = [
+      { name: 'Emergency fund', value: '0.6 mo', note: 'Goal: 3–6 months', ok: false, detail: 'Savings ($1,800) cover 0.6 months of essentials ($3,065 a month). The CD on Nov 20 could take it to 1.5 months.' },
+      { name: 'Card use', value: Math.round(cardNow / 50) + '%', note: 'Goal: under 30%', ok: false, detail: self.money(cardNow) + ' of your $5,000 limit. Under $1,500 gets you below 30%.' },
+      { name: 'Debt vs. income', value: '35.5%', note: 'On track: under 36%', ok: true, detail: '$1,835 a month in debt payments on $5,167 a month of income.' },
+      { name: 'Net worth', value: '$60,650', note: '8 accounts', ok: false, detail: '$207,950 in assets minus $147,300 owed.' }
+    ];
+    kpis.forEach(function (k, i) {
+      var open = st.stat === i;
+      k.noteStyle = 'display: block; font-size: 0.875em; color: ' + (k.ok ? C.green : C.muted) + '; font-weight: ' + (k.ok ? '600' : '400');
+      k.style = 'flex: 1 1 150px; min-width: 0; text-align: left; font-size: 1em; color: inherit; cursor: pointer; border: 0; border-radius: 0; background: transparent; box-shadow: inset 0 -2px 0 ' + (open ? C.green : 'transparent') + '; padding: 1em 1.25em 0.75em ' + (i === 0 ? '0' : '1.25em') + (i === 0 ? '' : '; border-left: 1px solid ' + C.rule);
+      k.expanded = open ? 'true' : 'false';
+      k.pick = function () { self.setState({ stat: open ? -1 : i }); };
+    });
+    var statOpen = st.stat >= 0 && st.stat < kpis.length;
+
+    // Call
+    var CHECK = 'M4 10.5 L8.5 15 L16 5.5';
+    var CROSS = 'M5 5 L15 15 M15 5 L5 15';
+    function judge(o) {
+      var lw = self.lowest(self.balances(o, 30));
+      if (lw.value < 0) return { verdict: 'Overdrawn', color: C.red, icon: CROSS, log: 'fails, overdrawn' };
+      if (o.fee > 25) return { verdict: 'Over limit', color: C.ochre, icon: CROSS, log: 'fails, over your fee limit' };
+      return { verdict: 'Works', color: C.green, icon: CHECK, log: 'works' };
+    }
+    function offerLabel(o) { return self.dayDate(o.carDay) + (o.fee ? ' · $' + o.fee + ' fee' : ' · no fee'); }
+    var lines = revealed.slice(-4).map(function (l) {
+      var ai = l.who === 'PacePay';
+      return {
+        who: ai ? 'PacePay' : 'Lender',
+        text: l.text,
+        whoStyle: 'display: block; font-size: 0.8125em; font-weight: 600; color: ' + (ai ? C.green : C.muted)
+      };
+    });
+    var offers = [];
+    revealed.forEach(function (l) {
+      if (!l.offer) return;
+      var j = judge(l.offer);
+      offers.push({ label: offerLabel(l.offer), verdict: j.verdict, color: j.color, icon: j.icon });
+    });
+    var atEnd = st.step >= SCRIPT.length;
+    var nextLine = st.step < SCRIPT.length ? SCRIPT[st.step] : null;
+    var lenderTurn = !!nextLine && nextLine.who === 'Lender';
+    var secs = st.step * 8;
+    var timer = Math.floor(secs / 60) + ':' + (secs % 60 < 10 ? '0' : '') + (secs % 60);
+
+    // Messages tab: the iMessage thread, mirrored
+    var thread = [];
+    function add(kind, who, text) { thread.push({ kind: kind, who: who, text: text || '' }); }
+    add('time', '', 'Today 7:02 PM');
+    add('photo', 'you', 'Photo of the repair quote');
+    add('text', 'pp', 'Got it: $650 to Northside Auto Service, due today. Checking your week.');
+    add('chart', 'pp', '');
+    add('text', 'pp', 'Heads up: −$300 on Tue, Nov 10 if you pay the repair today (mortgage Mon, car payment Tue, paycheck Thu).\n1. I ask your lender to move the car payment to Fri. My pick: no new debt\n2. Put it on your card: about $14/mo interest\n3. Use $400 of savings: drops below your $1,500 floor\nReply 1, 2 or 3.');
+    if (stage !== 'home') {
+      add('text', 'you', '1');
+      add('text', 'pp', "I'll ask to move it to Fri, Nov 13, with $25 max in fees. OK?");
+    }
+    if (stage === 'call' || stage === 'approve' || stage === 'done') {
+      add('text', 'you', 'OK');
+      add('text', 'pp', 'Calling your lender now.');
+    }
+    if (stage === 'approve' || stage === 'done') add('text', 'pp', "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO");
+    if (stage === 'done') {
+      add('text', 'you', 'YES');
+      add('text', 'pp', 'Done. Car payment is now Fri, Nov 13 ($20). Ref A1B2C3.');
+    }
+    if (D === 11) {
+      if (stage === 'done') {
+        add('time', '', 'Thu, Nov 12 8:00 PM');
+        add('text', 'pp', 'Reminder: your $400 car payment and the $20 fee come out tomorrow. Checking will still have $1,680 after.');
+      }
+      add('time', '', 'Wed, Nov 18 9:00 AM');
+      add('text', 'pp', "Your $5,000 CD matures Fri, Nov 20.\n1. Pay off your card ($2,214) and put $2,786 in savings. My pick: saves about $550 a year, and your emergency fund goes from 0.6 to 1.5 months\n2. Renew it: earns about $205 a year\nReply 1 or 2 and I'll send the steps.");
+    }
+    thread.forEach(function (m) {
+      m.isChart = m.kind === 'chart';
+      m.isText = m.kind !== 'chart';
+      if (m.kind === 'time') m.style = 'align-self: center; font-size: 0.8125em; color: ' + C.muted + '; padding: 0.5em 0 0.25em';
+      else if (m.who === 'you') m.style = 'align-self: flex-end; max-width: 75%; background: ' + C.tint + '; border-radius: 12px; padding: 0.5em 0.875em' + (m.kind === 'photo' ? '; font-style: italic; color: ' + C.muted : '');
+      else m.style = 'align-self: flex-start; max-width: 80%; box-sizing: border-box; background: #FFFFFF; border: 1px solid ' + C.rule + '; border-radius: 12px; padding: 0.625em 0.875em' + (m.kind === 'chart' ? '; width: 22em' : '');
+    });
+
+    // Activity tab: the plan and the log
+    var STEPS = [
+      ['Read the repair quote', 'Nemotron Nano 2 VL'],
+      ['Check the week if paid today', 'Engine'],
+      ['Compare card, savings and moving a payment', 'Engine'],
+      ['Text Yoshua the options and a chart', 'Nemotron 3 Super'],
+      ["Wait for Yoshua's pick", 'Yoshua'],
+      ["Pull the auto loan's terms", 'Nemotron 3 Super'],
+      ['Plan the call', 'Nemotron 3 Ultra'],
+      ['Check the limits with Yoshua', 'Yoshua'],
+      ['Second opinion on the call plan', 'Claude Opus 5.5'],
+      ['Call the lender', 'Code'],
+      ['Negotiate the due date', 'Nemotron 3 Super'],
+      ["Get Yoshua's OK on the deal", 'Yoshua'],
+      ['Text Yoshua the summary', 'Nemotron 3 Super'],
+      ['Update the forecast', 'Engine'],
+      ['Remind Yoshua the night before', 'Code']
+    ];
+    var doneN = { home: 4, limits: 7, call: 10, approve: 11, done: 14 }[stage];
+    var planSteps = STEPS.map(function (s, i) {
+      var state = 'waiting';
+      if (i < doneN || (i === 14 && stage === 'done' && D === 11)) state = 'done';
+      else if (i === doneN && stage !== 'done') state = 'now';
+      else if (i === 14 && stage === 'done') state = 'scheduled';
+      var looks = {
+        done: { fill: C.green, stroke: C.green, path: 'M6 10.5 L8.8 13.2 L14 7.2', pathFill: 'none', pathStroke: '#FFFFFF', status: '', titleColor: C.ink, weight: '400' },
+        now: { fill: '#FFFFFF', stroke: C.green, path: 'M7 10 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0', pathFill: C.green, pathStroke: 'none', status: 'In progress', titleColor: C.ink, weight: '600' },
+        scheduled: { fill: '#FFFFFF', stroke: '#8F8A80', path: '', pathFill: 'none', pathStroke: 'none', status: 'Set for Nov 12', titleColor: C.ink, weight: '400' },
+        waiting: { fill: '#FFFFFF', stroke: '#B8B4AA', path: '', pathFill: 'none', pathStroke: 'none', status: '', titleColor: C.muted, weight: '400' }
+      }[state];
+      return {
+        title: s[0],
+        who: s[1],
+        fill: looks.fill,
+        stroke: looks.stroke,
+        path: looks.path,
+        pathFill: looks.pathFill,
+        pathStroke: looks.pathStroke,
+        status: looks.status,
+        titleStyle: 'display: block; color: ' + looks.titleColor + '; font-weight: ' + looks.weight,
+        statusStyle: 'flex: none; font-size: 0.8125em; font-weight: 600; color: ' + (state === 'now' ? C.green : C.muted)
+      };
+    });
+
+    var log = [];
+    function lg(time, who, what) { log.push({ time: time, who: who, what: what }); }
+    lg('7:02 PM', 'Yoshua', 'Sent a photo of a repair quote');
+    lg('7:02 PM', 'Nemotron Nano 2 VL', 'Read it: $650 to Northside Auto Service, due today');
+    lg('7:02 PM', 'Nemotron 3 Ultra', 'Wrote a 15-step plan');
+    lg('7:02 PM', 'Engine', 'Lowest −$300 on Tue, Nov 10, from the mortgage and the car payment');
+    lg('7:02 PM', 'Engine', 'Moving the payment works. The card costs about $14/mo. Savings drops below the floor.');
+    lg('7:02 PM', 'Nemotron 3 Super', 'Texted Yoshua the options and a chart');
+    if (stage !== 'home') {
+      lg('7:03 PM', 'Yoshua', 'Picked 1: call the lender');
+      lg('7:03 PM', 'Nemotron 3 Super', "Pulled the auto loan's terms");
+      lg('7:03 PM', 'Nemotron 3 Ultra', 'Planned the call: ask for Fri, Nov 13, $25 max in fees');
+      lg('7:03 PM', 'Code', 'Asked Yoshua to OK the limits');
+    }
+    if (stage === 'call' || stage === 'approve' || stage === 'done') {
+      lg('7:03 PM', 'Yoshua', "OK'd the limits");
+      lg('7:03 PM', 'Claude Opus 5.5', 'Second opinion on the call plan: approve');
+      lg('7:04 PM', 'Code', 'Called the lender');
+      if (st.textMode) lg('7:04 PM', 'Code', 'The call dropped. Switched to text with the same negotiator');
+    }
+    var checkedOffers = (stage === 'done' ? SCRIPT : revealed).filter(function (l) { return !!l.offer; });
+    checkedOffers.forEach(function (l, i) {
+      lg(i === 0 ? '7:04 PM' : '7:05 PM', 'Engine', 'Checked "' + offerLabel(l.offer) + '": ' + judge(l.offer).log);
+    });
+    if (stage === 'approve' || stage === 'done') lg('7:05 PM', 'Code', 'Asked Yoshua to approve Fri, Nov 13 for $20');
+    if (stage === 'done') {
+      lg('7:06 PM', 'Yoshua', 'Approved');
+      lg('7:06 PM', 'Code', 'Confirmed the deal on the call');
+      lg('7:06 PM', 'Nemotron 3 Super', 'Texted the summary, ref A1B2C3');
+      lg('7:06 PM', 'Engine', 'Updated the forecast: lowest $100');
+      lg('7:06 PM', 'Code', 'Set a reminder for Thu, Nov 12');
+    }
+    if (D === 11) {
+      if (stage === 'done') lg('Nov 12', 'Code', 'Sent the reminder');
+      lg('Nov 18', 'Engine', 'Daily check: the CD matures Fri, Nov 20');
+      lg('Nov 18', 'Nemotron 3 Ultra', 'Wrote a 3-step plan for the CD, with no call');
+      lg('Nov 18', 'Engine', 'Paying off the card saves about $550 a year. Renewing earns about $205.');
+      lg('Nov 18', 'Nemotron 3 Super', 'Texted Yoshua the CD options');
+    }
+    log.reverse();
+    log.forEach(function (e) {
+      var c = e.who.indexOf('Nemotron') === 0 ? C.green : (e.who === 'Engine' || e.who === 'Code' ? C.muted : C.ink);
+      e.whoStyle = 'flex: none; width: 10em; font-size: 0.875em; font-weight: 600; color: ' + c;
+    });
+
+    // Accounts tab
+    var acctRows = [];
+    function grp(t) {
+      acctRows.push({ name: t, detail: '', amount: '', style: 'display: flex; padding: 1.125em 0 0.375em; font-size: 0.8125em; font-weight: 600; color: ' + C.muted, amountStyle: 'display: none' });
+    }
+    function acc(name, detail, amount) {
+      acctRows.push({ name: name, detail: detail, amount: amount, style: 'display: flex; align-items: baseline; gap: 0.75em; padding: 0.5em 0; border-top: 1px solid ' + C.rule, amountStyle: 'flex: none; min-width: 6.5em; text-align: right; font-weight: 500' });
+    }
+    grp('Checking'); acc('Everyday checking', '', self.money(nowBal));
+    grp('Savings'); acc('Emergency savings', 'Floor $1,500', '$1,800');
+    grp('CDs and IRAs'); acc('12-month CD', '4.1% · matures Nov 20', '$5,000'); acc('Roth IRA', 'Off-limits', '$14,200');
+    grp('Loans'); acc('Auto loan', '$400/mo · 6.9%', '−$13,400'); acc('Personal loan', '$150/mo · 11.9%', '−$3,100');
+    grp('Credit cards'); acc('Credit card', '$5,000 limit · 24.99%', '−' + self.money(cardNow));
+    grp('Mortgage'); acc('Home loan', '$1,200/mo', '−$128,000'); acc('Home value', 'Estimate', '$185,000');
+
+    var upcoming = this.events(planScn)
+      .filter(function (e) { return e.day >= D && e.day < D + 14; })
+      .sort(function (a, b) { return a.day - b.day || a.amt - b.amt; })
+      .map(function (e) {
+        return {
+          date: e.day === D ? 'Today' : (e.day === D + 1 ? 'Tomorrow' : self.dayDate(e.day)),
+          name: e.name,
+          amount: self.signed(e.amt),
+          style: 'display: flex; align-items: baseline; gap: 0.75em; padding: 0.625em 0.5em; border-top: 1px solid ' + C.rule + (e.moved ? '; background: ' + C.tint : '')
+        };
+      });
+
+    var rules = [
+      { label: 'Keep in checking', value: '$100' },
+      { label: 'Keep in savings', value: '$1,500' },
+      { label: 'Most in fees', value: '$25' },
+      { label: 'Off-limits', value: 'Roth IRA' },
+      { label: 'Quiet hours', value: '9 PM to 8 AM' }
+    ];
+
+    // Arena tab (sample data)
+    var OUT = {
+      D: { icon: 'M5 10.5 L8.5 14 L15 6.5', color: C.green, bg: C.tint, border: '#CFE3D6', text: 'deal within limits' },
+      N: { icon: 'M5.5 10 H14.5', color: C.gray, bg: '#FFFFFF', border: C.rule, text: 'honest no deal' },
+      H: { icon: 'M6 14 L14 6 M8.5 6 H14 V11.5', color: C.ochre, bg: '#F6EDD9', border: '#E9D9B5', text: 'handed to Yoshua' }
+    };
+    var runs = [];
+    [['Friendly', 'DDDDDDDDDD'], ['Fees', 'DDDNDDDDND'], ['Firm', 'DNDDNDND'], ['Vague', 'DDDDNDDD'], ['No', 'NNNNNN'], ['ID check', 'HHHHH'], ['Chatty', 'DDD']].forEach(function (p) {
+      p[1].split('').forEach(function (c) {
+        var o = OUT[c];
+        runs.push({
+          persona: p[0],
+          icon: o.icon,
+          color: o.color,
+          aria: p[0] + ': ' + o.text,
+          style: 'display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25em; min-height: 3.75em; padding: 0.375em 0.25em; border-radius: 8px; background: ' + o.bg + '; border: 1px solid ' + o.border
+        });
+      });
+    });
+    var arenaStats = [['Runs', '50'], ['Deals', '33'], ['Honest no deal', '12'], ['Handed to Yoshua', '5'], ['Limit violations', '0'], ['Disclosures', '0']].map(function (s, i) {
+      return { label: s[0], value: s[1], style: 'flex: 1 1 120px; min-width: 0; padding: 0.875em 1.25em 0.875em ' + (i === 0 ? '0' : '1.25em') + (i === 0 ? '' : '; border-left: 1px solid ' + C.rule) };
+    });
+
+    var tabs = [['home', 'Home'], ['messages', 'Messages'], ['activity', 'Activity'], ['accounts', 'Accounts'], ['arena', 'Arena']].map(function (t) {
+      var on = st.tab === t[0];
+      return {
+        label: t[1],
+        current: on ? 'page' : 'false',
+        pick: function () { self.setState({ tab: t[0], tabNote: '' }); },
+        style: 'border: 0; border-top: 2px solid transparent; border-bottom: 2px solid ' + (on ? C.green : 'transparent') + '; border-radius: 0; background: transparent; color: ' + (on ? C.ink : C.muted) + '; font-weight: ' + (on ? '600' : '500') + '; font-size: 0.9375em; padding: 0 0.125em; min-height: 44px; cursor: pointer'
+      };
+    });
+
+    var mode = wiOn ? 'whatif' : (st.cdOpen && D === 11 ? 'cd' : stage);
+
+    return {
+      ui: {
+        base: st.presenter ? '20px' : '16px',
+        presenterPressed: st.presenter ? 'true' : 'false',
+        presenterStyle: 'border: 0; background: ' + (st.presenter ? C.tint : 'transparent') + '; color: ' + (st.presenter ? C.green : C.muted) + '; font-weight: ' + (st.presenter ? '600' : '500') + '; font-size: 0.875em; padding: 0 0.75em; min-height: 44px; border-radius: 8px; cursor: pointer',
+        togglePresenter: function () { self.setState({ presenter: !st.presenter }); }
+      },
+      clock: {
+        label: self.dayDate(D),
+        canSkip: !inCall,
+        action: D === 0 ? 'Skip to ' + self.dayDate(11) : 'Back to ' + self.dayDate(0),
+        toggle: function () {
+          if (D === 0) self.setState({ day: 11, cdOpen: true, whatIf: false, wi: NOWI, tab: 'home', stat: -1 });
+          else self.setState({ day: 0, cdOpen: false, whatIf: false, wi: NOWI, stat: -1 });
+        }
+      },
+      tabs: tabs,
+      isHomeTab: st.tab === 'home',
+      isMessagesTab: st.tab === 'messages',
+      isActivityTab: st.tab === 'activity',
+      isAccountsTab: st.tab === 'accounts',
+      isArenaTab: st.tab === 'arena',
+      isHome: mode === 'home',
+      isLimits: mode === 'limits',
+      isCall: mode === 'call',
+      isApprove: mode === 'approve',
+      isDone: mode === 'done',
+      isWhatIf: mode === 'whatif',
+      isCd: mode === 'cd',
+      hasNote: !!st.note,
+      note: st.note,
+      hasTabNote: !!st.tabNote,
+      tabNote: st.tabNote,
+      chart: {
+        balance: self.money(nowBal),
+        status: status,
+        swatchStyle: swatchStyle,
+        aria: 'Checking balance forecast. ' + status + '.',
+        showWhatIf: !inCall,
+        whatIfPressed: wiOn ? 'true' : 'false',
+        whatIfStyle: 'border: 1px solid ' + (wiOn ? C.green : '#CFCCC4') + '; background: ' + (wiOn ? C.tint : '#FFFFFF') + '; color: ' + (wiOn ? C.green : C.ink) + '; font-weight: 600; font-size: 0.875em; padding: 0 0.875em; min-height: 40px; border-radius: 8px; cursor: pointer',
+        toggleWhatIf: function () {
+          if (st.whatIf) self.setState({ whatIf: false, wi: NOWI });
+          else self.setState({ whatIf: true });
+        },
+        ranges: ranges,
+        grid: grid,
+        line: line,
+        ghost: ghostOn ? stepPts(ghost) : '',
+        hasGhost: ghostOn,
+        ghostLabel: ghostLabel,
+        zeroArea: line + ' 1000,' + zeroY.toFixed(1) + ' 0,' + zeroY.toFixed(1),
+        zeroY: zeroY.toFixed(1),
+        belowZeroH: (H - zeroY + 40).toFixed(1),
+        minTop: pct(minY),
+        markers: markers,
+        labels: labels,
+        lowDotStyle: lowDotStyle,
+        ticks: ticks
+      },
+      kpis: kpis,
+      stat: {
+        open: statOpen,
+        name: statOpen ? kpis[st.stat].name : '',
+        text: statOpen ? kpis[st.stat].detail : ''
+      },
+      wi: {
+        lowLabel: 'Lowest in the next ' + n + ' days',
+        lowText: wiAny ? self.money(planLo.value) + ' → ' + self.money(lo.value) : self.money(planLo.value),
+        lines: wiLines,
+        toggles: toggles,
+        close: function () { self.setState({ whatIf: false, wi: NOWI }); }
+      },
+      cd: {
+        compare: function () { self.setState({ whatIf: true, wi: { car: false, late: false, card: false, cd: true } }); },
+        later: function () { self.setState({ cdOpen: false }); }
+      },
+      call: {
+        lines: lines,
+        offers: offers,
+        hasOffers: offers.length > 0,
+        timer: timer,
+        textMode: st.textMode,
+        title: st.textMode ? 'Negotiating by text' : 'On the call with your lender',
+        dotStyle: 'flex: none; width: 8px; height: 8px; border-radius: 50%; background: ' + (st.textMode ? '#A36A00' : C.green),
+        lenderNext: lenderTurn ? nextLine.text : '',
+        nextLabel: atEnd ? 'Ask Yoshua' : (st.textMode && lenderTurn ? 'Send as lender' : 'Next line'),
+        endLabel: st.textMode ? 'Stop' : 'End call',
+        canDrop: !st.textMode,
+        drop: function () { self.setState({ textMode: true }); },
+        next: function () {
+          if (atEnd) self.setState({ stage: 'approve' });
+          else self.setState({ step: st.step + 1 });
+        }
+      },
+      thread: thread,
+      plan: {
+        byline: 'The $650 repair · plan written by Nemotron 3 Ultra',
+        steps: planSteps
+      },
+      log: log,
+      acctRows: acctRows,
+      upcoming: upcoming,
+      rules: rules,
+      pause: {
+        checked: st.paused ? 'true' : 'false',
+        detail: st.paused ? "Paused. PacePay won't text or call." : 'PacePay texts first only when it matters.',
+        flip: function () { self.setState({ paused: !st.paused }); },
+        trackStyle: 'flex: none; position: relative; width: 2.75em; height: 1.5em; border-radius: 999px; background: ' + (st.paused ? C.green : '#CFCCC4'),
+        knobStyle: 'position: absolute; top: 0.1875em; left: ' + (st.paused ? '1.4375em' : '0.1875em') + '; width: 1.125em; height: 1.125em; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(28, 27, 25, 0.25)'
+      },
+      arena: {
+        stats: arenaStats,
+        runs: runs,
+        runLive: function () { self.setState({ tabNote: 'In the app, this runs three new lenders while you watch.' }); }
+      },
+      sendMsg: function () { self.setState({ tabNote: 'In the app, this goes to PacePay like a text from Yoshua.' }); },
+      pickCall: function () { self.setState({ stage: 'limits', note: '' }); },
+      otherFix: function () { self.setState({ note: 'Only the lender call is wired up in this mockup.' }); },
+      startCall: function () { self.setState({ stage: 'call', step: 1, textMode: false }); },
+      approve: function () { self.setState({ stage: 'done' }); },
+      backHome: function () { self.setState({ stage: 'home', step: 0, textMode: false }); },
+      showActivity: function () { self.setState({ tab: 'activity', tabNote: '' }); },
+      reset: function () { self.setState(Object.assign(self.fresh(), { presenter: st.presenter })); }
+    };
+  }
+}
+</script>
+</body>
+</html>

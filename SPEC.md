@@ -1010,7 +1010,7 @@ Each file has one owner, so two people never edit the same file.
 | Path | Owner |
 |---|---|
 | `packages/engine` (all but `fixtures/terms/`) | Yoshua |
-| `apps/dashboard` | Yoshua |
+| `apps/dashboard` | Ram's agents write the first pass by Sat 11 PM; Yoshua owns it after that |
 | Root workspace, `packages/shared` | Ram (changes only after telling Yoshua) |
 | `apps/server` (everything: `index.ts`, `api/`, `store/`, `bus.ts`, `messaging/`, `voice/`, `agent/`, `tools/`, `models/`, `prompts/`) | Ram |
 | `apps/voice`, `scripts/` (`demo-e2e`, `voice-test`, `check-keys`) | Ram |
@@ -1018,10 +1018,12 @@ Each file has one owner, so two people never edit the same file.
 
 ### 10.3 Yoshua: the money engine and the dashboard (PNC)
 
-No paid keys. Yoshua runs the server locally in NVIDIA mode (section 5.4) to build the dashboard against real data, and holds the customer phone, so Yoshua also confirms that iMessage texts and photos arrive while Ram builds the bridge.
+No paid keys, and Yoshua is on a $20 Claude plan whose Claude Code usage runs out in a few hours of heavy use. So Ram's agents write the bulk of the dashboard code (the port of the mockup), and Yoshua spends Claude usage on the engine and on wiring, fixing and polishing. Tips for stretching the plan: use Sonnet, keep each session to one screen, point Claude at the mockup and `UI.md` rather than describing things, and run only the tests for the file being changed.
+
+Yoshua runs the server locally in NVIDIA mode (section 5.4) to build the dashboard against real data, and holds the customer phone, so Yoshua also confirms that iMessage texts and photos arrive while Ram builds the bridge.
 
 1. **The engine, first, because everything else uses it.** The fixture from `v2.md`, then `forecast`, `postingDay` and the posting rules, then `healthScores`, `netWorth`, `buildOptions`, `checkOffer`, `planCallTargets`, `cdOptions` and `simulate`, with every test in section 3. Push working pieces as they pass, so Ram's agent can use them early. **Sat 11 PM: all tests pass.**
-2. **The dashboard,** built from the mockup and `UI.md`:
+2. **The dashboard.** Ram's agents deliver a first pass (see 10.4, item 2): every tab and panel state from the mockup as React components on placeholder data. Yoshua owns it from there: wire each piece to the engine and the server's endpoints and SSE, then check every screen against the mockup and `UI.md` and fix what's off. What it has to end up with:
    - Shell: layout, the SSE client (`lib/events.ts`, resuming with `Last-Event-ID`) and the server URL. Until Ram's server is up, read the engine and fixture directly.
    - Header: the logo, five text tabs underlined when selected (Home · Messages · Activity · Accounts · Arena), and on the right the demo controls and the avatar.
    - Home, left side: the checking balance, one status line ("Lowest −$300 on Tue, Nov 10"), the range switch, the pace line, and four health stats split by hairlines. Each stat is a button that shows its why/improve line (`reason` and `improve` from `healthScores`).
@@ -1029,24 +1031,26 @@ No paid keys. Yoshua runs the server locally in NVIDIA mode (section 5.4) to bui
    - Home, right side: the PacePay panel, the only white card, one step at a time: Heads up → Limits → Call → Approve → Done, plus the what-if state (engine in the browser), the CD alert on day 11, and the lender console inside the Call step ("Negotiating by text").
    - Messages tab (the coach chat, posting to `POST /api/thread`), Activity tab (plan checklist and log), Accounts tab (accounts by PNC category, next 14 days, Your rules with `PUT /api/rules`), Arena tab (stat row, 10 × 5 grid, **Run 3 live**).
    - Demo controls: **Skip to Wed, Nov 18** (day 11) and back, **Presenter**, **Reset**, and bill-photo injection.
-3. Small props: export the logo as PacePay's Photon avatar, and print the repair quote (section 13).
+3. If Yoshua's plan runs dry, hand the unfinished item to Ram with a one-line note on what's left. Ram's agents also finish any engine tests that aren't done by Sat 11 PM.
+4. Small props: export the logo as PacePay's Photon avatar, and print the repair quote (section 13).
 
 ### 10.4 Ram: everything server-side, voice and heavy runs (NVIDIA and Photon)
 
 Run independent items in parallel; start the long runs early and let them work in the background.
 
-1. Scaffold and `packages/shared` (first hour), then `models/`: the gateway and NVIDIA providers, picked automatically (section 5.4), with timeouts, one retry and a `model.called` event per call. Then `agent/stub.ts`.
-2. Server: Hono, the store with its snapshot, the SSE bus, the dashboard read endpoints, demo controls, the lender console endpoints and `/api/media`. **Sat 11 PM: the dashboard can read `/api/household` and the event stream.**
-3. Photon bridge: the `MessagingPort` adapter, the polling receive loop, sending text and images, downloading incoming photos (still unverified, section 12; Yoshua sends the test photo), the code reply parser (section 5.1), and routing texts to agent events. **Sat 11 PM: the server sends a first text.**
-4. Tools without a model, with zod validation and activity events: `get_accounts`, `get_forecast`, `simulate`, `check_offer`, `send_message` with the facts check, `send_chart` with the chart PNGs (section 6), `request_approval` with its timeouts, `place_call`'s LiveKit dispatch (`voice/dispatch.ts`, `SipCallError` → `CALL_FAILED`), and `schedule_followup`.
-5. Agent: the planner (Ultra), plan validation, template plans, the orchestrator loop, and the state machine with its hard gates, entered through `agent.handle(event)`. **Sat 11 PM: the tool loop runs on the bill-photo event.**
-6. Negotiator (`decide`): classification, read-back, `check_offer`, counters from the call plan, approvals with the 60-second timeout, and outcomes. Text mode first (the lender console), then voice.
-7. Tools with a model: `read_bill` with the Claude cross-check, `second_opinion`, `get_terms` (embeddings over the terms fixtures, which Ram writes), `post_call_summary`, and Q&A (`answer_question` and inbound `/ask`).
-8. Watcher: the daily check on every clock change, `CD_MATURING`, `SHORTFALL` and follow-ups (the night-before reminder).
-9. Voice: `api/voice.ts` (brief, decide, approval, events, inbound, PIN, ask) and the `apps/voice` worker, starting from the worker in `scripts/voice-test`, which answered and placed real calls on Nov 7.
-10. `pnpm demo:e2e` (section 11). It also runs on Yoshua's machine in NVIDIA mode (Nemotron on build.nvidia.com, the Claude steps skipped with a `warn`), so Yoshua can check the dashboard against a full run.
-11. Heavy runs, in the background while building: the arena (50 lenders with Claude grading), 30 generated bill photos and the bill reader's accuracy on them, prompt tuning against both, live call rehearsals, the logo concepts from `IMAGE_MODEL`, and, optionally, a Brev GPU.
-12. Later: Devpost video assets (the TTS voiceover).
+1. **Dashboard first pass, in parallel with everything below:** port the mockup (`design/mockup/Main.dc.html`) into `apps/dashboard` as Next.js components: the header and five tabs, the pace line (reuse the mockup's label-placement logic), the health stats, every PacePay panel state (Heads up, Limits, Call with the text fallback, Approve, Done, what-if, CD alert), and the Messages, Activity, Accounts and Arena tabs. Use placeholder data shaped like section 2's types, so wiring is a swap of data sources. Hand it to Yoshua by Sat 11 PM; after that the folder is Yoshua's.
+2. Scaffold and `packages/shared` (first hour), then `models/`: the gateway and NVIDIA providers, picked automatically (section 5.4), with timeouts, one retry and a `model.called` event per call. Then `agent/stub.ts`.
+3. Server: Hono, the store with its snapshot, the SSE bus, the dashboard read endpoints, demo controls, the lender console endpoints and `/api/media`. **Sat 11 PM: the dashboard can read `/api/household` and the event stream.**
+4. Photon bridge: the `MessagingPort` adapter, the polling receive loop, sending text and images, downloading incoming photos (still unverified, section 12; Yoshua sends the test photo), the code reply parser (section 5.1), and routing texts to agent events. **Sat 11 PM: the server sends a first text.**
+5. Tools without a model, with zod validation and activity events: `get_accounts`, `get_forecast`, `simulate`, `check_offer`, `send_message` with the facts check, `send_chart` with the chart PNGs (section 6), `request_approval` with its timeouts, `place_call`'s LiveKit dispatch (`voice/dispatch.ts`, `SipCallError` → `CALL_FAILED`), and `schedule_followup`.
+6. Agent: the planner (Ultra), plan validation, template plans, the orchestrator loop, and the state machine with its hard gates, entered through `agent.handle(event)`. **Sat 11 PM: the tool loop runs on the bill-photo event.**
+7. Negotiator (`decide`): classification, read-back, `check_offer`, counters from the call plan, approvals with the 60-second timeout, and outcomes. Text mode first (the lender console), then voice.
+8. Tools with a model: `read_bill` with the Claude cross-check, `second_opinion`, `get_terms` (embeddings over the terms fixtures, which Ram writes), `post_call_summary`, and Q&A (`answer_question` and inbound `/ask`).
+9. Watcher: the daily check on every clock change, `CD_MATURING`, `SHORTFALL` and follow-ups (the night-before reminder).
+10. Voice: `api/voice.ts` (brief, decide, approval, events, inbound, PIN, ask) and the `apps/voice` worker, starting from the worker in `scripts/voice-test`, which answered and placed real calls on Nov 7.
+11. `pnpm demo:e2e` (section 11). It also runs on Yoshua's machine in NVIDIA mode (Nemotron on build.nvidia.com, the Claude steps skipped with a `warn`), so Yoshua can check the dashboard against a full run.
+12. Heavy runs, in the background while building: the arena (50 lenders with Claude grading), 30 generated bill photos and the bill reader's accuracy on them, prompt tuning against both, live call rehearsals, the logo concepts from `IMAGE_MODEL`, and, optionally, a Brev GPU.
+13. Later: Devpost video assets (the TTS voiceover).
 
 ### 10.5 Where the two meet
 
@@ -1054,6 +1058,7 @@ Run independent items in parallel; start the long runs early and let them work i
 |---|---|---|---|
 | `packages/shared` types and tool schemas | Ram → Yoshua | Ram | First hour |
 | Engine API | Yoshua → Ram's server and agent | Yoshua | Pieces as they pass; all by Sat 11 PM |
+| Dashboard first pass | Ram's agents → Yoshua | Ram | Sat 11 PM |
 | HTTP and SSE contracts (section 4) | Ram's server → Yoshua's dashboard | Ram | Sat 11 PM (on the stub agent), Sun 4 AM (real agent) |
 | Lender console ↔ `decide` | Ram's negotiator → Yoshua's dashboard | Yoshua (UI), Ram (endpoint) | Sun 4 AM |
 | iMessage on the customer phone | Ram's bridge → Yoshua's phone | Ram (Yoshua confirms texts and sends test photos) | Sat 11 PM |
@@ -1062,7 +1067,7 @@ Run independent items in parallel; start the long runs early and let them work i
 
 | Checkpoint | Yoshua | Ram |
 |---|---|---|
-| **Sat 11 PM** | Engine tests pass; the dashboard shell and Home read the server (or the fixture until it's up) | Scaffold, `packages/shared`, `models/` and the stub agent (first hour); the server and SSE; the first text through Photon; the Nemotron tool loop on the bill-photo event; the voice worker answering calls with `decide` stubbed |
+| **Sat 11 PM** | Engine tests pass; the dashboard first pass (from Ram) runs and Home reads the server | The dashboard first pass, handed to Yoshua; scaffold, `packages/shared`, `models/` and the stub agent (first hour); the server and SSE; the first text through Photon; the Nemotron tool loop on the bill-photo event; the voice worker answering calls with `decide` stubbed |
 | **Sun 4 AM** | Home, the pace line, Messages, Activity, what-if, the lender console and demo controls, all live against the server | The full case on the real agent: plan → options → choice → limits → second opinion → call → `decide` → approval → summary; photos in and charts out over Photon; the watcher and CD alert; inbound PIN calls; `demo:e2e` passes |
 | **Sun 9 AM** | Accounts, the Arena tab, Presenter mode, polish | Arena run of 50 (started overnight), the bill-photo test, terms lookup; backup video recorded on Ram's machine |
 | **Sun 11 AM** | Freeze | Freeze |

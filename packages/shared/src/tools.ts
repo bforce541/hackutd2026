@@ -58,9 +58,52 @@ export const GetForecastOutput = z.object({
   scores: z.array(HealthScoreSchema),
 });
 
-export const SimulateInput = z.object({ changes: z.array(ChangeSchema) });
+// simulate takes friendly what-ifs that tools/simulate.ts turns into engine Changes (the model can't
+// build Change objects reliably). Days are words ("today", "Friday", "Nov 13"), amounts are dollars.
+// Raw engine Changes are still accepted in `changes` (validated with ChangeSchema in the tool).
+const Dollars = z.union([z.number(), z.string()]);
+const DayWord = z.coerce.string();
+export const SimulateInput = z.object({
+  spend: z
+    .object({
+      amount_dollars: Dollars.describe('Dollars, e.g. 800'),
+      day: DayWord.optional().describe('today (default), tomorrow, a weekday like Friday, or a date like Nov 13'),
+      from: z.string().optional().describe("'checking' (default) or 'card'"),
+    })
+    .optional()
+    .describe('A purchase or expense he is thinking about.'),
+  move_payment: z
+    .object({
+      item: z.string().describe("Which payment, e.g. 'car payment' or 'personal loan'"),
+      to_day: DayWord.describe('A weekday like Friday, or a date like Nov 13'),
+    })
+    .optional()
+    .describe('Move a due date to a later day.'),
+  paycheck_late_days: z.number().optional().describe('The next paycheck arrives this many days late.'),
+  transfer: z
+    .object({
+      amount_dollars: Dollars,
+      from: z.string().optional().describe("'savings' (default) or 'checking'"),
+      to: z.string().optional().describe("'checking' (default), 'savings' or 'card'"),
+      day: DayWord.optional().describe('today (default), tomorrow, a weekday, or a date'),
+    })
+    .optional()
+    .describe('Move money between his own accounts.'),
+  changes: z.array(z.unknown()).optional().describe('Advanced: raw engine changes. Leave out; use the fields above.'),
+});
 export const SimulateOutput = z.object({
+  /** Lowest checking balance over the next 60 days with the what-if applied (cents) and the day it happens. */
   lowest: LowestSchema,
+  /** The lowest point's date as text, e.g. 'Tue, Nov 10'. */
+  lowestOn: z.string().optional(),
+  /** below_zero: overdrawn; below_minimum: under his checking minimum; ok. */
+  status: z.enum(['below_zero', 'below_minimum', 'ok']).optional(),
+  /** His checking minimum (cents). */
+  minimum: CentsSchema.optional(),
+  /** The same lowest point without the what-if. */
+  without: z.object({ lowest: LowestSchema, lowestOn: z.string() }).optional(),
+  /** What was simulated, in words, with the dollar amount (cents) and date for each. */
+  applied: z.array(z.object({ what: z.string(), amount: CentsSchema.optional(), on: z.string().optional() })).optional(),
   scores: z.array(HealthScoreSchema),
   netWorth: NetWorthSchema,
 });
@@ -179,7 +222,7 @@ export const TOOLS = {
   }),
   simulate: spec({
     name: 'simulate',
-    description: 'Run the engine on hypothetical changes (move a payment, charge the card, transfer) and return the new lowest point, scores and net worth. Changes nothing.',
+    description: "Run the engine on a what-if and return the lowest checking balance and its date (with and without the what-if), whether it dips below $0 or his minimum, scores and net worth. Fill in the fields you need (spend, move_payment, paycheck_late_days, transfer); days are words like 'today' or 'Friday', amounts are dollars. Changes nothing.",
     input: SimulateInput,
     output: SimulateOutput,
     calledBy: ['orchestrator', 'qa'],

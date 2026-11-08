@@ -22,6 +22,8 @@ export interface VoiceToolHooks {
   say(text: string): Promise<void>;
   /** Hang up: delete the LiveKit room. */
   hangUp(): Promise<void>;
+  /** Resolve once the agent has finished speaking (or after maxMs). Optional: tests may omit it. */
+  settle?(maxMs: number): Promise<void>;
   /** Tell the server the call ended (posts /events {ended}), once. */
   end(reason: string): Promise<void>;
 }
@@ -65,11 +67,18 @@ export async function awaitApproval(server: VoiceServerClient, callId: string, h
   };
 }
 
+export const END_TAIL_MS = 800;
+export const END_MAX_MS = 12_000;
+
 async function endCall(hooks: VoiceToolHooks, reason: string) {
-  // Let the goodbye finish, then report and hang up.
-  setTimeout(() => {
-    void hooks.end(reason).then(() => hooks.hangUp()).catch((err) => console.error('[voice] end_call failed', (err as Error).message));
-  }, 1_500);
+  // Detached so the tool result returns at once and the model can speak its goodbye. Then wait for
+  // that speech to play out fully, add a short tail, report and hang up (hard cap on the wait).
+  void (async () => {
+    await hooks.settle?.(END_MAX_MS);
+    await sleep(END_TAIL_MS);
+    await hooks.end(reason);
+    await hooks.hangUp();
+  })().catch((err) => console.error('[voice] end_call failed', (err as Error).message));
   return { ok: true };
 }
 

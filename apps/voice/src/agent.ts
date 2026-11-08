@@ -147,6 +147,21 @@ function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: 
     say: async (text) => {
       session?.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${text}"` });
     },
+    // Wait until the agent has stopped speaking: let a pending goodbye start, then require the state to
+    // stay 'listening' (and the last speech handle done) for a moment. Capped so it cannot hang.
+    settle: async (maxMs) => {
+      const deadline = Date.now() + maxMs;
+      const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      await nap(600);
+      let quietSince = 0;
+      while (Date.now() < deadline && !ended) {
+        const quiet = session?.agentState === 'listening' && (lastSpeech?.done() ?? true);
+        if (!quiet) quietSince = 0;
+        else if (!quietSince) quietSince = Date.now();
+        else if (Date.now() - quietSince >= 500) return;
+        await nap(100);
+      }
+    },
     hangUp: async () => {
       await roomClient().deleteRoom(room).catch((e) => log('deleteRoom failed', e.message));
     },

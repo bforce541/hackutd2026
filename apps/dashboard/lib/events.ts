@@ -21,7 +21,11 @@ export function openEventStream(opts: EventStreamOptions): () => void {
   for (const name of SSE_EVENT_NAMES) {
     es.addEventListener(name, (msg) => {
       const m = msg as MessageEvent<string>;
-      opts.onEvent({ event: name, seq: Number(m.lastEventId), data: JSON.parse(m.data) } as SseEvent);
+      try {
+        opts.onEvent({ event: name, seq: Number(m.lastEventId), data: JSON.parse(m.data) } as SseEvent);
+      } catch (err) {
+        console.error(`[events] bad ${name} message`, err);
+      }
     });
   }
   return () => es.close();

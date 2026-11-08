@@ -25,6 +25,6 @@ Each file has one owner (a build stream). Edit only your own files. `lib/view-mo
 - Colors and sizes only from the tokens in `app/globals.css` (`bg-page`, `bg-panel`, `text-ink`, `text-muted`, `border-hairline`, `text-green`, `bg-green-tint`, `text-vermilion`, `text-ochre`, `text-hero`, `text-headline`, `text-stat`, `text-label`, `text-chart`; in SVG `var(--green)` etc.). No pills, badges, gradients or extra cards (UI.md "Don'ts").
 - No emoji and no marketing words in UI text.
 - Ids for the demo household (accounts, the car payment) come from `ACCOUNT_IDS` / `ITEM_IDS` in `@pacepay/shared`. The Activity checklist labels each step with `stepActor(step)` and `ACTOR_LABELS` (Yoshua for his decisions).
-- Never call `@pacepay/engine` at module scope: until Yoshua lands it every function throws, and a throw at import breaks `next build` (and the Vercel deploy). Call it inside hooks or event handlers and fall back to the demo data on error.
+- The engine is real and tested (Yoshua's `packages/engine`; how-to in its README). Demo mode builds from `fixtures` and calls `simulate`, `buildOptions`, `checkOffer` and the rest directly. Still call it inside hooks or memoized functions, not at module scope, so `next build` stays fast and static.
 - `next build` must not need the server: no fetches at build time, and the page stays a client component.
 - No new dependencies. Check your work with `pnpm --filter @pacepay/dashboard typecheck` and `pnpm --filter @pacepay/dashboard build`.

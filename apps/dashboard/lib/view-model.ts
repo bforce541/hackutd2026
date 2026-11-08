@@ -149,7 +149,7 @@ export type PanelView =
   | {
       step: 'done';
       coveredThrough: Day; // "Covered through Dec 7"
-      results: string[]; // one short line each
+      results: { label: string; value: string }[]; // "Car payment" / "Fri, Nov 13"; the Reference row is added from `reference`
       reference?: string; // "A1B2C3"
     }
   | {
@@ -183,8 +183,12 @@ export interface CallView {
   /** The last 4 transcript lines (UI.md). */
   transcriptTail: TranscriptLine[];
   offers: OfferRow[];
-  /** Demo mode: true when the next scripted line is the lender's (the "Next line" control). */
+  /** Demo mode: true while the scripted call has a line left (the "Next line" control). Live: false. */
   canAdvance: boolean;
+  /** Demo mode: the script is done, so the button reads "Ask Yoshua". Live: false. */
+  atEnd: boolean;
+  /** Demo mode: the lender's next scripted line, to prefill the lender console; null on PacePay's turn. */
+  lenderNext: string | null;
 }
 
 export interface WhatIfRow {
@@ -271,6 +275,8 @@ export interface Actions {
   startCall(): void;
   /** Demo: reveal the next scripted transcript line. Live: no-op. */
   nextLine(): void;
+  /** Call: "End call" / "Stop". Demo: back to Heads up. Live: the server owns hang-up, so only a notice. */
+  endCall(): void;
   /** "Call dropped? Switch to text". Live: POST /api/demo/fail-call. */
   failCall(): void;
   /** The lender console ("Lender types here"). Live: POST /api/negotiations/:id/lender. */

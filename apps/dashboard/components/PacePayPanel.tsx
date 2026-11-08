@@ -2,30 +2,47 @@
 /**
  * The PacePay panel (UI.md "Home, right"): the only white card, one step at a time. Renders
  * state.panel: Heads up, Limits, Call (with "Negotiating by text" and the lender console),
- * Approve, Done, What-if, CD alert. Owned by: dash-panel. Placeholder: the step name and headline.
+ * Approve, Done, What-if, CD alert. Ported from design/mockup/Main.dc.html. Owned by: dash-panel.
  */
-import { formatDate, formatMoney } from '@pacepay/shared';
 import type { DashboardProps } from '@/lib/view-model';
+import { HeadsUp } from './panel/HeadsUp';
+import { Limits } from './panel/Limits';
+import { CallStep } from './panel/Call';
+import { Approve } from './panel/Approve';
+import { Done } from './panel/Done';
+import { WhatIf } from './panel/WhatIf';
+import { CdAlert } from './panel/CdAlert';
+import { Idle } from './panel/Idle';
 
-export function PacePayPanel({ state, actions }: DashboardProps) {
-  const p = state.panel;
+function Step(props: DashboardProps) {
+  const view = props.state.panel;
+  switch (view.step) {
+    case 'heads_up':
+      return <HeadsUp {...props} view={view} />;
+    case 'limits':
+      return <Limits {...props} view={view} />;
+    case 'call':
+      return <CallStep {...props} />;
+    case 'approve':
+      return <Approve {...props} view={view} />;
+    case 'done':
+      return <Done {...props} view={view} />;
+    case 'what_if':
+      return <WhatIf {...props} />;
+    case 'cd_alert':
+      return <CdAlert {...props} view={view} />;
+    case 'idle':
+      return <Idle {...props} />;
+  }
+}
+
+export function PacePayPanel(props: DashboardProps) {
   return (
-    <aside aria-label="PacePay" className="rounded-xl bg-panel p-7 shadow-panel">
-      {p.step === 'heads_up' ? (
-        <div className="flex flex-col gap-3">
-          <p className="text-headline font-medium num">
-            {formatMoney(p.lowest.amount)} on {formatDate(p.lowest.day)}
-          </p>
-          <p className="text-muted">{p.condition}</p>
-          <p className="font-medium">{p.best.title}</p>
-          <p className="text-label text-muted">{p.best.detail}</p>
-          <button type="button" className="min-h-11 rounded-lg bg-green px-4 font-medium text-white" onClick={() => actions.pickOption(p.best.optionId)}>
-            {p.best.cta}
-          </button>
-        </div>
-      ) : (
-        <p className="text-muted">Step: {p.step}</p>
-      )}
-    </aside>
+    <section
+      aria-label="PacePay"
+      className="num min-w-0 self-start rounded-xl border border-hairline bg-panel p-[1.5em] leading-[1.45] text-ink shadow-panel"
+    >
+      <Step {...props} />
+    </section>
   );
 }

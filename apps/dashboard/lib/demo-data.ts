@@ -1,11 +1,11 @@
 /**
- * Placeholder DashboardState matching the mockup's opening screen (design/mockup/Main.dc.html,
- * stage 'home', day 0): Yoshua's household, checking $1,950, "Lowest −$300 on Tue, Nov 10",
- * the Heads up panel. Owned by: dash-demo.
+ * The engine-free still of the mockup's opening screen (design/mockup/Main.dc.html, stage
+ * 'home', day 0): Yoshua's household, checking $1,950, "Lowest −$300 on Tue, Nov 10", the
+ * Heads up panel. Owned by: dash-demo.
  *
- * The forecast here is a port of the mockup's events()/balances() so the chart has data before
- * the engine lands. Once @pacepay/engine is implemented, build these from engine.fixtures and
- * engine.forecast instead.
+ * Demo mode builds everything from the real engine (demo-machine.ts); this file is only the
+ * fallback when the engine throws, so the page still renders. Its forecast is a port of the
+ * mockup's events()/balances(), with no engine call at module scope.
  */
 import {
   CATEGORIES,

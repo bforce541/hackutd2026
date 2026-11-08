@@ -1,21 +1,18 @@
 'use client';
 /**
- * Activity tab (UI.md): two columns. Plan: "The $650 repair · plan written by <model>" and the
- * step checklist (done / in progress / waiting, with who runs each). Log: newest first,
- * "time · who · what" (formatClockTime, ACTOR_LABELS). Owned by: dash-tabs-a. Placeholder: the log.
+ * Activity tab (UI.md): two columns. Plan: "<goal> · plan written by <model>" and the step
+ * checklist (done / in progress / waiting, with who runs each). Log: newest first,
+ * "time · who · what" with collapsible details. Owned by: dash-tabs-a.
  */
-import { ACTOR_LABELS, formatClockTime } from '@pacepay/shared';
 import type { DashboardProps } from '@/lib/view-model';
+import { LogList } from './activity/LogList';
+import { PlanChecklist } from './activity/PlanChecklist';
 
 export function ActivityTab({ state }: DashboardProps) {
-  const rows = [...state.activity].sort((a, b) => b.seq - a.seq);
   return (
-    <section aria-label="Activity" className="flex flex-col gap-2">
-      {rows.map((e) => (
-        <p key={e.id} className="text-label">
-          <span className="num text-muted">{formatClockTime(e.at)}</span> · {e.model ? ACTOR_LABELS[e.model] : 'Code'} · {e.title}
-        </p>
-      ))}
-    </section>
+    <div className="flex flex-wrap items-start gap-10">
+      <PlanChecklist current={state.current} />
+      <LogList events={state.activity} />
+    </div>
   );
 }

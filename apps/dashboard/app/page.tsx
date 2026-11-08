@@ -1,10 +1,10 @@
 'use client';
 /**
  * The dashboard: one page, five tabs. Composes the components by tab; Home fits one laptop
- * screen (1440 x 800) and drops the panel below the chart at phone width. Owned by: dash-shell.
+ * screen (1440 x 800) and the panel wraps below the chart at phone width. Presenter mode
+ * scales everything 25% through the root font size (globals.css). Owned by: dash-shell.
  */
 import { useEffect } from 'react';
-import { formatMoney } from '@pacepay/shared';
 import { useDashboard } from '@/lib/data-source';
 import { Header } from '@/components/Header';
 import { PaceLine } from '@/components/PaceLine';
@@ -24,20 +24,18 @@ export default function Page() {
   }, [state.ui.presenter]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-page text-ink">
       <Header {...props} />
-      <main className="px-8 py-7">
+      <main className="px-4 pb-8 pt-6 sm:px-8 sm:pt-7">
         {state.ui.tab === 'home' && (
-          <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_400px]">
-            <div className="flex min-w-0 flex-col gap-4">
-              <div>
-                <p className="num text-hero font-medium">{formatMoney(state.household.checkingBalance)}</p>
-                <p className="text-muted">{state.chart.status}</p>
-              </div>
+          <div className="flex flex-wrap items-start gap-10">
+            <div className="min-w-0 flex-[999_1_560px]">
               <PaceLine {...props} />
               <HealthStats {...props} />
             </div>
-            <PacePayPanel {...props} />
+            <div className="min-w-0 flex-[1_1_380px]">
+              <PacePayPanel {...props} />
+            </div>
           </div>
         )}
         {state.ui.tab === 'messages' && <MessagesTab {...props} />}

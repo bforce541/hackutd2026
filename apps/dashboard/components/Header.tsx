@@ -1,49 +1,78 @@
 'use client';
 /**
  * The slim header (UI.md "Navigation"): logo and five text tabs underlined when selected on the
- * left; today's date with Skip, Presenter, Reset and the avatar on the right. Owned by: dash-shell.
+ * left; today's date with Skip, Presenter, Reset and the avatar on the right, plus a small
+ * Demo or Live note. Owned by: dash-shell.
  */
 import { CD_ALERT_DAY, formatDate } from '@pacepay/shared';
 import { cn } from '@/lib/cn';
 import { TABS, type DashboardProps } from '@/lib/view-model';
 
 export function Header({ state, actions }: DashboardProps) {
+  const inCall = state.panel.step === 'call' || state.panel.step === 'approve';
   const skipLabel = state.day >= CD_ALERT_DAY ? `Back to ${formatDate(0)}` : `Skip to ${formatDate(CD_ALERT_DAY)}`;
+  const modeNote = state.mode === 'demo' ? 'Demo' : state.connection === 'reconnecting' ? 'Live, reconnecting' : 'Live';
   return (
-    <header className="flex items-center justify-between gap-6 border-b border-hairline px-8 py-3">
-      <div className="flex items-center gap-8">
-        <span className="text-lg font-semibold text-green">PacePay</span>
-        <nav aria-label="Sections" className="flex gap-5">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              aria-current={state.ui.tab === t.id ? 'page' : undefined}
-              onClick={() => actions.setTab(t.id)}
-              className={cn(
-                'min-h-11 text-label font-medium underline-offset-[0.45em]',
-                state.ui.tab === t.id ? 'font-semibold text-ink underline decoration-green decoration-2' : 'text-muted',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+    <header className="border-b border-hairline">
+      <div className="flex min-h-[3.75rem] flex-wrap items-stretch gap-x-6 px-4 sm:gap-x-10 sm:px-8">
+        <div className="flex min-h-11 items-center gap-2">
+          <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true">
+            <path d="M3 9 H9 V19 H15 V7 H25" fill="none" stroke="var(--green)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-[1.0625rem] font-semibold tracking-[-0.01em]">PacePay</span>
+        </div>
+        <nav aria-label="Main" className="order-last flex w-full items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto sm:gap-7">
+          {TABS.map((t) => {
+            const on = state.ui.tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                aria-current={on ? 'page' : undefined}
+                onClick={() => actions.setTab(t.id)}
+                className={cn(
+                  'min-h-11 border-y-2 border-t-transparent px-0.5 text-[0.9375rem]',
+                  on ? 'border-b-green font-semibold text-ink' : 'border-b-transparent font-medium text-muted',
+                )}
+              >
+                {t.label}
+              </button>
+            );
+          })}
         </nav>
-      </div>
-      <div className="flex items-center gap-5 text-label">
-        <span className="text-muted">{formatDate(state.day)}</span>
-        <button type="button" className="font-medium text-green" onClick={actions.skipClock}>
-          {skipLabel}
-        </button>
-        <button type="button" className="text-muted" onClick={actions.togglePresenter} aria-pressed={state.ui.presenter}>
-          Presenter
-        </button>
-        <button type="button" className="text-muted" onClick={actions.reset}>
-          Reset
-        </button>
-        <span aria-label="Yoshua" className="flex size-8 items-center justify-center rounded-full bg-green-tint font-semibold text-green">
-          Y
-        </span>
+        <div className="order-last flex w-full flex-wrap items-center justify-end gap-x-1 py-1 sm:order-none sm:ml-auto sm:w-auto sm:flex-nowrap [&>*]:whitespace-nowrap">
+          <span title={state.notice ?? undefined} className="px-2 text-chart text-muted">
+            {state.notice && state.mode === 'demo' ? state.notice : modeNote}
+          </span>
+          <span className="px-1 text-label font-semibold">{formatDate(state.day)}</span>
+          {!inCall && (
+            <button type="button" onClick={actions.skipClock} className="min-h-11 rounded-lg px-2 text-label font-semibold text-green">
+              {skipLabel}
+            </button>
+          )}
+          <span aria-hidden="true" className="mx-2 h-6 w-px bg-hairline" />
+          <button
+            type="button"
+            aria-pressed={state.ui.presenter}
+            onClick={actions.togglePresenter}
+            className={cn(
+              'min-h-11 rounded-lg px-3 text-label',
+              state.ui.presenter ? 'bg-green-tint font-semibold text-green' : 'font-medium text-muted',
+            )}
+          >
+            Presenter
+          </button>
+          <button type="button" onClick={actions.reset} className="min-h-11 rounded-lg px-3 text-label font-medium text-muted">
+            Reset
+          </button>
+          <span
+            role="img"
+            aria-label="Yoshua"
+            className="ml-2 flex size-8 items-center justify-center rounded-full bg-[#e2e0d9] text-[0.9375rem] font-semibold"
+          >
+            Y
+          </span>
+        </div>
       </div>
     </header>
   );

@@ -106,9 +106,31 @@ body {
 }
 
 body {
+  margin: 0;
   font-family: var(--font-sans);
   font-size: var(--size-body);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role='switch']:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
 }
 
 /* Every amount uses tabular figures (UI.md). Add class "num" to amounts. */

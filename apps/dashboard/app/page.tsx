@@ -6,6 +6,7 @@
  */
 import { useEffect } from 'react';
 import { useDashboard } from '@/lib/data-source';
+import { useWithPurchase } from '@/lib/with-purchase';
 import { TABS } from '@/lib/view-model';
 import { Header } from '@/components/Header';
 import { PaceLine } from '@/components/PaceLine';
@@ -17,7 +18,7 @@ import { AccountsTab } from '@/components/AccountsTab';
 import { ArenaTab } from '@/components/ArenaTab';
 
 export default function Page() {
-  const { state, actions } = useDashboard();
+  const { state, actions } = useWithPurchase(useDashboard());
   const props = { state, actions };
 
   useEffect(() => {

@@ -40,8 +40,8 @@ export interface PurchaseResult {
   fix: { optionId: OptionId; lowest: Lowest } | null;
 }
 
-/** Most a typed amount can be: keeps a stray extra zero from producing a nonsense chart. */
-export const MAX_PURCHASE: Cents = 1_000_000_00;
+/** Most a typed amount can be ($50,000): keeps a stray extra zero from producing a nonsense chart. */
+export const MAX_PURCHASE: Cents = 50_000_00;
 
 function householdFor(rules: Rules): Household {
   const base = fixtures.household as unknown as Household;

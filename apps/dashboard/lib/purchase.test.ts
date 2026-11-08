@@ -13,9 +13,10 @@ describe('parseAmount', () => {
     expect(parseAmount('900')).toBe($(900));
     expect(parseAmount('$1,250.50')).toBe($(1250.5));
     expect(parseAmount(' 75 ')).toBe($(75));
+    expect(parseAmount('50000')).toBe($(50000));
   });
   it('rejects nothing, negatives, words and absurd sizes', () => {
-    for (const bad of ['', '0', '-5', 'abc', '12.345', '12e3', '99999999']) expect(parseAmount(bad)).toBeNull();
+    for (const bad of ['', '0', '-5', 'abc', '12.345', '12e3', '99999999', '50000.01']) expect(parseAmount(bad)).toBeNull();
   });
 });
 

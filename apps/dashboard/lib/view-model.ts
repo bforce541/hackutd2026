@@ -11,6 +11,7 @@
  * formatDate, ...). Components never compute forecast numbers themselves: the chart and the
  * what-if numbers arrive here already computed (by the engine in the browser or the server).
  */
+import type { PayWith, PurchaseResult } from './purchase';
 import type {
   ActivityEvent,
   Account,
@@ -243,6 +244,20 @@ export interface WhatIfView {
   rows: WhatIfRow[];
 }
 
+/**
+ * "Try a purchase" in the What-if panel. Added by lib/with-purchase.ts on top of whichever data
+ * source is active, so neither source builds it. Absent when the hook is not in use.
+ */
+export interface PurchaseView {
+  /** What is in the box right now, as typed. */
+  text: string;
+  payWith: PayWith;
+  /** A calm hint when the text is not a usable amount; empty when it is fine or empty. */
+  hint: string;
+  /** The engine's answer for the typed amount; null while the box is empty or invalid. */
+  result: PurchaseResult | null;
+}
+
 export interface CaseView {
   case: Case;
   /** Activity tab: label each step's "who" with stepActor() from @pacepay/shared (Yoshua for his decisions). */
@@ -278,6 +293,8 @@ export interface DashboardState {
   current: CaseView | null;
   call: CallView | null;
   whatIf: WhatIfView | null;
+  /** Try a purchase (see PurchaseView). Optional: only the page-level hook sets it. */
+  purchase?: PurchaseView;
   /** The iMessage thread mirror, oldest first. */
   thread: Message[];
   /** The activity log, oldest first (the tab shows newest first). */
@@ -339,6 +356,10 @@ export interface Actions {
   // What-if (the engine runs in the browser)
   toggleWhatIf(): void;
   setWhatIf(key: WhatIfKey, on: boolean): void;
+
+  // Try a purchase (page-level hook; optional so the data sources need no change)
+  setPurchaseText?(text: string): void;
+  setPurchasePayWith?(payWith: PayWith): void;
 
   // Demo controls (header)
   /** "Skip to Wed, Nov 18" (day 11) and "Back to Sat, Nov 7" (day 0). */

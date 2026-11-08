@@ -6,6 +6,7 @@ import { formatMoney } from '@pacepay/shared';
 import type { DashboardProps, WhatIfRow } from '@/lib/view-model';
 import { cn } from '@/lib/cn';
 import { CHECK_PATH, Divider, Eyebrow, Muted, Note, TextButton } from './primitives';
+import { TryPurchase } from './TryPurchase';
 
 function Checkbox({ row, onFlip }: { row: WhatIfRow; onFlip: () => void }) {
   const on = row.checked;
@@ -75,6 +76,7 @@ export function WhatIf({ state, actions }: DashboardProps) {
             ))}
         </>
       )}
+      <TryPurchase state={state} actions={actions} />
       <Note className="mt-[0.75em]">Nothing changes until you say so.</Note>
     </div>
   );

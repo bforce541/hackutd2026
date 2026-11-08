@@ -8,42 +8,42 @@
     {
       "id": "desk",
       "start": 0,
-      "end": 10,
+      "end": 8.8,
       "source": "recording",
       "file": "recordings/desk.mov",
-      "what": "Yoshua at the desk reads the bill on his laptop, reacts, picks up his phone to text PacePay. (Take: IMG_4896, 10.4s.)",
+      "what": "Yoshua at the desk reads the bill on his laptop, reacts, picks up his phone to text PacePay. (Take: IMG_4903, 8.8s.)",
       "audio": "the clip's own audio (his line)",
       "captions": [
         {
-          "start": 1.2,
-          "end": 2.15,
-          "text": "No way!"
+          "start": 0.15,
+          "end": 1.05,
+          "text": "No way."
         },
         {
-          "start": 2.2,
-          "end": 3.8,
-          "text": "Is this due on Saturday?"
+          "start": 1.1,
+          "end": 2,
+          "text": "Is this due today?"
         },
         {
-          "start": 3.85,
-          "end": 5.55,
-          "text": "There's no way I can make this payment."
+          "start": 2.05,
+          "end": 4.4,
+          "text": "I only get paid next Thursday."
         },
         {
-          "start": 5.6,
-          "end": 7.2,
-          "text": "I only get paid on Thursday."
+          "start": 4.45,
+          "end": 6,
+          "text": "There's no way I can make this."
         },
         {
-          "start": 7.25,
-          "end": 9,
+          "start": 6.05,
+          "end": 7.6,
           "text": "Let me text PacePay."
         }
       ]
     },
     {
       "id": "texts",
-      "start": 10,
+      "start": 8.8,
       "end": 22,
       "source": "render",
       "page": "imessage.html",
@@ -182,32 +182,15 @@
     ]
   },
   "desk_phone_at": [
-    0.4,
-    0.53
+    0.41,
+    0.55
   ],
   "call_inset_phone": {
     "h": 880,
     "right": 44
   },
   "music": {
-    "file": "recordings/music.wav (made by scripts/video/make-music.mjs)",
-    "boost": [
-      [
-        10,
-        22,
-        1.7
-      ],
-      [
-        62,
-        66,
-        3
-      ],
-      [
-        112,
-        118,
-        3.2
-      ]
-    ]
+    "file": "recordings/music.wav (made by scripts/video/make-music.mjs)"
   },
   "accounts_at": 0.85
 }

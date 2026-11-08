@@ -1,0 +1,4 @@
+node_modules/
+# The workspace lockfile lives at the repo root once the pnpm workspace exists.
+pnpm-lock.yaml
+package-lock.json

@@ -1,72 +1,97 @@
 'use client';
 /**
- * The slim header (UI.md "Navigation"): logo and five text tabs underlined when selected on the
- * left; today's date with Skip, Presenter, Reset and the avatar on the right, plus a small
- * Demo or Live note. Owned by: dash-shell.
+ * The header: logo, the five tabs as a sliding pill, and on the right the demo controls (the date
+ * with Skip, Presenter, Reset) plus the Light / Night switch and the avatar.
+ * Owned by: dash-shell.
  */
 import { CD_ALERT_DAY, formatDate } from '@pacepay/shared';
 import { Logo } from '@/components/Logo';
+import { Segmented } from '@/components/ui/Segmented';
 import { cn } from '@/lib/cn';
-import { TABS, type DashboardProps } from '@/lib/view-model';
+import { useTheme } from '@/lib/theme';
+import { TABS, type DashboardProps, type Tab } from '@/lib/view-model';
+
+const GHOST = 'min-h-9 rounded-full px-3 text-label font-medium text-muted transition-colors duration-[var(--dur-base)] hover:text-ink';
+
+function ThemeIcon({ night }: { night: boolean }) {
+  return night ? (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
+  ) : (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z" />
+    </svg>
+  );
+}
 
 export function Header({ state, actions }: DashboardProps) {
+  const { theme, toggle } = useTheme();
   const inCall = state.panel.step === 'call' || state.panel.step === 'approve';
-  const skipLabel = state.day >= CD_ALERT_DAY ? `Back to ${formatDate(0)}` : `Skip to ${formatDate(CD_ALERT_DAY)}`;
-  const modeNote = state.mode === 'demo' ? 'Demo' : state.connection === 'reconnecting' ? 'Live, reconnecting' : 'Live';
+  const skipped = state.day >= CD_ALERT_DAY;
+  const modeNote = state.mode === 'demo' ? 'Demo' : state.connection === 'reconnecting' ? 'Reconnecting' : 'Live';
+
   return (
-    <header className="border-b border-hairline">
-      <div className="flex min-h-[3.75rem] flex-wrap items-stretch gap-x-6 px-4 sm:gap-x-10 sm:px-8 [html[data-presenter=true]_&]:sm:gap-x-6">
-        <div className="flex min-h-11 items-center">
-          <Logo />
-        </div>
-        <nav aria-label="Main" className="order-last flex w-full items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto sm:gap-7 [html[data-presenter=true]_&]:sm:gap-5">
-          {TABS.map((t) => {
-            const on = state.ui.tab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                aria-current={on ? 'page' : undefined}
-                onClick={() => actions.setTab(t.id)}
-                className={cn(
-                  'min-h-11 border-y-2 border-t-transparent px-0.5 text-[0.9375rem]',
-                  on ? 'border-b-green font-semibold text-ink' : 'border-b-transparent font-medium text-muted',
-                )}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="order-last flex w-full flex-wrap items-center justify-end gap-x-1 py-1 sm:order-none sm:ml-auto sm:w-auto sm:flex-nowrap [&>*]:whitespace-nowrap">
-          <span title={state.notice ?? undefined} className="px-2 text-chart text-muted [html[data-presenter=true]_&]:hidden">
+    <header className="rise" style={{ '--d': '0ms' } as React.CSSProperties}>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3.5 sm:px-8">
+        <Logo />
+
+        <Segmented<Tab>
+          kind="tabs"
+          label="Main"
+          className="order-last w-full max-w-full overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto"
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))}
+          value={state.ui.tab}
+          onChange={actions.setTab}
+        />
+
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-1 [&>*]:whitespace-nowrap">
+          <span
+            title={state.notice ?? undefined}
+            className="eyebrow mr-1 flex items-center gap-1.5 px-2 text-muted [html[data-presenter=true]_&]:hidden"
+          >
+            <span aria-hidden="true" className={cn('size-1.5 rounded-full', state.mode === 'live' ? 'bg-leaf' : 'bg-amber')} />
             {state.notice && state.mode === 'demo' ? state.notice : modeNote}
           </span>
-          <span className="px-1 text-label font-semibold">{formatDate(state.day)}</span>
+
+          <span className="eyebrow rounded-full border border-hairline px-3 py-[0.55rem] text-ink [html[data-presenter=true]_&]:hidden">
+            {formatDate(state.day)}
+          </span>
           {!inCall && (
-            <button type="button" onClick={actions.skipClock} className="min-h-11 rounded-lg px-2 text-label font-semibold text-green">
-              {skipLabel}
+            <button
+              type="button"
+              onClick={actions.skipClock}
+              className="min-h-9 rounded-full border border-hairline bg-panel px-3.5 text-label font-medium text-ink transition-[background-color,transform] duration-[var(--dur-base)] hover:bg-secondary-hover active:scale-[0.97]"
+            >
+              {skipped ? `← Back to ${formatDate(0)}` : `Skip to ${formatDate(CD_ALERT_DAY)} →`}
             </button>
           )}
-          <span aria-hidden="true" className="mx-2 h-6 w-px bg-hairline" />
+
+          <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-hairline" />
           <button
             type="button"
             aria-pressed={state.ui.presenter}
             onClick={actions.togglePresenter}
-            className={cn(
-              'min-h-11 rounded-lg px-3 text-label',
-              state.ui.presenter ? 'bg-green-tint font-semibold text-green' : 'font-medium text-muted',
-            )}
+            className={cn(GHOST, state.ui.presenter && 'bg-green-tint !text-green')}
           >
             Presenter
           </button>
-          <button type="button" onClick={actions.reset} className="min-h-11 rounded-lg px-3 text-label font-medium text-muted">
+          <button type="button" onClick={actions.reset} className={GHOST}>
             Reset
+          </button>
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={theme === 'night' ? 'Switch to the light theme' : 'Switch to the night theme'}
+            className="flex size-9 items-center justify-center rounded-full text-muted transition-colors duration-[var(--dur-base)] hover:text-ink"
+          >
+            <ThemeIcon night={theme === 'night'} />
           </button>
           <span
             role="img"
             aria-label="Yoshua"
-            className="ml-2 flex size-8 items-center justify-center rounded-full bg-[#e2e0d9] text-[0.9375rem] font-semibold"
+            className="ml-1 flex size-8 items-center justify-center rounded-full bg-ink text-chart font-medium text-page"
           >
             Y
           </span>

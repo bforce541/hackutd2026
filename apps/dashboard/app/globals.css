@@ -1,64 +1,119 @@
 /*
- * PacePay design tokens (UI.md "Look and feel"). Owned by: dash-shell.
- * Define every color and size once here; components use the Tailwind names below
- * (bg-page, text-ink, border-hairline, text-green, ...) or var(--token) in SVG.
- * Light theme only, on warm neutrals (UI.md rule 10).
+ * PacePay design tokens. Owned by: dash-shell.
+ * Every color, size and motion curve is defined once here. Components use the Tailwind names in
+ * @theme (bg-page, text-ink, border-hairline, text-green, ...) or var(--token) inside SVG.
+ *
+ * Two themes on one token set: Light ("paper") is the default; Night is [data-theme='night'].
+ * The spectrum (coral, orange, amber, lime, leaf) is the brand: the logo, the day tiles and the
+ * health meters all use it, and it only ever means "how safe is this" (coral = overdrawn,
+ * leaf = safe). Text colors are the darker `*-ink` variants so they stay readable (4.5:1).
  */
 @import 'tailwindcss';
 
-:root {
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
   /* Neutrals */
-  --page: #f2f1ed;
+  --page: #f4f2ec;
   --panel: #ffffff;
-  --ink: #1c1b19;
-  --muted: #64615a;
-  --hairline: #e0ded7;
-  --grid: #e4e2db;
-  --zero-line: #7a766d; /* $0 line and bill markers */
+  --ink: #14130f;
+  --muted: #6b675e;
+  --hairline: #e7e4db;
+  --grid: #ebe8e0;
+  --zero-line: #7a766d; /* the $0 line and bill markers */
   --before-line: #8f8a80; /* "Before" / "Current plan" ghost line */
   --label-ink: #3d3b37; /* chart labels */
+  --control-border: #d6d2c8;
+  --secondary-hover: #f4f2ec;
+  --input-fill: #fbfaf7;
 
-  /* Control neutrals: button and input borders, secondary-button hover, the lender box fill */
-  --control-border: #cfccc4;
-  --secondary-hover: #f4f3ef;
-  --input-fill: #fbfaf8;
+  /* The spectrum, as fills (tiles, dots, bars) */
+  --coral: #f24e2c;
+  --orange: #ff8a3d;
+  --amber: #f0a21f;
+  --lime: #86c254;
+  --leaf: #1f9d5c;
+  --tile-a: 0.22; /* the translucent body of a day tile */
 
-  /* Green (brand): forecast line, primary buttons, selected tab, paychecks, "Works", "On track" */
-  --green: #1c6b4a;
-  --green-tint: #e6f0ea;
-
-  /* Vermilion: overdrawn (below $0), and only that */
-  --vermilion: #b83a0b;
-  --hatch: #c2410c;
+  /* Brand green and the text-safe spectrum (contrast 4.5:1 or more on --page) */
+  --green: #17794a;
+  --green-tint: #e4f1e9;
+  --vermilion: #c93a1a;
+  --vermilion-tint: #fdeae4;
+  --hatch: #e8482a;
   --hatch-bg: #fbe8df;
+  --ochre-line: #c98700; /* the minimum line */
+  --ochre: #8a5a00; /* "Your limits" text */
 
-  /* Ochre: your limits (minimum line, "Your limits", "Over limit") */
-  --ochre-line: #a36a00;
-  --ochre: #8a5a00;
-
-  /* shadcn/ui token names, pointed at the roles above */
+  /* shadcn token names, pointed at the roles above */
   --background: var(--page);
   --foreground: var(--ink);
   --card: var(--panel);
   --card-foreground: var(--ink);
-  --primary: var(--green);
-  --primary-foreground: #ffffff;
+  --primary: var(--ink);
+  --primary-foreground: var(--page);
   --muted-foreground: var(--muted);
   --border: var(--hairline);
   --ring: var(--green);
 
-  /* Sizes (UI.md "Type"); presenter mode scales the root by 25% */
-  --size-hero: 2.5rem; /* 40px: the checking balance */
-  --size-headline: 1.625rem; /* 26px panel headline */
-  --size-stat: 1.625rem; /* 26px health stat values */
-  --size-body: 1rem; /* 16px */
-  --size-label: 0.875rem; /* 14px */
-  --size-chart: 0.8125rem; /* 13px */
-  /* Panel headings are in em so they track the panel's base size (presenter mode) */
-  --size-title: 1.375em; /* 22px: Limits, Approve, Done */
-  --size-subtitle: 1.125em; /* 18px: sub-headings */
+  --panel-shadow: 0 1px 2px rgb(20 19 15 / 0.04), 0 12px 32px rgb(20 19 15 / 0.06);
+}
 
-  --panel-shadow: 0 1px 2px rgb(28 27 25 / 0.06), 0 8px 24px rgb(28 27 25 / 0.06);
+:root[data-theme='night'] {
+  color-scheme: dark;
+
+  --page: #09090a;
+  --panel: #131315;
+  --ink: #f5f4f0;
+  --muted: #9b988f;
+  --hairline: #26262a;
+  --grid: #1b1b1e;
+  --zero-line: #77746c;
+  --before-line: #86837a;
+  --label-ink: #d9d7d0;
+  --control-border: #37373d;
+  --secondary-hover: #1a1a1d;
+  --input-fill: #0e0e10;
+
+  --coral: #ff5a36;
+  --orange: #ff8a3d;
+  --amber: #ffb547;
+  --lime: #9ed36a;
+  --leaf: #2fbf71;
+  --tile-a: 0.3;
+
+  --green: #4fd68b;
+  --green-tint: #11271b;
+  --vermilion: #ff7a5c;
+  --vermilion-tint: #2a1712;
+  --hatch: #ff6a45;
+  --hatch-bg: #2a1712;
+  --ochre-line: #e7a82e;
+  --ochre: #f0b84a;
+
+  --panel-shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.45);
+}
+
+:root {
+  /* Type scale. The panel's heading sizes are in em so they follow its base size. */
+  --size-hero: 4rem; /* the checking balance */
+  --size-headline: 1.875rem; /* panel headline */
+  --size-stat: 1.75rem; /* health stat values */
+  --size-body: 1rem;
+  --size-label: 0.875rem;
+  --size-chart: 0.8125rem;
+  --size-micro: 0.6875rem; /* the mono uppercase labels */
+  --size-title: 1.4375em;
+  --size-subtitle: 1.125em;
+
+  /* Motion: one expo-out curve for things that arrive and morph, a gentle one for color */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 160ms;
+  --dur-base: 320ms;
+  --dur-slow: 700ms;
+
   --page-pad: 2rem;
   --gap-panel: 2.5rem;
 }
@@ -83,10 +138,16 @@ html[data-presenter='true'] {
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-vermilion: var(--vermilion);
+  --color-vermilion-tint: var(--vermilion-tint);
   --color-hatch: var(--hatch);
   --color-hatch-bg: var(--hatch-bg);
   --color-ochre-line: var(--ochre-line);
   --color-ochre: var(--ochre);
+  --color-coral: var(--coral);
+  --color-orange: var(--orange);
+  --color-amber: var(--amber);
+  --color-lime: var(--lime);
+  --color-leaf: var(--leaf);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -98,8 +159,9 @@ html[data-presenter='true'] {
   --color-border: var(--border);
   --color-ring: var(--ring);
 
-  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
-  --font-brand: var(--font-instrument), var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-brand: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --text-hero: var(--size-hero);
   --text-headline: var(--size-headline);
@@ -107,6 +169,7 @@ html[data-presenter='true'] {
   --text-body: var(--size-body);
   --text-label: var(--size-label);
   --text-chart: var(--size-chart);
+  --text-micro: var(--size-micro);
   --text-title: var(--size-title);
   --text-subtitle: var(--size-subtitle);
 
@@ -126,30 +189,126 @@ body {
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-  color: inherit;
+/* A calm switch between themes: color only, never layout */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition:
+    background-color 300ms var(--ease-std),
+    border-color 300ms var(--ease-std),
+    color 300ms var(--ease-std),
+    fill 300ms var(--ease-std),
+    stroke 300ms var(--ease-std) !important;
 }
 
-button {
-  cursor: pointer;
+@layer base {
+  button,
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  [role='switch']:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
 }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-[role='switch']:focus-visible {
-  outline: 3px solid var(--green);
-  outline-offset: 2px;
-}
-
-/* Every amount uses tabular figures (UI.md). Add class "num" to amounts. */
+/* Every amount uses tabular figures. Add class "num" to amounts. */
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+/* The big display numbers: tight, medium weight */
+.display {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+/* The small uppercase mono labels above sections */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+/* ---- Motion. Only where it explains a change; all of it off for reduced-motion users. ---- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tile-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+.rise {
+  animation: rise var(--dur-slow) var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.fade-in {
+  animation: fade var(--dur-base) var(--ease-std) both;
+  animation-delay: var(--d, 0ms);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -157,6 +316,9 @@ textarea:focus-visible,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

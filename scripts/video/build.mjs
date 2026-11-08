@@ -261,7 +261,8 @@ try {
 
   // ---------- captions ----------
   const cues = [];
-  if (desk.caption) cues.push({ start: desk.caption_at?.[0] ?? 2.5, end: desk.caption_at?.[1] ?? 6, text: desk.caption });
+  if (desk.captions) cues.push(...desk.captions);
+  else if (desk.caption) cues.push({ start: desk.caption_at?.[0] ?? 2.5, end: desk.caption_at?.[1] ?? 6, text: desk.caption });
   const voiceFiles = {};
   for (const s of TL.scenes.filter((s) => s.voice)) {
     const rec = await findRecording(path.parse(s.audio.replace('recordings/', '')).name);

@@ -138,7 +138,7 @@ function rawTime(t) {
 // From CALL.inset if set, else from PacePay's "let me check with Yoshua" line to its "approved" line.
 const INSET = (() => {
   if (CALL.inset) return CALL.inset;
-  const a = LINES.find((l) => l.who === 'pacepay' && /check with|one moment|let me (check|confirm)|hold on/i.test(l.text));
+  const a = LINES.find((l) => l.who === 'pacepay' && /check with|run (that|it) by|one moment|let me (check|confirm)|hold on/i.test(l.text));
   const b = LINES.find((l) => l.who === 'pacepay' && /approved|confirmed|go ahead/i.test(l.text) && (!a || l.start > a.start));
   return a ? { start: a.start, end: b ? b.start + 1.0 : a.end + 4.5 } : null;
 })();

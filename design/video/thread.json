@@ -1,0 +1,91 @@
+{
+  "placeholder": false,
+  "source": "http://127.0.0.1:8787/api/thread",
+  "exportedAt": "2026-11-08T09:20:48.605Z",
+  "messages": [
+    {
+      "from": "me",
+      "kind": "image",
+      "image": "media/media_hfqzaoq.png",
+      "at": "2026-11-08T09:14:22.781Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "Got it: $650 to Northside Auto Service, due today. Checking your week.",
+      "at": "2026-11-08T09:14:41.040Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "image",
+      "image": "media/media_arwxkhc.png",
+      "at": "2026-11-08T09:15:02.777Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "Heads up: −$300 on Tue, Nov 10 if you pay the repair today (mortgage Mon, car payment Tue, paycheck Thu).\n1. I ask your lender to move the car payment to Fri. My pick: no new debt, no rules broken\n2. Put it on your card: about $14/mo interest\n3. Use $400 of savings: drops below your $1,500 floor\nReply 1, 2 or 3.",
+      "at": "2026-11-08T09:15:04.745Z"
+    },
+    {
+      "from": "me",
+      "kind": "text",
+      "text": "1",
+      "at": "2026-11-08T09:15:16.968Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "I'll ask to move it to Fri, Nov 13, with $25 max in fees. OK?",
+      "at": "2026-11-08T09:15:31.672Z"
+    },
+    {
+      "from": "me",
+      "kind": "text",
+      "text": "Yes",
+      "at": "2026-11-08T09:15:37.386Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "Calling your lender now.",
+      "at": "2026-11-08T09:15:48.375Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "They'll move it to Fri, Nov 13 for $20. You stay above $100. Approve? YES or NO",
+      "at": "2026-11-08T09:17:07.977Z"
+    },
+    {
+      "from": "me",
+      "kind": "text",
+      "text": "Yes",
+      "at": "2026-11-08T09:17:13.597Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "Done. Car payment is now Fri, Nov 13 ($20). Ref A7732.",
+      "at": "2026-11-08T09:17:48.962Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "This works as long as your paycheck lands Thursday. I'll check Thursday night and text you if it hasn't. Reply NO to skip.",
+      "at": "2026-11-08T09:17:49.239Z"
+    },
+    {
+      "from": "me",
+      "kind": "text",
+      "text": "Thanks",
+      "at": "2026-11-08T09:18:00.735Z"
+    },
+    {
+      "from": "pacepay",
+      "kind": "text",
+      "text": "Got it, I'll keep an eye on it.",
+      "at": "2026-11-08T09:18:02.547Z"
+    }
+  ]
+}

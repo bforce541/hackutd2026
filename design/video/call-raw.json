@@ -1,0 +1,89 @@
+{
+  "callId": "call_e2svjra",
+  "startedAt": "2026-11-08T09:15:48.375Z",
+  "endedAt": "2026-11-08T09:17:48.692Z",
+  "outcome": "deal",
+  "referenceNumber": "A7732",
+  "lines": [
+    {
+      "who": "pacepay",
+      "text": "Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed. I'm calling to ask if this month's payment can move to Friday, November 13th, with no fee.",
+      "at": 6.79
+    },
+    {
+      "who": "lender",
+      "text": "We can do Wednesday.",
+      "at": 29.95
+    },
+    {
+      "who": "pacepay",
+      "text": "Okay, so just to confirm, that's Wednesday the 11th with no fee?",
+      "at": 31.21
+    },
+    {
+      "who": "lender",
+      "text": "Yes.",
+      "at": 39.46
+    },
+    {
+      "who": "pacepay",
+      "text": "Could we do Friday the 13th instead, with no fee?",
+      "at": 40.88
+    },
+    {
+      "who": "lender",
+      "text": "Friday works, but there's a $35 fee.",
+      "at": 51.6
+    },
+    {
+      "who": "pacepay",
+      "text": "Just so I have it right, Friday the 13th with a thirty-five-dollar fee?",
+      "at": 52.85
+    },
+    {
+      "who": "lender",
+      "text": "Yes.",
+      "at": 60.74
+    },
+    {
+      "who": "pacepay",
+      "text": "Understood. Is there any chance you'd waive the fee?",
+      "at": 61.92
+    },
+    {
+      "who": "lender",
+      "text": "I could do $20.",
+      "at": 70.22
+    },
+    {
+      "who": "pacepay",
+      "text": "Got it. So that's Friday the 13th with a twenty-dollar fee, right?",
+      "at": 71.48
+    },
+    {
+      "who": "lender",
+      "text": "Yes.",
+      "at": 79.34
+    },
+    {
+      "who": "pacepay",
+      "text": "Thanks, let me run that by Yoshua real quick.",
+      "at": 80.44
+    },
+    {
+      "who": "pacepay",
+      "text": "Thanks for holding. Yoshua approved. Please go ahead and move the payment to Friday, November 13th, with a twenty-dollar fee. Could I get a reference number for that?",
+      "at": 91.47
+    },
+    {
+      "who": "lender",
+      "text": "Sir, your reference number is A7732.",
+      "at": 109.29
+    },
+    {
+      "who": "pacepay",
+      "text": "Perfect, that's A 7 7 3 2, for Friday the 13th with a twenty-dollar fee. Thanks so much for your help today. Goodbye!",
+      "at": 111.08
+    }
+  ]
+}

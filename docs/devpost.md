@@ -55,7 +55,7 @@ Nemotron plans and runs the tools. Claude checks and grades. On calls, GPT only 
 
 **On lender calls the voice never sees balances or limits.** Every line PacePay says is written by our negotiator code (Nemotron Super only as a capped fallback for an unusual lender line) and spoken by OpenAI TTS, a whole line at a time. The voice can't improvise or leak, because it only says lines code handed it.
 
-**PacePay never agrees to anything but exactly what Yoshua approved.** If the lender changes the terms afterward, the approval is void: PacePay restates the approved terms, asks Yoshua again if the change is within his limits, and otherwise texts an honest no-deal. The Done text goes out only after the call ends with an undisputed deal, and a hang-up gets an honest text.
+**PacePay never agrees to anything but exactly what Yoshua approved.** If the lender changes the terms afterward, the approval is void: PacePay restates the approved terms, asks Yoshua again if the change is within his limits, and otherwise tells Yoshua no deal was made. The Done text goes out only after the call ends with an undisputed deal, and a hang-up gets a text saying so.
 
 **Code enforces the hard gates:** no call without Yoshua's pick and his OK on the limits, no deal without his yes, and every offer goes through `check_offer`. A payment on payday counts as risky by rule, because the deposit might land after the payment.
 
@@ -128,16 +128,16 @@ We generated 30 test bill photos with known amounts and due dates (phone photos 
 - Real texts and real phone calls on a Photon number, driven by the same engine as the dashboard
 - A dashboard and an agent on the same data and the same calculator
 - Charts in iMessage that are exact, because they come from the engine
-- Every offer on a call judged by code, in under a millisecond, with the lender never learning a balance
+- Every offer on a call is judged by code, and the lender never learns a balance
 - 50 simulated negotiations with published transcripts: 0 limit violations and 0 disclosures
 - A call stress test with 363 adversarial lender personas in 11 categories (noisy lines, hostile callers, social engineering, phone menus), run through the real call loop
 
 ## What we learned
 
 - Keep models off the hot path. On a call, code reads most lender lines in milliseconds (median 14 ms per turn in our stress runs), and the model handles only what code can't. Real call latency is mostly speech-to-text and text-to-speech.
-- Gates in code beat instructions in prompts. The calling rules live in a state machine, not a prompt.
-- A different model family makes a better reviewer: Claude checks the plan and grades the Arena, so Nemotron never grades Nemotron.
-- Short texts with a pick and a reason get faster replies than a wall of options.
+- We put the calling rules in a state machine instead of a prompt, so a model can't skip a step.
+- Claude, a different model family, checks the plan and grades the Arena, so Nemotron never grades its own work.
+- We kept texts short, with a pick and a reason, so a reply can be one word.
 
 ## What's next
 

@@ -12,18 +12,19 @@ The shop quotes $650 for brakes. You text PacePay a photo of the quote. It reads
 
 PacePay calls the lender, says it's an AI assistant calling with your permission, and negotiates. The lender offers Wednesday, still before payday, so it asks for Friday without saying why. They settle on **Friday for $20**. Mid-call your phone buzzes with the exact terms, you reply YES, and only then does PacePay confirm out loud. The forecast turns green.
 
-Every offer is judged by code against your limits, and the voice on the call never sees your balances.
+Every offer is judged by code against your limits, and every line PacePay says on the call is written by code, so the voice never sees your balances and can't improvise.
 
 ## How it works
 
 ![PacePay architecture](docs/architecture.png)
 
 - **The money engine is plain code** ([`packages/engine`](packages/engine)): forecast, health scores, what-ifs and offer checks. Deterministic, 60 unit tests, and it runs in the browser too. No model ever calculates a number.
-- **Nemotron decides:** Nemotron 3 Ultra plans each event, Nemotron 3 Super runs the tools and decides every reply on a call, and Nemotron Nano 2 VL reads bill photos.
+- **Nemotron decides:** Nemotron 3 Ultra plans each event, Nemotron 3 Super runs the tools, and Nemotron Nano 2 VL reads bill photos. On a call, our negotiator code picks every reply; Super only steps in, with a cap, for a lender line the code can't read.
 - **Claude checks:** Claude Opus 5.5 gives a second opinion on the call plan, cross-checks the bill, and grades the negotiation arena.
-- **GPT only speaks:** OpenAI GPT realtime handles hearing and speaking over LiveKit, on a Photon number.
-- **Photon 2.0** carries the iMessage conversation and the phone line.
-- **Code enforces the gates:** no call without your pick and your OK on the limits, no deal without your YES.
+- **GPT only listens:** OpenAI GPT realtime (`gpt-realtime-2.1`) hears the lender over LiveKit (turn detection and transcription). Every PacePay line is written by the negotiator code and spoken by OpenAI TTS (`gpt-4o-mini-tts`, voice marin), so the voice can only say what code hands it.
+- **Photon 2.0** carries the iMessage conversation (through its REST API, on a shared iMessage line; PacePay's name and photo come from a contact card, [`design/brand/pacepay.vcf`](design/brand/pacepay.vcf)) and the phone line.
+- **Code enforces the gates:** no call without your pick and your OK on the limits, no deal without your YES. PacePay never agrees to anything but exactly what you approved: if the lender changes the terms afterward, the approval is void, and the Done text goes out only after the call ends with an undisputed deal.
+- **Tested against bad calls:** a call simulator ([`scripts/stress/`](scripts/stress)) plays 363 adversarial lender personas against the real call loop, and code rules plus a Claude judge check every transcript.
 
 ## Repo map
 

@@ -43,9 +43,18 @@ import { roomForCall } from '../voice/dispatch';
 import { apiError, HttpError, localOnly, parseBody } from './http';
 
 export const ACCOUNT_HOLDER_LINE = 'I can only discuss account details with the account holder.';
-export const INBOUND_GREETING = 'Hi, this is PacePay, Yoshua\'s money assistant. For your security, please say your four-digit PIN.';
+export const INBOUND_GREETING = "Hi, this is PacePay, Yoshua's money assistant. For your security, please say or type your four-digit PIN.";
 const PIN_OK_LINE = 'Thanks, you are verified. What would you like to know?';
-const PIN_RETRY_LINE = 'That PIN did not match. Please say it again.';
+const PIN_RETRY_LINE = 'That PIN did not match. Please say or type it again.';
+/** /ask before the PIN matched, on Yoshua's own number (the worker has this line synthesized already). */
+const PIN_FIRST_LINE = 'Sure. First, please say or type your four-digit PIN.';
+/**
+ * The worker can send the same caller line twice in a row (one turn, two final transcripts). Within
+ * this window the second copy is not a new question (said once, not answered twice) and not a
+ * second PIN try (one wrong PIN never costs two of the three tries).
+ */
+const DUPLICATE_WINDOW_MS = 5_000;
+const sameLine = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const PIN_GOODBYE_LINE = 'I could not verify the PIN, so I have to end the call. Goodbye.';
 const MAX_PIN_TRIES = 3;
 /** If the model forgets end_call after the goodbye line, hang up anyway. */
@@ -78,12 +87,26 @@ const samePhone = (a: string, b: string) => {
   return x.length === 10 && x === y;
 };
 
+const SPOKEN_DIGITS: Record<string, string> = { zero: '0', oh: '0', o: '0', one: '1', won: '1', two: '2', to: '2', too: '2', three: '3', four: '4', for: '4', five: '5', six: '6', seven: '7', eight: '8', ate: '8', nine: '9' };
+/** A caller line that is the PIN itself ("1-2-3-4.", "one two three four"), at any point in the call. */
+function isPinLine(text: string): boolean {
+  const pin = digitsOf(env('INBOUND_PIN') ?? '');
+  if (pin.length < 4) return false;
+  const spoken = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map((w) => SPOKEN_DIGITS[w] ?? w).join(' ');
+  if (digitsOf(spoken).includes(pin) && !/[a-z]{3,}/.test(spoken.replace(/\b(my|pin|is|its|it s|the|code|again|number|yes|yeah|okay|ok|sorry|um|uh)\b/g, ''))) return true;
+  return false;
+}
+
 export function voiceRoutes(ctx: ServerContext): Hono {
   const r = new Hono();
   r.use('*', localOnly);
   const { store, bus } = ctx;
   const pinFailures = new Map<string, number>();
   const pinVerifiedAt = new Map<string, number>();
+  /** The last PIN try per call (digits and when), so a duplicated try is answered without counting it. */
+  const lastPinTry = new Map<string, { digits: string; at: number }>();
+  /** The last question per call, so a duplicated line is answered once. */
+  const lastAsk = new Map<string, { key: string; at: number }>();
 
   function getCall(id: string): Call {
     const call = store.getItem('calls', id);
@@ -199,7 +222,8 @@ export function voiceRoutes(ctx: ServerContext): Hono {
         // The spoken PIN is never stored or shown: on an inbound call, a caller line with digits or number
         // words before (or just as) the PIN is verified becomes "(said the PIN)".
         const pinWindow = !call.pinVerified || Date.now() - (pinVerifiedAt.get(call.id) ?? 0) < PIN_REDACT_GRACE_MS;
-        const text = call.direction === 'inbound' && ev.speaker === 'customer' && pinWindow && looksLikePin(ev.text) ? PIN_REDACTED : ev.text;
+        const isCaller = call.direction === 'inbound' && ev.speaker === 'customer';
+        const text = isCaller && ((pinWindow && looksLikePin(ev.text)) || isPinLine(ev.text)) ? PIN_REDACTED : ev.text;
         const line = { at: nowIso(), speaker: ev.speaker, text };
         store.patch('calls', call.id, { transcript: [...call.transcript, line] });
         // PacePay's lines are the negotiator's (code) voiced by OpenAI TTS; the realtime model only transcribes the lender.
@@ -285,8 +309,15 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     const fails = pinFailures.get(call.id) ?? 0;
     // Only an inbound call from Yoshua's own number can be verified (never the lender's line).
     if (call.direction !== 'inbound') return c.json({ ok: false, say: ACCOUNT_HOLDER_LINE });
-    if (call.pinVerified) return c.json({ ok: true, say: PIN_OK_LINE });
+    // Already verified: a duplicated PIN line just after is said nothing to (never "verified" twice).
+    if (call.pinVerified) return c.json({ ok: true, say: Date.now() - (pinVerifiedAt.get(call.id) ?? 0) < DUPLICATE_WINDOW_MS ? '' : PIN_OK_LINE });
     if (fails >= MAX_PIN_TRIES) return c.json({ ok: false, say: PIN_GOODBYE_LINE });
+    const prev = lastPinTry.get(call.id);
+    if (prev && prev.digits === digitsOf(digits) && Date.now() - prev.at < DUPLICATE_WINDOW_MS) {
+      // The same wrong try sent twice: not a second try, and nothing new to say.
+      bus.emit({ type: 'call.transcript', model: 'code', level: 'info', title: 'Duplicate PIN try ignored', detail: { callId: call.id } });
+      return c.json({ ok: false, say: '' });
+    }
     const pin = env('INBOUND_PIN');
     const callerOk = samePhone(call.phone, env('CUSTOMER_PHONE') ?? '');
     if (callerOk && pin && digitsOf(digits) === digitsOf(pin)) {
@@ -299,6 +330,7 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     }
     const n = fails + 1;
     pinFailures.set(call.id, n);
+    lastPinTry.set(call.id, { digits: digitsOf(digits), at: Date.now() });
     bus.emit({ type: 'call.transcript', model: 'gpt-realtime', level: 'warn', title: `PIN failed (${n} of ${MAX_PIN_TRIES})`, detail: { callId: call.id, callerKnown: callerOk } });
     if (n >= MAX_PIN_TRIES) {
       const t = setTimeout(() => void ctx.dispatch.hangUp(call.room).catch(() => undefined), PIN_HANGUP_DELAY_MS);
@@ -312,7 +344,20 @@ export function voiceRoutes(ctx: ServerContext): Hono {
     const call = getCall(c.req.param('id') ?? '');
     const { question } = await parseBody(c, VoiceAskRequestSchema);
     // Numbers only on an inbound call whose caller ID is CUSTOMER_PHONE and whose PIN matched.
-    if (call.direction !== 'inbound' || !call.pinVerified || !samePhone(call.phone, env('CUSTOMER_PHONE') ?? '')) return c.json({ say: ACCOUNT_HOLDER_LINE });
+    const known = samePhone(call.phone, env('CUSTOMER_PHONE') ?? '');
+    if (call.direction !== 'inbound' || !known) return c.json({ say: ACCOUNT_HOLDER_LINE });
+    // Never an answer before the PIN: Yoshua's number with no PIN yet gets the PIN prompt.
+    if (!call.pinVerified) return c.json({ say: PIN_FIRST_LINE });
+    // The PIN said again after it matched is not a question (and never read out or answered).
+    if (isPinLine(question)) return c.json({ say: '' });
+    // The same line twice within a few seconds is one question: the second copy says nothing.
+    const key = sameLine(question);
+    const prevAsk = lastAsk.get(call.id);
+    if (key && prevAsk && prevAsk.key === key && Date.now() - prevAsk.at < DUPLICATE_WINDOW_MS) {
+      bus.emit({ type: 'tool.result', model: 'code', level: 'info', title: 'Duplicate question on the call ignored', detail: { callId: call.id } });
+      return c.json({ say: '' });
+    }
+    lastAsk.set(call.id, { key, at: Date.now() });
     // Never longer than ASK_DEADLINE_MS: the caller hears a graceful line instead of dead air.
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<string>((res) => {

@@ -154,7 +154,7 @@ function looksLikeQuestion(text: string): boolean {
 }
 
 /** A number, or one of the options by name: "yeah 1", "no 1", "the card one". Calling counts only off the call question. */
-function namesAnOption(text: string, kind: YesNoKind): boolean {
+export function namesAnOption(text: string, kind: YesNoKind): boolean {
   const n = text.toLowerCase();
   // A lone option number; "$20" or "the 13th" is not one.
   if (/(?<![$.,\d])\b[1-9]\b(?![.,]?\d|\s*(?:dollars?|bucks|%))|#\s*\d|\b(?:option|opt|first|second|third|1st|2nd|3rd|card|savings|renew)\b/.test(n)) return true;

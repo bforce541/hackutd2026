@@ -1,0 +1,74 @@
+[
+ {
+  "id": "reg-demo-stage-skip",
+  "category": "regressions",
+  "title": "Stage script: deal on day 0, then the header's 'Skip to Wed, Nov 18' (day 11) for the CD alert",
+  "style": "Terse.",
+  "steps": [
+   {"photo": "brake_quote"}, {"waitFor": "option_choice"}, {"say": "1"}, {"waitFor": "call_limits"}, {"say": "ok"},
+   {"lender": {"fee": 20}}, {"say": "yes"}, {"lenderFinish": {}},
+   {"clock": 11, "expect": "CD matures", "expectNot": "come out tomorrow|It's Thursday night|hasn.t landed"},
+   {"say": "1"}
+  ],
+  "expect": {"calls": 1, "deals": 1},
+  "judgeNotes": "Jumping the demo clock from day 0 to day 11 must not fire stale day-5 texts as if it were Thursday ('come out tomorrow' for a payment that already happened, 'It's Thursday night and your paycheck hasn't landed') - this is exactly what judges will see on stage."
+ },
+ {
+  "id": "reg-paycheck-news-question",
+  "category": "regressions",
+  "title": "After the watch text fires, 'my paycheck is delayed till monday, can you help?' (ends with ?)",
+  "style": "Worried.",
+  "steps": [
+   {"photo": "brake_quote"}, {"waitFor": "option_choice"}, {"say": "1"}, {"waitFor": "call_limits"}, {"say": "ok"},
+   {"lender": {"fee": 20}}, {"say": "yes"}, {"lenderFinish": {}},
+   {"clock": 5, "expect": "hasn.t landed"},
+   {"say": "my paycheck is delayed till monday, can you help?", "expect": "Got it: your paycheck lands Mon"},
+   {"waitFor": "option_choice", "timeoutMs": 90000}
+  ],
+  "expect": {"calls": 1, "deals": 1},
+  "judgeNotes": "A late-paycheck report phrased with a trailing question must start the late-paycheck case (options), not a Q&A answer."
+ },
+ {
+  "id": "reg-lender-refuses-scripted",
+  "category": "regressions",
+  "title": "Scripted lender refusal that names the current due date; PacePay must not invent an offer",
+  "style": "Short.",
+  "steps": [
+   {"photo": "brake_quote"}, {"waitFor": "option_choice"}, {"say": "1"}, {"waitFor": "call_limits"}, {"say": "ok"},
+   {"lender": {"script": ["I'm sorry, but we cannot move due dates on this account. The payment remains due Tuesday, November 10.", "No, that's not correct. The payment stays due Tuesday, November 10, and we can't move it.", "No. We can't move it at all.", "Okay, bye. [HANGUP]"]}},
+   {"say": "yes", "onlyIf": "deal", "note": "only if PacePay (wrongly) asked to approve something"},
+   {"lenderFinish": {}}
+  ],
+  "expect": {"calls": 1, "deals": 0, "notOut": ["^Done\\b", "They'll move it"]},
+  "judgeNotes": "A refusal is not an offer. PacePay must not read back new terms, must not ask Yoshua to approve anything, must not record a deal, and must text him the honest fallback."
+ },
+ {
+  "id": "reg-lender-refuses-llm",
+  "category": "regressions",
+  "title": "Repeat of lender-refuses (LLM lender) to measure reproducibility",
+  "style": "Short.",
+  "steps": [
+   {"photo": "brake_quote"}, {"waitFor": "option_choice"}, {"say": "1"}, {"waitFor": "call_limits"}, {"say": "ok"},
+   {"lender": {"refuse": true, "behavior": "When you refuse, mention that the payment remains due Tuesday, November 10."}},
+   {"say": "yes", "onlyIf": "deal"},
+   {"lenderFinish": {}}
+  ],
+  "expect": {"calls": 1, "deals": 0, "notOut": ["^Done\\b"]}
+ },
+ {
+  "id": "reg-cd-renew-ranked-first",
+  "category": "regressions",
+  "title": "CD alert wording: whichever option is ranked first, its 'My pick' reason must belong to it",
+  "style": "Short.",
+  "steps": [{"clock": 11, "expect": "CD matures", "expectNot": "Renew it: earns about \\$\\d+ a year\\. My pick: saves about"}],
+  "expect": {"calls": 0, "notOut": ["Renew it[^\\n]*My pick: saves about \\$550"]}
+ },
+ {
+  "id": "reg-small-bill-no-shortfall",
+  "category": "regressions",
+  "title": "A $57 copay that causes no shortfall must not produce a Heads-up with options",
+  "style": "Short.",
+  "steps": [{"photo": "data/bills-code/bill-08.png", "expectNot": "Heads up|Use \\$0 of savings|Reply 1, 2 or 3"}],
+  "expect": {"calls": 0, "billCents": 5700, "notOut": ["Use \\$0 of savings"]}
+ }
+]

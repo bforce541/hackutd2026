@@ -1,22 +1,44 @@
 /**
  * PacePay's mouth. Every word PacePay says on a call goes through speak(): the text is fixed by code
  * (the negotiator's `say`, an approval line, a hold line, a filler, the greeting) and is turned into
- * audio by OpenAI TTS (voice marin), streamed as it is generated. The realtime model never writes a
- * word of its own; it only listens (turn detection and transcription). Implemented by: voice.
+ * audio by OpenAI TTS (voice marin). The realtime model never writes a word of its own; it only listens
+ * (turn detection and transcription). Implemented by: voice.
  *
- * If TTS fails to start, the line falls back to the realtime model with "say exactly this" and no
- * tools, so a call never goes silent.
+ * Every line is synthesized WHOLE (per sentence group), checked, then played from memory:
+ *  - streaming started on a tiny first chunk (a stutter at the start of lines) and a long line once
+ *    turned to noise mid-stream; an opener clip + streamed rest froze and restarted mid-line. Gone.
+ *  - the check (audio-check.ts) catches what TTS gets wrong now and then: a line said twice or drawn
+ *    out ("Mm-hm" for 2.6 s, "Got it." for 6 s), a deeper voice (median pitch ~136 Hz vs marin's
+ *    ~175-240 Hz), clipping, a run of noise.
+ *  - BAKED clips (apps/voice/clips, made by scripts/voice-test/bake-clips.mts): the fillers and every
+ *    fixed line (greeting, PIN lines, goodbye, refusals, hold line) were synthesized many times ahead
+ *    of time and the take nearest marin's usual pitch was kept. They load at start, play instantly and
+ *    sound the same on every call (no "deep" goodbye on one call and a squeaky one on the next).
+ *  - a live line: two takes are synthesized AT ONCE (a hedge: TTS time and quality vary per request);
+ *    the first clean take in marin's usual pitch band plays; if both fail the check, two more. A long
+ *    line is split at sentence ends into up to three parts synthesized in parallel: the first part
+ *    plays as soon as it is ready while the rest finish (~1 s sooner on a 25-word answer).
+ *  - synthesis starts the moment the server's answer arrives (startLine), before the line is queued.
+ *  - a clip that passed the check is kept, so the same line plays at once the next time.
+ *
+ * If TTS fails every try, the line falls back to the realtime model with "say exactly this" and no
+ * tools, so a call never goes silent (agent.ts).
  */
 import { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream } from 'node:stream/web';
 import https from 'node:https';
-import { Readable } from 'node:stream';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { clipBadness, clipProblems, clipStats, samplesOf, type ClipStats } from './audio-check';
 
 export const TTS_MODEL = process.env.PACEPAY_TTS_MODEL || 'gpt-4o-mini-tts-2025-12-15';
 export const TTS_VOICE = 'marin';
 export const TTS_INSTRUCTIONS =
   'You are on a phone call. Sound like a warm, relaxed, friendly person, not a newsreader or an announcer. ' +
-  'Natural conversational pace, light and easy, small pauses at commas. Read the words exactly as written.';
+  'Natural conversational pace, light and easy, small pauses at commas. Read the words exactly as written. ' +
+  'Keep the exact same voice, medium pitch and pace on every line: never deepen or lower your voice, never sound sleepy.';
 
 /**
  * TTS says "Yoshua" wrong ("Yo-shoo-ah"). Every line goes to TTS with the name respelled the way it is
@@ -34,14 +56,22 @@ export const ttsText = (text: string): string =>
 const SAMPLE_RATE = 24_000;
 const FRAME_SAMPLES = 480; // 20 ms at 24 kHz
 const FRAME_BYTES = FRAME_SAMPLES * 2;
+/** Frames handed to the audio source: 100 ms each (the source paces them in real time). */
+const PIECE_BYTES = 5 * FRAME_BYTES;
+/** Max tries per line: the first, then up to two more if the first fails the check. */
+export const MAX_TRIES = 3;
+const LIVE_TIMEOUT_MS = 8_000;
+const WARM_TIMEOUT_MS = 20_000;
 
-/** PCM16 mono 24 kHz chunks of one line, cached once fully synthesized. */
+const log = (...a: unknown[]) => console.log(new Date().toISOString(), '[voice]', ...a);
+
+/** Checked clips (PCM16 mono 24 kHz) by TTS text; `ready` once a clip passed the check. */
 const cache = new Map<string, Promise<Uint8Array>>();
 const ready = new Set<string>();
 
 /**
  * Live lines first: background synthesis (prewarm) never starts a request while a live line is
- * waiting for its first audio, so warming the likely lines never slows the line being said now.
+ * waiting for its audio, so warming the likely lines never slows the line being said now.
  */
 let liveWaiting = 0;
 const liveIdle: Array<() => void> = [];
@@ -58,93 +88,215 @@ function liveStart(): () => void {
   };
 }
 
-/** True once a line is fully synthesized and plays from memory. */
+/** True once a line is synthesized, checked, and plays from memory. */
 export const isReady = (text: string): boolean => ready.has(ttsText(text));
 
 /**
  * TTS requests go over HTTP/1.1 keep-alive sockets, one per request in flight. Node's fetch speaks
  * HTTP/2 to api.openai.com and the streams on one connection are served one after another: a live
- * line waited ~1.5 s behind each background synthesis (measured: 2.1 s with one in flight, 4.4 s with
- * two). On separate sockets a live line's first audio stays ~0.6 s whatever else is in flight.
+ * line waited ~1.5 s behind each background synthesis. On separate sockets they do not queue.
  */
 const ttsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 4 });
 
-function request(text: string, signal?: AbortSignal): Promise<Response> {
+/** One whole TTS clip (PCM16 mono 24 kHz). */
+function synthesize(text: string, timeoutMs: number): Promise<Uint8Array> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return Promise.reject(new Error('OPENAI_API_KEY is not set'));
   const body = JSON.stringify({ model: TTS_MODEL, voice: TTS_VOICE, input: text, instructions: TTS_INSTRUCTIONS, response_format: 'pcm' });
-  return new Promise<Response>((resolve, reject) => {
+  return new Promise<Uint8Array>((resolve, reject) => {
     const req = https.request(
       'https://api.openai.com/v1/audio/speech',
       {
         method: 'POST',
         agent: ttsAgent,
-        signal,
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
       },
       (res) => {
         const status = res.statusCode ?? 0;
-        if (status !== 200) {
-          let err = '';
-          res.setEncoding('utf8');
-          res.on('data', (c: string) => (err += c));
-          res.on('end', () => reject(new Error(`TTS ${status}: ${err.slice(0, 200)}`)));
-          res.on('error', reject);
-          return;
-        }
-        // A cancelled or aborted request ends the stream quietly; readers see it as done.
-        res.on('error', () => undefined);
-        resolve(new Response(Readable.toWeb(res) as unknown as globalThis.ReadableStream<Uint8Array>, { status }));
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('error', reject);
+        res.on('end', () => {
+          clearTimeout(timer);
+          const buf = Buffer.concat(chunks);
+          if (status !== 200) return reject(new Error(`TTS ${status}: ${buf.toString('utf8').slice(0, 200)}`));
+          if (buf.length < FRAME_BYTES * 5) return reject(new Error('TTS returned no audio'));
+          resolve(new Uint8Array(buf.buffer, buf.byteOffset, buf.length));
+        });
       },
     );
-    req.on('error', reject);
+    const timer = setTimeout(() => req.destroy(new Error(`TTS took over ${timeoutMs} ms`)), timeoutMs);
+    req.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
     req.end(body);
   });
 }
 
-/**
- * Seconds of sound in a clip, from its first to its last audible sample. TTS now and then repeats or
- * rambles on a short input ("Okay, okay."); a clip much longer than its words should take is that.
- */
-function soundSeconds(pcm: Uint8Array): number {
-  const lead = Math.max(0, soundStart(pcm));
-  return Math.max(0, soundEnd(pcm, 0) - lead) / 2 / SAMPLE_RATE;
+interface Take {
+  pcm: Uint8Array;
+  stats: ClipStats;
+  problems: string[];
+  badness: number;
 }
-const plausible = (text: string, pcm: Uint8Array, strict = false) => {
-  const words = text.split(/\s+/).length;
-  // A short opener ("Got it.") gets a tight bound: a doubled "Got it, got it." must not pass.
-  return soundSeconds(pcm) <= (strict && words <= 3 ? 0.3 + words * 0.3 : 0.8 + words * 0.45);
-};
+
+function check(text: string, pcm: Uint8Array): Take {
+  const stats = clipStats(samplesOf(pcm), text);
+  const problems = clipProblems(stats);
+  return { pcm, stats, problems, badness: problems.length ? clipBadness(stats) : 0 };
+}
+
+const short = (t: string) => (t.length > 48 ? `${t.slice(0, 45)}...` : t);
 
 /**
- * Synthesize a line fully and keep it (fillers, hold lines, the greeting): it then plays instantly.
- * A clip that came out far too long is synthesized again, and never kept if it still is.
+ * marin's usual pitch: a clean take inside this band plays at once; a clean take outside it (still
+ * within the check's hard limits) waits CORE_WAIT_MS for a hedge take nearer TARGET_F0.
  */
-export function prewarm(line: string, strict = false): Promise<Uint8Array> {
+export const TARGET_F0 = 205;
+export const CORE_F0: readonly [number, number] = [175, 250];
+const CORE_WAIT_MS = 400;
+const pitched = (t: Take) => t.stats.voicedFrames >= 8;
+const inCore = (t: Take) => !pitched(t) || (t.stats.f0 >= CORE_F0[0] && t.stats.f0 <= CORE_F0[1]);
+const pitchDist = (t: Take) => (pitched(t) ? Math.abs(t.stats.f0 - TARGET_F0) : 0);
+const nearest = (takes: Take[]) => takes.filter((t) => !t.problems.length).sort((x, y) => pitchDist(x) - pitchDist(y))[0];
+
+/**
+ * `n` takes of `text` at once. Resolves with the first clean take in marin's usual band, or (when a
+ * clean take is outside it) the clean take nearest her usual pitch CORE_WAIT_MS later, or undefined
+ * once all `n` are back and none is clean. Every take lands in `takes`.
+ */
+function round(text: string, n: number, timeoutMs: number, takes: Take[], errs: unknown[]): Promise<Take | undefined> {
+  return new Promise((resolve) => {
+    let left = n;
+    let done = false;
+    let wait: NodeJS.Timeout | undefined;
+    const finish = (t: Take | undefined) => {
+      if (done) return;
+      done = true;
+      clearTimeout(wait);
+      resolve(t);
+    };
+    for (let i = 0; i < n; i++) {
+      synthesize(text, timeoutMs).then(
+        (pcm) => {
+          const t = check(text, pcm);
+          takes.push(t);
+          left--;
+          if (!t.problems.length && inCore(t)) return finish(t);
+          if (left === 0) return finish(nearest(takes));
+          if (!t.problems.length && !wait) wait = setTimeout(() => finish(nearest(takes)), CORE_WAIT_MS);
+        },
+        (err) => {
+          errs.push(err);
+          if (--left === 0) finish(nearest(takes));
+        },
+      );
+    }
+  });
+}
+
+/**
+ * A checked clip for `text`. Live: two takes at once, then two more if neither is clean. Background
+ * (prewarm): one take, then two more. The first clean take wins (see round); if none is clean, the
+ * least bad of all. Rejects only if no take produced audio at all.
+ */
+async function checkedClip(text: string, live: boolean): Promise<Take & { tries: number; ms: number }> {
+  const t0 = Date.now();
+  const timeout = live ? LIVE_TIMEOUT_MS : WARM_TIMEOUT_MS;
+  const takes: Take[] = [];
+  const errs: unknown[] = [];
+  const rounds = live ? [2, 2] : [1, 2];
+  let pick: Take | undefined;
+  for (const n of rounds) {
+    pick = await round(text, n, timeout, takes, errs);
+    if (pick) break;
+  }
+  const ms = Date.now() - t0;
+  const failed = takes.filter((t) => t.problems.length);
+  if (!pick) {
+    pick = [...takes].sort((a, b) => a.badness - b.badness)[0];
+    if (!pick) {
+      const lastErr = errs.at(-1);
+      log(`tts check: "${short(text)}" no audio after ${errs.length} tries (${(lastErr as Error)?.message})`);
+      throw lastErr instanceof Error ? lastErr : new Error('TTS failed');
+    }
+  }
+  if (failed.length || pick.problems.length)
+    log(
+      `tts check: "${short(text)}" ${failed.length} of ${takes.length} take(s) failed (${failed.map((t) => t.problems.join('; ')).join(' | ')}); ` +
+        `${pick.problems.length ? `kept the least bad (${pick.problems.join('; ')})` : 'played a clean take'} (${pick.stats.soundSec.toFixed(2)} s, ${pick.stats.f0} Hz) in ${ms} ms`,
+    );
+  return { ...pick, tries: takes.length + errs.length, ms };
+}
+
+/**
+ * Synthesize a line, check it and keep it (fillers, PIN lines, the greeting): it then plays instantly.
+ * A clip still failing the check after all tries is never kept (the live path tries again).
+ */
+export function prewarm(line: string): Promise<Uint8Array> {
   const text = ttsText(line);
   let p = cache.get(text);
   if (!p) {
     p = (async () => {
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await behindLive();
-          const res = await request(text);
-          const pcm = new Uint8Array(await res.arrayBuffer());
-          if (plausible(text, pcm, strict)) return pcm;
-          throw new Error(`clip came out ${soundSeconds(pcm).toFixed(1)}s long`);
-        } catch (err) {
-          if (attempt >= 1) {
-            console.log(new Date().toISOString(), '[voice]', `not caching "${text}": ${(err as Error).message}`);
-            throw err;
-          }
-        }
-      }
+      await behindLive();
+      const take = await checkedClip(text, false);
+      if (take.problems.length) throw new Error(`clip failed the check: ${take.problems.join('; ')}`);
+      return take.pcm;
     })();
-    p.then(() => ready.add(text), () => cache.delete(text));
+    p.then(
+      () => ready.add(text),
+      () => cache.delete(text),
+    );
     cache.set(text, p);
   }
   return p;
 }
+
+// -- baked clips -------------------------------------------------------------------------------
+
+/** Where baked clips live: raw PCM16 mono 24 kHz files plus manifest.json (text -> file). */
+export const CLIPS_DIR = fileURLToPath(new URL('../clips/', import.meta.url));
+export interface BakedClip {
+  /** The TTS text (ttsText of the line) the clip says. */
+  text: string;
+  file: string;
+  f0: number;
+  soundSec: number;
+}
+export interface BakedManifest {
+  model: string;
+  voice: string;
+  clips: BakedClip[];
+}
+let bakedCount = 0;
+/** Load the baked clips into the cache (once, at import). Missing or for another voice: none are used. */
+function loadBaked(): void {
+  if (process.env.PACEPAY_VOICE_NO_BAKED === '1') return;
+  let m: BakedManifest;
+  try {
+    m = JSON.parse(readFileSync(join(CLIPS_DIR, 'manifest.json'), 'utf8')) as BakedManifest;
+  } catch {
+    return;
+  }
+  if (m.model !== TTS_MODEL || m.voice !== TTS_VOICE) {
+    log(`baked clips are for ${m.voice}/${m.model}, not ${TTS_VOICE}/${TTS_MODEL}: not used`);
+    return;
+  }
+  for (const c of m.clips) {
+    try {
+      const buf = readFileSync(join(CLIPS_DIR, c.file));
+      if (buf.length < FRAME_BYTES * 5) continue;
+      cache.set(c.text, Promise.resolve(new Uint8Array(buf.buffer, buf.byteOffset, buf.length & ~1)));
+      ready.add(c.text);
+      bakedCount++;
+    } catch {
+      /* that one is synthesized live */
+    }
+  }
+}
+/** How many baked clips loaded (logs, tests). */
+export const bakedClips = (): number => bakedCount;
 
 function frame(bytes: Uint8Array): AudioFrame {
   const copy = new Uint8Array(bytes); // aligned copy
@@ -155,14 +307,12 @@ function frame(bytes: Uint8Array): AudioFrame {
 /** TTS audio opens with a breath of near-silence; skipping it makes every line start sooner. */
 const LEAD_LEVEL = 400;
 const LEAD_PAD_BYTES = FRAME_BYTES; // keep 20 ms before the first sound
-/** An opener keeps this much of its trailing quiet: the natural beat before the rest of the line. */
-const OPENER_TAIL_BYTES = 8 * FRAME_BYTES; // 160 ms
-/** A comma opener keeps a shorter beat: the rest of the line carries on mid-sentence. */
-const COMMA_TAIL_BYTES = 5 * FRAME_BYTES; // 100 ms
+/** Keep this much quiet after the last sound (a natural end, no click). */
+const TAIL_BYTES = 6 * FRAME_BYTES; // 120 ms
 
 const level = (buf: Uint8Array, i: number) => Math.abs((buf[i]! | (buf[i + 1]! << 8)) << 16 >> 16);
 
-/** Byte offset to start playing from (just before the first audible sample), or -1 if none yet. */
+/** Byte offset to start playing from (just before the first audible sample), or -1 if none. */
 function soundStart(buf: Uint8Array): number {
   for (let i = 0; i + 1 < buf.length; i += 2) if (level(buf, i) >= LEAD_LEVEL) return Math.max(0, i - LEAD_PAD_BYTES);
   return -1;
@@ -174,133 +324,58 @@ function soundEnd(buf: Uint8Array, tail: number): number {
   return buf.length & ~1;
 }
 
-/** Frames of a fully synthesized line, from its first sound. */
-function* pcmFrames(pcm: Uint8Array, end = pcm.length & ~1): Generator<AudioFrame> {
-  const lead = soundStart(pcm.subarray(0, end));
-  for (let off = lead > 0 ? lead : 0; off < end; off += FRAME_BYTES * 5) {
-    yield frame(pcm.subarray(off, Math.min(end, off + FRAME_BYTES * 5)));
-  }
-}
-
-/** If the first TTS request has not produced audio by now, a second one races it. */
-export const HEDGE_MS = 650;
-/** No audio by now: give up, so the line falls back to the realtime voice instead of a long silence. */
-export const TTS_START_MAX_MS = 2_500;
-
-type Started = { reader: ReadableStreamDefaultReader<Uint8Array>; first: Uint8Array; ctrl: AbortController };
-
-/** One TTS request, resolved once its first audio bytes arrive. */
-async function firstChunk(text: string): Promise<Started> {
-  const ctrl = new AbortController();
-  const res = await request(text, ctrl.signal);
-  const reader = res.body!.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  const r = await reader.read();
-  if (r.done || !r.value?.length) throw new Error('TTS returned no audio');
-  return { reader, first: r.value, ctrl };
-}
-
 /**
- * Start a line's audio as fast as possible: a request, plus a second one racing it if the first is
- * slow to produce audio (or failed). The loser is aborted.
+ * Where to pick a line up again `fromMs` into its sound: the start of the quietest 40 ms within the
+ * 500 ms before that point (a gap between words), so a resumed line never starts mid-syllable.
  */
-async function startTts(text: string): Promise<Started & { ms: number; hedged: boolean }> {
-  const done = liveStart();
-  try {
-    return await startTtsLive(text);
-  } finally {
-    done();
+function resumeOffset(pcm: Uint8Array, lead: number, fromMs: number): number {
+  const target = lead + Math.round((fromMs / 1000) * SAMPLE_RATE) * 2;
+  const win = 2 * FRAME_BYTES; // 40 ms
+  let best = target;
+  let bestE = Infinity;
+  for (let off = target; off >= Math.max(lead, target - 25 * FRAME_BYTES); off -= FRAME_BYTES / 2) {
+    let e = 0;
+    for (let i = off; i + 1 < Math.min(pcm.length, off + win); i += 8) e += level(pcm, i);
+    if (e < bestE) {
+      bestE = e;
+      best = off;
+    }
   }
+  return Math.min(best - (best % 2), pcm.length & ~1);
 }
 
-async function startTtsLive(text: string): Promise<Started & { ms: number; hedged: boolean }> {
-  const t0 = Date.now();
-  let launched = false;
-  const losers: Promise<Started>[] = [];
-  const first = firstChunk(text);
-  const second = new Promise<Started>((resolve, reject) => {
-    const launch = () => {
-      if (launched) return;
-      launched = true;
-      clearTimeout(timer);
-      const p = firstChunk(text);
-      losers.push(p);
-      p.then(resolve, reject);
-    };
-    const timer = setTimeout(launch, HEDGE_MS);
-    first.then(() => {
-      if (!launched) {
-        clearTimeout(timer);
-        reject(new Error('not needed'));
-      }
-    }, launch);
-  });
-  let timer: NodeJS.Timeout | undefined;
-  const giveUp = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`no TTS audio within ${TTS_START_MAX_MS} ms`)), TTS_START_MAX_MS);
-  });
-  let win: Started;
-  try {
-    win = await Promise.race([Promise.any([first, second]), giveUp]);
-  } catch (err) {
-    for (const p of [first, ...losers]) void p.then((st) => st.ctrl.abort(), () => undefined);
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-  for (const p of [first, ...losers]) {
-    void p.then((st) => {
-      if (st !== win) st.ctrl.abort();
-    }, () => undefined);
-  }
-  return { ...win, ms: Date.now() - t0, hedged: launched };
+/** 100 ms frames of a whole clip, from just before its first sound (or `fromMs` into it) to just after its last. */
+function* pcmFrames(pcm: Uint8Array, fromMs = 0): Generator<AudioFrame> {
+  const lead = Math.max(0, soundStart(pcm));
+  const end = soundEnd(pcm, TAIL_BYTES);
+  const start = fromMs > 0 ? resumeOffset(pcm, lead, fromMs) : lead;
+  for (let off = start; off < end; off += PIECE_BYTES) yield frame(pcm.subarray(off, Math.min(end, off + PIECE_BYTES)));
 }
 
-const START_CUSHION_BYTES = 4 * FRAME_BYTES; // 80 ms
-const PIECE_BYTES = 5 * FRAME_BYTES; // 100 ms
-/** Frames of a streaming TTS response as it arrives, from its first sound. */
-async function* streamFrames(st: Started): AsyncGenerator<AudioFrame> {
-  let carry: Uint8Array = new Uint8Array(0);
-  let next: Uint8Array | undefined = st.first;
-  let leading = true;
-  let started = false;
-  for (;;) {
-    let value = next;
-    next = undefined;
-    if (!value) {
-      const r = await st.reader.read().catch(() => ({ done: true as const, value: undefined }));
-      if (r.done) break;
-      value = r.value;
-    }
-    let buf = new Uint8Array(carry.length + value.length);
-    buf.set(carry);
-    buf.set(value, carry.length);
-    if (leading) {
-      const at = soundStart(buf);
-      if (at < 0) {
-        // Still silent: keep only the pad's worth, starting on a whole sample.
-        const from = Math.max(0, buf.length - LEAD_PAD_BYTES);
-        carry = buf.subarray(from - (from % 2));
-        continue;
-      }
-      leading = false;
-      buf = buf.subarray(at);
-    }
-    // The first audio waits for a small cushion, so a gap between the first network chunks does
-    // not stutter the opening syllable; after that, whole 20 ms frames in pieces of at most 100 ms.
-    if (!started && buf.length < START_CUSHION_BYTES) {
-      carry = buf;
-      continue;
-    }
-    started = true;
-    const usable = buf.length - (buf.length % FRAME_BYTES);
-    carry = buf.subarray(usable);
-    for (let off = 0; off < usable; off += PIECE_BYTES) yield frame(buf.subarray(off, Math.min(usable, off + PIECE_BYTES)));
-  }
-  const tail = carry.subarray(0, carry.length - (carry.length % 2));
-  if (tail.length && !leading) yield frame(tail);
+/** Milliseconds of audio a clip plays (what pcmFrames yields). */
+export function playedMs(pcm: Uint8Array): number {
+  return Math.round(((soundEnd(pcm, TAIL_BYTES) - Math.max(0, soundStart(pcm))) / 2 / SAMPLE_RATE) * 1000);
 }
 
-function toStream(gen: AsyncGenerator<AudioFrame> | Generator<AudioFrame>, onCancel?: () => void): ReadableStream<AudioFrame> {
+/** A line's frames, with how long it plays and how long its sound runs (for logs and the test harness). */
+export type LineAudio = ReadableStream<AudioFrame> & { playMs: number; soundMs: number };
+
+/** Test harness only: keep each played clip, so what the caller heard can be lined up against it. */
+function dumpClip(text: string, pcm: Uint8Array): void {
+  const dump = process.env.PACEPAY_VOICE_DUMP_DIR;
+  if (!dump) return;
+  void import('node:fs').then((fs) => fs.writeFileSync(`${dump}/${createHash('sha1').update(text).digest('hex').slice(0, 12)}.pcm`, pcm)).catch(() => undefined);
+}
+
+function lineAudio(pcm: Uint8Array, fromMs: number, soundSec?: number, text?: string): LineAudio {
+  if (text) dumpClip(text, pcm);
+  const st = toStream(pcmFrames(pcm, fromMs)) as LineAudio;
+  st.playMs = playedMs(pcm);
+  st.soundMs = Math.round((soundSec ?? clipStats(samplesOf(pcm), '').soundSec) * 1000);
+  return st;
+}
+
+function toStream(gen: Generator<AudioFrame> | AsyncGenerator<AudioFrame>): ReadableStream<AudioFrame> {
   return new ReadableStream<AudioFrame>({
     async pull(controller) {
       const r = await gen.next();
@@ -308,114 +383,245 @@ function toStream(gen: AsyncGenerator<AudioFrame> | Generator<AudioFrame>, onCan
       else controller.enqueue(r.value);
     },
     cancel() {
-      onCancel?.();
       void gen.return(undefined);
     },
   });
 }
 
-/**
- * Openers the negotiator starts lines with. Kept synthesized, so a line like "Thanks for holding.
- * Yoshua approved..." starts at once while the rest is still being synthesized. Whole sentences, plus
- * the read-back openers ending in a comma: those take over a second to say, longer than the rest of
- * the line takes to start (~0.6 s), so the rest follows on the comma's natural beat. Never a one-word
- * opener (TTS tends to repeat those: "Okay, okay."); a two-word one only with the tight length check
- * in plausible().
- */
-export const OPENERS = [
-  'Got it.',
-  'Okay, so just to confirm,',
-  'Just so I have it right,',
-  'Sorry, just to make sure I have it right,',
-  'And just to confirm,',
-  'Thanks for holding.',
-  'Thanks for waiting.',
-  'Sorry for the wait.',
-  'Sorry about that.',
-  'Thanks for checking.',
-  'No problem at all.',
-];
-
-/** Opener clips that came out the expected length (a repeated or rambling clip is never used). */
-const goodOpeners = new Set<string>();
-
-/** Synthesize the openers (prewarm keeps only clips the length their words should take). */
-export async function prewarmOpeners(): Promise<void> {
-  for (const o of OPENERS) {
-    try {
-      await prewarm(o, true);
-      goodOpeners.add(o);
-    } catch {
-      /* not cached: lines starting with it just stream */
-    }
-  }
-}
-
-/** A line's longest cached opener and the rest of it, or null. */
-export function splitOpener(line: string): { head: string; rest: string } | null {
-  const t = ttsText(line);
-  let best: { head: string; rest: string } | null = null;
-  for (const m of t.matchAll(/[.!?,](?=\s+\S)/g)) {
-    const end = m.index! + 1;
-    if (end > 48) break;
-    const head = t.slice(0, end);
-    if (goodOpeners.has(head) && ready.has(head)) best = { head, rest: t.slice(end).trim() };
-  }
-  return best;
-}
-
 /** How the last line was produced (for logs). */
 export let lastTtsInfo = '';
 
+// -- live lines: split, synthesized in parallel, started early ----------------------------------
+
+/** Quiet between two parts of a split line (plus each part's own 120 ms tail): a sentence pause. */
+const PART_GAP_BYTES = 10 * FRAME_BYTES; // 200 ms
+/** A line this long (words) or longer, with more than one sentence, is split into parts. */
+export const SPLIT_MIN_WORDS = 14;
+/** No part shorter than this (a short first sentence joins the next one). */
+const PART_MIN_WORDS = 6;
+const MAX_PARTS = 3;
+const ABBREV = /\b(?:vs|mr|mrs|ms|dr|st|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|no|approx|etc|e\.g|i\.e)\.$/i;
+const wordsIn = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
 /**
- * Audio frames for one line. A cached line plays from memory. A line with a cached opener plays the
- * opener at once while the rest is synthesized. Otherwise this resolves once the TTS response has
- * produced audio (so a failure can fall back before anything is scheduled) and streams the rest as it
- * arrives. Cancelling the stream (an interruption) aborts the request.
+ * A line's parts for synthesis: whole sentences, each at least PART_MIN_WORDS words, at most
+ * MAX_PARTS; a line under SPLIT_MIN_WORDS words stays whole.
  */
-export async function audioFor(line: string): Promise<ReadableStream<AudioFrame>> {
+export function splitForSpeech(text: string): string[] {
+  const t = text.trim();
+  if (wordsIn(t) < SPLIT_MIN_WORDS) return [t];
+  const sentences: string[] = [];
+  // Sentence ends, and the "; " between items of a list ("mortgage $1,200 on Monday; car payment $400...").
+  for (const s of t.split(/(?<=[.!?])\s+(?=["'$A-Z0-9])|(?<=;)\s+/)) {
+    if (sentences.length && ABBREV.test(sentences[sentences.length - 1]!)) sentences[sentences.length - 1] += ` ${s}`;
+    else sentences.push(s);
+  }
+  const parts: string[] = [];
+  let cur = '';
+  for (const s of sentences) {
+    cur = cur ? `${cur} ${s}` : s;
+    if (wordsIn(cur) >= PART_MIN_WORDS) {
+      parts.push(cur);
+      cur = '';
+    }
+  }
+  if (cur) {
+    if (parts.length) parts[parts.length - 1] += ` ${cur}`;
+    else parts.push(cur);
+  }
+  while (parts.length > MAX_PARTS) parts.splice(parts.length - 2, 2, `${parts[parts.length - 2]} ${parts[parts.length - 1]}`);
+  return parts;
+}
+
+/** A sentence this long (words) is split once more, at the comma or colon nearest its middle. */
+const LONG_PART_WORDS = 20;
+/** Quiet at such a split: a comma pause (each part keeps its own 120 ms tail and 20 ms lead). */
+const COMMA_GAP_BYTES = 4 * FRAME_BYTES; // 80 ms
+
+/**
+ * The parts a line is synthesized in, each with the quiet before it: whole sentences (splitForSpeech),
+ * and a very long sentence ("When it matures Friday, November 20th, PacePay's pick is ..., and put the
+ * other $2,786 in savings: about $550 a year less...", 34 words, 3.1 s to synthesize) also at a comma.
+ */
+export function speechParts(text: string): { text: string; gapBytes: number }[] {
+  const out: { text: string; gapBytes: number }[] = [];
+  for (const [i, p] of splitForSpeech(text).entries()) {
+    const gap = i ? PART_GAP_BYTES : 0;
+    const words = p.split(/\s+/);
+    if (words.length < LONG_PART_WORDS) {
+      out.push({ text: p, gapBytes: gap });
+      continue;
+    }
+    // Word indexes after which a comma or colon ends a word, both halves >= PART_MIN_WORDS words; not
+    // inside a number ("$2,214" has no space) or a spelled reference ("K, 7, Q").
+    let best = -1;
+    for (let k = PART_MIN_WORDS - 1; k < words.length - PART_MIN_WORDS; k++) {
+      if (!/[a-z0-9%)][,:]$/i.test(words[k]!) || /^[A-Z0-9],$/.test(words[k]!) || /^[A-Z0-9],?$/.test(words[k + 1]!)) continue;
+      if (best < 0 || Math.abs(k - words.length / 2) < Math.abs(best - words.length / 2)) best = k;
+    }
+    if (best < 0) out.push({ text: p, gapBytes: gap });
+    else {
+      out.push({ text: words.slice(0, best + 1).join(' '), gapBytes: gap });
+      out.push({ text: words.slice(best + 1).join(' '), gapBytes: COMMA_GAP_BYTES });
+    }
+  }
+  return out;
+}
+
+/** One part of a line: its sound (trimmed to just before the first sound and 120 ms after the last). */
+interface Part {
+  pcm: Uint8Array;
+  clean: boolean;
+  f0: number;
+  ms: number;
+  tries: number;
+}
+interface LineJob {
+  parts: Promise<Part>[];
+  /** Quiet before each part (none before the first). */
+  gaps: number[];
+  startedAt: number;
+}
+/** Lines whose synthesis started before they were asked for (startLine), by TTS text. */
+const jobs = new Map<string, LineJob>();
+const JOB_TTL_MS = 60_000;
+
+/** A clip from just before its first sound to 120 ms after its last (what plays; baked clips are stored so). */
+export function trimmed(pcm: Uint8Array): Uint8Array {
+  const a = Math.max(0, soundStart(pcm));
+  return pcm.subarray(a, Math.max(a, soundEnd(pcm, TAIL_BYTES)));
+}
+
+function partFor(chunk: string): Promise<Part> {
+  const live = (): Promise<Part> =>
+    checkedClip(chunk, true).then((take) => {
+      if (!take.problems.length && !cache.has(chunk)) {
+        cache.set(chunk, Promise.resolve(take.pcm));
+        ready.add(chunk);
+      }
+      return { pcm: trimmed(take.pcm), clean: !take.problems.length, f0: take.stats.f0, ms: take.ms, tries: take.tries };
+    });
+  // Only a finished clip: a background synthesis still waiting behind live lines would wait on this one.
+  const known = ready.has(chunk) ? cache.get(chunk) : undefined;
+  if (known) return known.then((pcm) => ({ pcm: trimmed(pcm), clean: true, f0: 0, ms: 0, tries: 0 }), live);
+  return live();
+}
+
+function newJob(text: string): LineJob {
+  const done = liveStart();
+  const plan = speechParts(text);
+  const parts = plan.map((p) => partFor(p.text));
+  void Promise.allSettled(parts).then(done);
+  return { parts, gaps: plan.map((p) => p.gapBytes), startedAt: Date.now() };
+}
+
+/**
+ * Start synthesizing a line now (the server's answer just arrived), so it is ready, or nearly, by the
+ * time it is queued. A line already in memory or already started is left alone.
+ */
+export function startLine(line: string): void {
   const text = ttsText(line);
-  // Only a clip that is fully synthesized plays from memory; one still being warmed would make this
-  // line wait for all of it, so it streams afresh instead (the warm one is kept for next time).
-  const cached = ready.has(text) ? cache.get(text) : undefined;
-  if (cached) {
+  if (!text || cache.has(text) || jobs.has(text)) return;
+  const now = Date.now();
+  for (const [k, j] of jobs) if (now - j.startedAt > JOB_TTL_MS) jobs.delete(k);
+  jobs.set(text, newJob(text));
+}
+
+/** The joined sound of a split line (parts with a pause between them). */
+function joinParts(parts: Part[], gaps: number[]): Uint8Array {
+  const total = parts.reduce((n, p, i) => n + p.pcm.length + (i ? gaps[i]! : 0), 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  parts.forEach((p, i) => {
+    if (i) o += gaps[i]!;
+    out.set(p.pcm, o);
+    o += p.pcm.length;
+  });
+  return out;
+}
+
+function remember(text: string, parts: Part[], gaps: number[]): Uint8Array {
+  const pcm = parts.length === 1 ? parts[0]!.pcm : joinParts(parts, gaps);
+  if (parts.every((p) => p.clean) && !cache.has(text)) {
+    cache.set(text, Promise.resolve(pcm));
+    ready.add(text);
+  }
+  return pcm;
+}
+
+const msOf = (bytes: number) => Math.round((bytes / 2 / SAMPLE_RATE) * 1000);
+
+/**
+ * A split line, played part by part: the first part plays as soon as it is ready; each later part
+ * follows a sentence pause after the one before (they were all synthesized at the same time, so a
+ * later part is nearly always ready by then). A part that fails outright ends the line there.
+ */
+function partsAudio(text: string, job: LineJob, first: Part): LineAudio {
+  const n = job.parts.length;
+  const st = toStream(
+    (async function* () {
+      for (let i = 0; i < n; i++) {
+        let part: Part;
+        try {
+          part = i === 0 ? first : await job.parts[i]!;
+        } catch (err) {
+          log(`part ${i + 1} of "${short(text)}" has no audio (${(err as Error).message}); the line ends after part ${i}`);
+          return;
+        }
+        const gap = i ? job.gaps[i]! : 0;
+        for (let off = 0; off < gap; off += PIECE_BYTES) yield frame(new Uint8Array(Math.min(PIECE_BYTES, gap - off)));
+        for (let off = 0; off < part.pcm.length; off += PIECE_BYTES) yield frame(part.pcm.subarray(off, Math.min(part.pcm.length, off + PIECE_BYTES)));
+      }
+    })(),
+  ) as LineAudio;
+  // Until every part is in: an estimate (marin speaks ~0.37 s a word); exact once they are.
+  const restWords = wordsIn(text) - wordsIn(speechParts(text)[0]!.text);
+  st.playMs = msOf(first.pcm.length) + Math.round(restWords * 370) + msOf(job.gaps.reduce((a, b) => a + b, 0));
+  st.soundMs = Math.max(0, st.playMs - 140);
+  void Promise.all(job.parts)
+    .then((parts) => {
+      const pcm = remember(text, parts, job.gaps);
+      dumpClip(text, pcm);
+      st.playMs = msOf(pcm.length);
+      // Sound runs from 20 ms after the start (lead pad) to 120 ms before the end (tail).
+      st.soundMs = Math.max(0, st.playMs - 140);
+    })
+    .catch(() => undefined);
+  return st;
+}
+
+/**
+ * Audio frames for one line (or the rest of it, from `fromMs` into its sound, picking up at a gap
+ * between words): from memory if it was synthesized and checked before (or baked), else synthesized
+ * now, or picked up where startLine began it. Resolves once the first part has a clean clip (~1 s).
+ * Rejects only if TTS produced no audio at all, so the caller can fall back before anything is
+ * scheduled.
+ */
+export async function audioFor(line: string, fromMs = 0): Promise<LineAudio> {
+  const text = ttsText(line);
+  if (cache.has(text)) {
     try {
-      const pcm = await cached;
-      lastTtsInfo = 'cached';
-      return toStream(pcmFrames(pcm));
+      const pcm = await cache.get(text)!;
+      lastTtsInfo = `from memory, ${playedMs(pcm)} ms of audio${fromMs ? `, from ${fromMs} ms` : ''}`;
+      return lineAudio(pcm, fromMs, undefined, text);
     } catch {
       /* synthesize afresh below */
     }
   }
-  const split = splitOpener(text);
-  if (split) {
-    const head = await cache.get(split.head)!;
-    const headEnd = soundEnd(head, split.head.endsWith(',') ? COMMA_TAIL_BYTES : OPENER_TAIL_BYTES);
-    const t0 = Date.now();
-    const rest = startTts(split.rest);
-    rest.catch(() => undefined);
-    let ctrl: AbortController | undefined;
-    lastTtsInfo = `cached opener "${split.head}", rest streaming`;
-    async function* joined(): AsyncGenerator<AudioFrame> {
-      yield* pcmFrames(head, headEnd);
-      let st: Awaited<typeof rest>;
-      try {
-        st = await rest;
-      } catch (err) {
-        console.error('[voice] TTS failed for the rest of a line:', (err as Error).message);
-        return;
-      }
-      ctrl = st.ctrl;
-      const late = Date.now() - t0 - st.ms;
-      console.log(new Date().toISOString(), '[voice]', `rest of the line: first audio in ${st.ms} ms${st.hedged ? ' (hedged)' : ''}, ${late > 0 ? 'ready before the opener ended' : 'after the opener'}`);
-      yield* streamFrames(st);
-    }
-    return toStream(joined(), () => {
-      ctrl?.abort();
-      void rest.then((st) => st.ctrl.abort(), () => undefined);
-    });
+  const early = jobs.get(text);
+  jobs.delete(text);
+  const job = early ?? newJob(text);
+  const t0 = Date.now();
+  if (job.parts.length === 1 || fromMs > 0) {
+    const parts = await Promise.all(job.parts);
+    const pcm = remember(text, parts, job.gaps);
+    const p = parts[0]!;
+    lastTtsInfo = `${parts.length > 1 ? `${parts.length} parts` : 'whole line'} in ${Date.now() - job.startedAt} ms${early ? ` (started ${t0 - job.startedAt} ms early)` : ''}, ${playedMs(pcm)} ms of audio, ${p.f0} Hz${p.tries > 2 ? `, ${p.tries} tries` : ''}`;
+    return lineAudio(pcm, fromMs, undefined, text);
   }
-  const st = await startTts(text);
-  lastTtsInfo = `first audio in ${st.ms} ms${st.hedged ? ' (hedged)' : ''}`;
-  return toStream(streamFrames(st), () => st.ctrl.abort());
+  const first = await job.parts[0]!;
+  lastTtsInfo = `first of ${job.parts.length} parts in ${Date.now() - job.startedAt} ms${early ? ` (started ${t0 - job.startedAt} ms early)` : ''}, ${first.f0} Hz${first.tries > 2 ? `, ${first.tries} tries` : ''}`;
+  return partsAudio(text, job, first);
 }
+
+loadBaked();

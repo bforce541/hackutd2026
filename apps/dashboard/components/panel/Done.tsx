@@ -33,7 +33,7 @@ export function Done({ view, state, actions }: DashboardProps & { view: StepOf<'
         </span>
         <Eyebrow className="text-green">Done</Eyebrow>
       </div>
-      <Title>Covered through {formatShortDate(view.coveredThrough, state.household.day0Date)}</Title>
+      <Title>{view.headline ?? `Covered through ${formatShortDate(view.coveredThrough, state.household.day0Date)}`}</Title>
       {rows.length > 0 && (
         <div className="rise" style={{ '--d': '380ms', animationDuration: '520ms' } as CSSProperties}>
           <DefRows rows={rows} />

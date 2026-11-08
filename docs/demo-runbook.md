@@ -125,7 +125,7 @@ Run after A (so there is a call to ask about), or after a reset if you only show
 1. Yoshua dials the PacePay voice number from his own phone (caller ID must match `CUSTOMER_PHONE`).
 2. PacePay: "Hi, this is PacePay, Yoshua's money assistant. For your security, please say your four-digit PIN."
 3. Yoshua says **"<the PIN>" (in the encrypted .env)** (saying it digit by digit or as words also works; the spoken PIN is stored in the transcript as "(said the PIN)"). PacePay: "Thanks, you are verified. What would you like to know?"
-4. Yoshua asks **"What did the lender say?"** -> a summary of the call, from the thread and the negotiation record.
+4. Yoshua asks **"What did the lender say?"** -> a summary of the call, from the thread and the negotiation record. Answers to the common questions are built from the money engine in code; an action request ("move my payment") gets "Text me and I'll set it up."
 5. Other questions the transcription prompt expects: "Can I afford a $900 bill?", "When's my next paycheck?", "How am I doing?". Hang up with "Okay, bye."
 6. Wrong PIN three times -> "I could not verify the PIN, so I have to end the call." Before the PIN, no figures are spoken (`apps/server/src/agent/qa.ts`).
 
@@ -164,6 +164,6 @@ From `v2.md` and `docs/devpost.md`: never "guarantees no overdrafts", "lenders a
 
 ## 7. Known mismatches to keep straight while presenting
 
-- README and v2.md say GPT realtime "speaks" on calls. The code says otherwise: the realtime model only listens and transcribes (`create_response: false`, no tools); every spoken word is a line written by code and read with OpenAI TTS (`gpt-4o-mini-tts`, voice marin). See the `apps/voice/src/agent.ts` header. Say "GPT realtime hears, code decides the words, TTS speaks."
-- The server uses Photon through its REST API (polling every 2 s), not the `spectrum-ts` SDK that v2.md names.
+- Older drafts of the docs said GPT realtime "speaks" on calls. The code: the realtime model only listens and transcribes (`create_response: false`, no tools); every spoken word is a line written by the negotiator code (`negotiator.ts`, `situations.ts`; Nemotron Super only as a capped fallback for an odd lender line) and read with OpenAI TTS (`gpt-4o-mini-tts`, voice marin), a whole line at a time (`apps/voice/src/speech.ts`, `conductor.ts`). See the `apps/voice/src/agent.ts` header. Say "GPT realtime hears, code decides the words, TTS speaks."
+- The server uses Photon through its REST API (`api.photon.codes/v1`, polling every 2 s), not the `spectrum-ts` SDK. The iMessage line is shared; PacePay's name and photo come from the contact card (`design/brand/pacepay.vcf`), because shared lines can't carry a project profile photo.
 - The bill reader runs on `nvidia.nemotron-nano-12b-v2` (Nemotron Nano 2 VL) through the gateway. Plain Nano (`NEMOTRON_NANO_MODEL`) is configured but no job routes to it.

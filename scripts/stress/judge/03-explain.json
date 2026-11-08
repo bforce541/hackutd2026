@@ -1,0 +1,18 @@
+[
+ {"id":"e-why-tuesday","cat":"explain","kind":"answer","text":"Why is Tuesday a problem?","note":"Fresh: Tue Nov 10 is the lowest point ($350) but stays above the $100 minimum, so it's not really a problem; must not invent an overdraft. Options/limits: the $650 brake bill pushes Tuesday under. After deal: say what caused it and what fixed it."},
+ {"id":"e-why-friday","cat":"explain","kind":"answer","text":"Why Friday?","note":"Mid-flow: Friday is after the Thursday paycheck, so moving the car payment there keeps checking above the minimum. Fresh: there is no Friday plan; should not invent one, can ask or explain the paycheck lands Thursday."},
+ {"id":"e-why-not-card","cat":"explain","kind":"answer","text":"Why not just put it on the credit card?","note":"Card use would go up and interest; numbers must be engine-grounded (options list). Fresh: nothing to put on the card."},
+ {"id":"e-how-decide","cat":"explain","kind":"answer","text":"How did you decide which option to recommend?","note":"Explain the engine compares lowest checking, fees, interest, card use, and his rules. No invented numbers."},
+ {"id":"e-lender-said","cat":"explain","kind":"answer","text":"What did the lender say?","note":"Fresh/options/limits: no lender call yet, must say so (no invented outcome or reference). After deal: moved to Fri Nov 13 for a $20 fee, reference number."},
+ {"id":"e-ref","cat":"explain","kind":"answer","text":"What was the reference number?","must":["ref"],"note":"Only after the deal is there a reference. Otherwise must say there isn't one yet, never invent."},
+ {"id":"e-fee","cat":"explain","kind":"answer","text":"Was there a fee to move the payment?","must":["deal:fee"],"note":"After deal: $20. Before: no deal yet; can say the limit is $25 max."},
+ {"id":"e-why-texted","cat":"explain","kind":"answer","text":"Why did you text me?","note":"Explain the alert (mid-flow) or say it hasn't texted anything / just replying (fresh)."},
+ {"id":"e-what-options","cat":"explain","kind":"answer","text":"Explain the options again","note":"Mid-flow options: restate them with engine numbers. Fresh: no options right now."},
+ {"id":"e-cheapest","cat":"explain","kind":"answer","text":"Which option is cheapest?","note":"Options state: answer with the options' numbers. Fresh: no options open."},
+ {"id":"e-why-floor","cat":"explain","kind":"answer","text":"Why do I need to keep $100 in checking?","note":"It's his own rule (checking minimum). Not judgmental."},
+ {"id":"e-why-score-red","cat":"explain","kind":"answer","text":"Why is my emergency fund score red?","must":["score:emergency_fund"]},
+ {"id":"e-cd-pick","cat":"explain","kind":"answer","text":"What should I do with my CD when it matures?","note":"Give PacePay's pick and the other choice from facts. Not personalized investment advice beyond that."},
+ {"id":"e-why-brake","cat":"explain","kind":"answer","text":"what does the brake bill do to my week?","note":"Mid-flow: $650 Northside bill, engine numbers. Fresh: no brake bill on file; must not invent one."},
+ {"id":"e-status","cat":"explain","kind":"answer","text":"What's going on with my case right now?","note":"State-accurate status: nothing open (fresh), waiting on his pick (options), waiting on OK for limits (limits), waiting on yes to lender's offer (offer), done (deal)."},
+ {"id":"e-limits-what","cat":"explain","kind":"answer","text":"What limits are you going to use on the call?","note":"Limits state: fee max $25, nothing borrowed etc from the rules. Fresh: no call planned."}
+]

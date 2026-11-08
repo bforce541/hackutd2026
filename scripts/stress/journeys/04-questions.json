@@ -1,0 +1,227 @@
+[
+ {
+  "id": "q-why-friday",
+  "category": "questions",
+  "title": "At the limits step Yoshua asks 'why friday?' then OKs",
+  "style": "Curious, short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "why friday?",
+    "expectNot": "[Cc]alling"
+   },
+   {
+    "say": "ok makes sense, go"
+   },
+   {
+    "say": "YES",
+    "onlyIf": "call_limits",
+    "note": "re-answer a Just-to-check"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "The answer explains Friday is the day after Thursday's paycheck, then re-asks for the OK. 'ok makes sense, go' is a clear OK."
+ },
+ {
+  "id": "q-lowest-balance",
+  "category": "questions",
+  "title": "At the options Yoshua asks 'what's my lowest balance gonna be?'",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "whats my lowest balance gonna be?",
+    "expect": "300"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Answer: -$300 on Tue Nov 10 if he pays the repair today (or the lowest with each option). Then re-ask / keep the options open; '1' then works."
+ },
+ {
+  "id": "q-fee-at-approval",
+  "category": "questions",
+  "title": "Mid-call approval: Yoshua asks 'what's the fee again?' then says yes",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "whats the fee again?",
+    "expect": "20"
+   },
+   {
+    "say": "ok yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "Answer $20 and re-ask YES/NO; the question must not count as approval or decline. 'ok yes' approves."
+ },
+ {
+  "id": "q-what-did-they-say",
+  "category": "questions",
+  "title": "After the deal, 'what did they say?' and 'when does it come out?'",
+  "style": "Casual.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   },
+   {
+    "say": "what did they say?"
+   },
+   {
+    "say": "so when does the car payment come out now?",
+    "expect": "(Fri|13)"
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "Accurate recap of the call (Friday Nov 13, $20 fee, ref) and the new payment date."
+ },
+ {
+  "id": "q-coach-no-case",
+  "category": "questions",
+  "title": "No case open: general money questions",
+  "style": "Curious, full sentences.",
+  "steps": [
+   {
+    "say": "hey how am I doing money-wise this month?"
+   },
+   {
+    "say": "whats my credit card utilization"
+   },
+   {
+    "say": "should I pay extra on my car loan or my card?"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Answers must use correct numbers (card $2,800 of $5,000 = 56%; card APR 24.99% vs auto 6.9%) and be brief and useful. No invented numbers."
+ },
+ {
+  "id": "q-cant-do-transfer",
+  "category": "questions",
+  "title": "Asks PacePay to move money: 'move $500 from savings to checking'",
+  "style": "Direct.",
+  "steps": [
+   {
+    "say": "move $500 from savings to checking for me"
+   },
+   {
+    "say": "can you pay my mortgage for me then"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "PacePay never moves money: it must say so clearly and kindly, and tell him how (at his bank), maybe what it would do to his numbers. It must NOT claim it did it."
+ },
+ {
+  "id": "q-cant-do-misc",
+  "category": "questions",
+  "title": "Out-of-scope asks: call my landlord, weather, cancel my card",
+  "style": "Casual.",
+  "steps": [
+   {
+    "say": "can you call my landlord and ask for more time on rent"
+   },
+   {
+    "say": "whats the weather tomorrow"
+   },
+   {
+    "say": "cancel my credit card please"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Honest about what it can't do (it only calls the lenders/billers on file, with his OK; no weather; can't cancel cards), short, and offers what it can do. No fake promises; no call placed."
+ }
+]

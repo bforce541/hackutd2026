@@ -12,7 +12,8 @@
     "typecheck": "npx @dotenvx/dotenvx run --convention=nextjs -- pnpm -r typecheck",
     "build": "npx @dotenvx/dotenvx run --convention=nextjs -- pnpm -r build",
     "demo:e2e": "npx @dotenvx/dotenvx run --convention=nextjs -- pnpm --filter @pacepay/server demo:e2e",
-    "arena": "npx @dotenvx/dotenvx run --convention=nextjs -- pnpm --filter @pacepay/server arena"
+    "arena": "npx @dotenvx/dotenvx run --convention=nextjs -- pnpm --filter @pacepay/server arena",
+    "arena:refresh": "npx @dotenvx/dotenvx run --convention=nextjs -q -- pnpm --filter @pacepay/server arena -- --count 50 --concurrency 5 && node apps/dashboard/scripts/arena-to-demo.mjs"
   },
   "devDependencies": {
     "@dotenvx/dotenvx": "^2.38.2",

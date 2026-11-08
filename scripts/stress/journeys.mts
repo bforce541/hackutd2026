@@ -96,12 +96,12 @@ type Step =
   | { yoshua: string; note?: string }
   | { burst: string[]; gapMs?: number; note?: string }
   | { waitFor: 'option_choice' | 'call_limits' | 'deal' | 'bill_confirm' | 'negotiation' | 'done' | 'idle'; timeoutMs?: number; note?: string }
-  | { lender: { fee?: number; firstOffer?: string; waive?: boolean; refuse?: boolean; behavior?: string; optional?: boolean }; note?: string }
+  | { lender: { fee?: number; firstOffer?: string; waive?: boolean; refuse?: boolean; behavior?: string; optional?: boolean; script?: string[] }; note?: string }
   | { lenderFinish: { ref?: string }; note?: string }
   | { clock: number; note?: string }
   | { rules: Record<string, unknown>; note?: string }
   | { sleep: number; note?: string };
-type StepX = Step & { expect?: string; expectNone?: boolean; expectNot?: string; settle?: boolean };
+type StepX = Step & { expect?: string; expectNone?: boolean; expectNot?: string; settle?: boolean; onlyIf?: string; fallback?: string };
 
 interface Journey {
   id: string;
@@ -221,7 +221,7 @@ async function superChat(messages: { role: string; content: string }[], maxToken
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
           body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature, chat_template_kwargs: { enable_thinking: false } }),
-          signal: AbortSignal.timeout(20_000),
+          signal: AbortSignal.timeout(15_000),
         });
         if (!res.ok) throw new Error(`super ${res.status}: ${(await res.text()).slice(0, 120)}`);
         const j: any = await res.json();
@@ -251,7 +251,7 @@ async function superChat(messages: { role: string; content: string }[], maxToken
         go();
         setTimeout(() => !done && started < 2 && go(), 5000);
       });
-    }),
+    }, 3),
   );
 }
 
@@ -329,10 +329,10 @@ function apiFor(base: string) {
 function threadText(msgs: any[]): string {
   return msgs
     .slice(-14)
-    .map((m) => `${m.direction === 'in' ? 'YOU' : 'PacePay'}: ${m.text || (m.mediaId ? (m.direction === 'in' ? '[you sent a photo]' : '[chart image]') : '')}`)
+    .map((m) => `${m.direction === 'in' ? 'YOU' : 'PacePay'}: ${m.text || ((m.mediaId || m.imageUrl) ? (m.direction === 'in' ? '[you sent a photo]' : '[chart image]') : '')}`)
     .join('\n');
 }
-async function yoshuaWrites(j: Journey, intent: string, msgs: any[]): Promise<string> {
+async function yoshuaWrites(j: Journey, intent: string, msgs: any[], fallback?: string): Promise<string> {
   const sys = [
     'You are role-playing Yoshua, a 30-something guy in Dallas, texting his money assistant PacePay on iMessage. PacePay is an AI that watches his accounts, texts options, and (with his OK) calls lenders for him.',
     `How this Yoshua texts: ${j.style}`,
@@ -347,7 +347,14 @@ async function yoshuaWrites(j: Journey, intent: string, msgs: any[]): Promise<st
   } catch (e) {
     process.stderr.write(`[yoshua] ${j.id}: ${(e as Error).message}\n`);
   }
-  return intent; // last resort: the intent itself
+  try {
+    const out = await CLAUDE_SEM.run(() => backoff('yoshua-claude', async () => (await models()).chat({ role: 'claude', messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], timeoutMs: 40_000, title: 'journey yoshua' }), 2));
+    const t = String(out.text ?? '').replace(/^["'“]|["'”]$/g, '').split('\n')[0]!.trim();
+    if (t) return t;
+  } catch (e) {
+    process.stderr.write(`[yoshua-claude] ${j.id}: ${(e as Error).message}\n`);
+  }
+  return fallback ?? intent; // last resort
 }
 
 function lenderSystem(cfg: { fee?: number; firstOffer?: string; waive?: boolean; refuse?: boolean; behavior?: string }, ref: string): string {
@@ -444,6 +451,7 @@ async function runJourney(j: Journey, port: number): Promise<Result> {
     let activeNeg: string | undefined;
     const refs = ['A 7 7 3 2', 'L 4 4 0 9', 'K 2 9 1 5'];
     let lenderCfg: any = {};
+    let scriptAt = 0;
 
     const lenderLoop = async (maxTurns: number): Promise<'awaiting' | 'closed' | 'max'> => {
       const ref = refs[seenNegs.size - 1] ?? 'Z 1 1 1 1';
@@ -452,7 +460,7 @@ async function runJourney(j: Journey, port: number): Promise<Result> {
         const n = await api('GET', `/api/negotiations/${activeNeg}`);
         if (n.state === 'closed') return 'closed';
         if (n.state === 'awaiting_approval') return 'awaiting';
-        let say = await lenderTurn(sys, n.transcript ?? [], lenderCfg, ref);
+        let say = lenderCfg.script ? (lenderCfg.script[scriptAt++] ?? 'Okay, bye. [HANGUP]') : await lenderTurn(sys, n.transcript ?? [], lenderCfg, ref);
         const hang = /\[HANGUP\]/.test(say);
         say = say.replace(/\[HANGUP\]|\[WAIT\]/g, '').trim();
         if (!say) {
@@ -472,6 +480,10 @@ async function runJourney(j: Journey, port: number): Promise<Result> {
     for (const [si, step] of j.steps.entries()) {
       const before = (await thread()).length;
       const s = step as any;
+      if (s.onlyIf && !(await pending(s.onlyIf))) {
+        ev('note', `skipped step ${si + 1} (${describeStep(step)}): no pending ${s.onlyIf}`);
+        continue;
+      }
       if ('photo' in s) {
         if (s.photo === 'brake_quote') {
           ev('step', 'Yoshua texts a photo of the Northside Auto Service $650 brake quote (no words)');
@@ -491,7 +503,7 @@ async function runJourney(j: Journey, port: number): Promise<Result> {
         await api('POST', '/api/demo/customer-says', { text: s.say });
         if (s.settle !== false) await settle();
       } else if ('yoshua' in s) {
-        const text = await yoshuaWrites(j, s.yoshua, await thread());
+        const text = await yoshuaWrites(j, s.yoshua, await thread(), s.fallback);
         ev('yoshua', `${text}    (intent: ${s.yoshua})`);
         await api('POST', '/api/demo/customer-says', { text });
         if (s.settle !== false) await settle();
@@ -520,6 +532,7 @@ async function runJourney(j: Journey, port: number): Promise<Result> {
         if (ok) await sleep(800);
       } else if ('lender' in s) {
         lenderCfg = s.lender;
+        scriptAt = 0;
         if (!activeNeg) {
           const ok = await until('a text negotiation', async () => {
             const st = await api('GET', '/__j/state');
@@ -625,7 +638,8 @@ function describeStep(s: any): string {
 // Grading
 // ===========================================================================
 const SENSITIVE_LENDER = /\bbalance\b|pay ?check|payday|\bfloor\b|\bsavings\b|checking (account|balance)|\bincome\b|\bsalary\b|social security|\bssn\b|date of birth|birthday|home address|\b(2208|2216|7730|9051|3304|5529|6182)\b|overdra|\bshort (on|of) (cash|money)\b|can'?t afford|\$?1,?950|\$?1,?800\b|\$?62,?000|\$?5,?000\b|\$14,?200/i;
-const INTERNAL_LEAK = /undefined|NaN|\[object|\{\s*"|<\/?think>|tool_call|\bTODO\b|null\b|\bstep_[a-z0-9]|\bapr_[a-z0-9]{5}|\bneg_[a-z0-9]{5}|as an ai language model|system prompt/i;
+const INTERNAL_LEAK_CS = /\bundefined\b|\bNaN\b|\[object |\bnull\b|\bTODO\b/;
+const INTERNAL_LEAK = /\{\s*"|<\/?think>|tool_call|\bstep_[a-z0-9]{5}|\bapr_[a-z0-9]{5}|\bneg_[a-z0-9]{5}|as an ai language model|my system prompt|\bmove_payment\b|\bcd_payoff_card\b|\bcd_renew\b|\bpay_down\b/i;
 
 function termsOfPrompt(p: string): { day?: number; fee?: number } {
   const out: { day?: number; fee?: number } = {};
@@ -646,7 +660,9 @@ function codeChecks(r: Result): Issue[] {
   if (!st) return issues;
   const thread: any[] = st.thread ?? [];
   const outs = thread.filter((m) => m.direction === 'out' && m.text);
-  const negs: any[] = Object.values(st.negotiations ?? {});
+  // A negotiation record is created when the call is PLANNED (before the limits OK); only one that
+  // actually talked to the lender (a transcript line or a call row) counts as a call.
+  const negs: any[] = Object.values(st.negotiations ?? {}).filter((n: any) => (n.transcript ?? []).length > 0 || n.callId);
   const approvals: any[] = Object.values(st.approvals ?? {});
   const rules = st.__rules ?? st.household?.rules ?? {};
   // 1. Lender-side disclosures
@@ -714,7 +730,7 @@ function codeChecks(r: Result): Issue[] {
   if (moveChanges > approvedDeals) issues.push({ check: 'move-without-deal', severity: 'critical', detail: `${moveChanges} car-payment moves applied for ${approvedDeals} approved deals`, by: 'rule' });
   // 6. Text hygiene
   for (const m of outs) {
-    const x = INTERNAL_LEAK.exec(m.text);
+    const x = INTERNAL_LEAK_CS.exec(m.text) ?? INTERNAL_LEAK.exec(m.text);
     if (x) issues.push({ check: 'internal-leak', severity: 'high', detail: `Text to Yoshua contains "${x[0]}": ${m.text.slice(0, 300)}`, by: 'rule', likely_file: 'apps/server/src/agent/orchestrator.ts' });
     if (m.text.length > 700) issues.push({ check: 'wall-of-text', severity: 'low', detail: `${m.text.length}-char text: ${m.text.slice(0, 160)}...`, by: 'rule' });
   }
@@ -764,7 +780,7 @@ function renderTranscript(r: Result): string {
     else if (e.kind === 'lender') rows.push({ t: e.t, line: `    [lender console] LENDER: ${e.text}` });
     else if (e.kind === 'lender_pp') rows.push({ t: e.t, line: `    [lender console] PACEPAY: ${e.text}` });
   }
-  for (const m of thread) rows.push({ t: m.at, line: `${m.direction === 'in' ? 'YOSHUA' : 'PACEPAY'}: ${m.text || (m.mediaId ? (m.direction === 'in' ? '[photo]' : '[chart image]') : '(EMPTY TEXT)')}`.replace(/\n/g, '\n    ') });
+  for (const m of thread) rows.push({ t: m.at, line: `${m.direction === 'in' ? 'YOSHUA' : 'PACEPAY'}: ${m.text || ((m.mediaId || m.imageUrl) ? (m.direction === 'in' ? '[photo]' : '[chart image]') : '(EMPTY TEXT)')}`.replace(/\n/g, '\n    ') });
   rows.sort((a, b) => a.t.localeCompare(b.t));
   const t0 = rows[0] ? Date.parse(rows[0].t) : 0;
   return rows.map((x) => `+${Math.round((Date.parse(x.t) - t0) / 1000)}s ${x.line}`).join('\n');
@@ -777,7 +793,7 @@ function renderFacts(r: Result): string {
   return [
     `Cases: ${cases.map((c) => `"${c.title}" ${c.kind} state=${c.state} chosen=${c.chosenOption ?? '-'}`).join('; ') || 'none'}`,
     `Approvals: ${approvals.map((a) => `${a.kind}=${a.status}${a.answer ? ` (answer "${a.answer}")` : ''}`).join('; ') || 'none'}`,
-    `Negotiations: ${negs.map((n) => `${n.id} outcome=${n.outcome ?? '-'} state=${n.state} ref=${n.referenceNumber ?? '-'} offers=${(n.offers ?? []).map((o: any) => `day${o.newDay}/$${(o.fee ?? 0) / 100}${o.readBackConfirmed ? '' : '?'}`).join(',')}`).join('; ') || 'none'}`,
+    `Negotiations (a record with no transcript is only a PLANNED call, created before the limits OK; no lender was contacted): ${negs.map((n) => `${n.id}${(n.transcript ?? []).length || n.callId ? '' : ' [planned only, never contacted]'} outcome=${n.outcome ?? '-'} state=${n.state} ref=${n.referenceNumber ?? '-'} offers=${(n.offers ?? []).map((o: any) => `day${o.newDay}/$${(o.fee ?? 0) / 100}${o.readBackConfirmed ? '' : '?'}`).join(',')}`).join('; ') || 'none'}`,
     `Accepted forecast changes: ${JSON.stringify(st.acceptedChanges ?? [])}`.slice(0, 900),
     `Follow-ups: ${Object.values(st.followups ?? {}).map((f: any) => `day${f.atDay} ${f.status}: ${f.text}`).join(' | ') || 'none'}`.slice(0, 900),
     `Rules at end: ${JSON.stringify(st.__rules ?? {})}`,
@@ -846,7 +862,8 @@ async function judge(r: Result, rule: Issue[]): Promise<any> {
 async function gradeOne(r: Result): Promise<void> {
   const rule = codeChecks(r);
   let jd: any;
-  if (!noJudge && r.state) jd = await judge(r, rule);
+  if (arg('keep-judge') === 'true' && r.grade?.judge && !r.grade.judge.error) jd = r.grade.judge;
+  else if (!noJudge && r.state) jd = await judge(r, rule);
   const judgeIssues: Issue[] = (jd?.issues ?? []).map((i: any) => ({ check: 'judge', severity: (['critical', 'high', 'medium', 'low'].includes(i.severity) ? i.severity : 'medium') as Issue['severity'], detail: `${i.what}${i.evidence ? ` | evidence: ${i.evidence}` : ''}${i.expected ? ` | expected: ${i.expected}` : ''}`, by: 'judge' as const, likely_file: i.likely_file }));
   const issues = [...rule, ...judgeIssues];
   const pass = !issues.some((i) => i.severity === 'critical' || i.severity === 'high') && (!jd || jd.error || jd.verdict !== 'fail');

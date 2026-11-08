@@ -58,6 +58,35 @@ export function resolveApproval(ctx: Ctx, approvalId: string, answer: string): A
   return next;
 }
 
+/** Deadlines pushed out by Yoshua's replies (approval id -> epoch ms); the request_approval timer re-arms until then. */
+const extended = new Map<string, number>();
+/** When each approval was first extended (real time; the store's clock may be a demo clock). */
+const firstExtended = new Map<string, number>();
+/** A timed approval never waits longer than this in all, however many replies push it out. */
+const MAX_EXTENDED_MS = 4 * 60_000;
+
+/**
+ * Yoshua is replying ("hang on", "what's the fee again?", a reply PacePay had to ask about): give
+ * him at least `ms` more before the timeout. No-op for an approval that isn't pending or has no timeout.
+ */
+export function extendApproval(ctx: Ctx, approvalId: string, ms: number): void {
+  const a = ctx.store.getItem('approvals', approvalId);
+  if (!a || a.status !== 'pending' || !a.timeoutMs) return;
+  if (!firstExtended.has(approvalId)) firstExtended.set(approvalId, Date.now());
+  const cap = firstExtended.get(approvalId)! + MAX_EXTENDED_MS;
+  const until = Math.min(cap, Math.max(Date.now() + ms, extended.get(approvalId) ?? 0));
+  extended.set(approvalId, until);
+}
+
+/** Milliseconds the approval's timeout was pushed past now (0 when not extended). */
+export function extensionLeft(approvalId: string): number {
+  const until = extended.get(approvalId);
+  if (!until) return 0;
+  const left = until - Date.now();
+  if (left <= 0) extended.delete(approvalId);
+  return Math.max(0, left);
+}
+
 /** Marks a pending approval as timed out (no-op if it was answered first). Returns it either way. */
 export function timeoutApproval(ctx: Ctx, approvalId: string): Approval {
   const a = ctx.store.mustGet('approvals', approvalId);

@@ -9,13 +9,16 @@
  * - The demo clock counts whole days, so the 30-minute reminder runs on real time (a 60 s poll):
  *   30 minutes after an option_choice, call_limits or bill_confirm approval was requested, if
  *   still pending, ctx.enqueue APPROVAL_TIMEOUT { reminder: true }. Once per approval.
- * - A follow-up's atTime is display only; it is sent on the first check with day >= atDay.
+ * - A follow-up's atTime is display only; it is sent on a check on its own day (atDay). One whose
+ *   day has already passed (a clock skip, or held overnight) is cancelled, never sent late.
  * - CD_MATURING fires once per CD (remembered per store state, so a demo reset starts fresh, and
  *   also skipped when a cd_maturing case already exists). SHORTFALL fires once per red spell.
  * - Checks run one at a time (a promise chain), so two quick clock jumps cannot double-fire.
  */
 import {
   HORIZON_DAYS,
+  formatMoney,
+  formatWholeDollars,
   REMINDER_AFTER_DEMO_MINUTES,
   isWeekend,
   type ApprovalKind,
@@ -26,6 +29,42 @@ import type { ToolContext } from '../tools/registry';
 import { sendText, unpromptedHoldReason } from '../messaging/outbox';
 import { currentForecast, currentScores } from '../forecast';
 import { newId } from '../ids';
+
+const REMINDER_BALANCE = /(?:Checking will (?:still )?have|Heads up: checking will be at) (?:−|-)?\$[\d,]+(?:\.\d\d)? after(?:, as long as your paycheck lands first)?\./;
+
+/**
+ * The night-before reminder's "Checking will still have $1,680 after", recomputed from the current
+ * forecast (the payment posts the day after the reminder). Plans change after it is scheduled (a
+ * late paycheck, another bill), so the number is never the stale one. Returns the text to send.
+ */
+export function freshReminderText(ctx: ToolContext, f: Followup): string {
+  if (!f.caseId || !REMINDER_BALANCE.test(f.text)) return f.text;
+  const fc = currentForecast(ctx, { days: Math.max(2, f.atDay + 2 - ctx.clock.today()) });
+  const day = fc.days.find((d) => d.day === f.atDay + 1);
+  if (!day) return f.text;
+  const after = day.intradayLow;
+  const floor = ctx.store.household().rules.checkingFloor;
+  // A paycheck watch still open for that night means the paycheck may not land first: don't promise.
+  const watching = (ctx.store.list('followups') as Followup[]).some((w) => w.status !== 'cancelled' && !w.caseId && /paycheck hasn't landed/.test(w.text) && w.atDay <= f.atDay && (w.status === 'scheduled' || w.atDay === f.atDay));
+  const line =
+    after < floor
+      ? `Heads up: checking will be at ${formatMoney(after)} after.`
+      : watching
+        ? `Checking will have ${formatWholeDollars(after)} after, as long as your paycheck lands first.`
+        : `Checking will still have ${formatWholeDollars(after)} after.`;
+  return f.text.replace(REMINDER_BALANCE, () => line);
+}
+
+/** Rewrites every scheduled reminder's balance after the plan changed (e.g. the paycheck moved). */
+export function refreshReminders(ctx: ToolContext): void {
+  for (const f of ctx.store.list('followups') as Followup[]) {
+    if (f.status !== 'scheduled') continue;
+    const text = freshReminderText(ctx, f);
+    if (text === f.text) continue;
+    ctx.store.patch('followups', f.id, { text });
+    ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: f.caseId, title: 'Updated the night-before reminder for the new forecast', detail: { followupId: f.id, text } });
+  }
+}
 
 export interface Watcher {
   /** Called by POST /api/demo/clock after it emits clock.changed. */
@@ -124,10 +163,18 @@ export function createWatcher(ctx: ToolContext): Watcher {
 
   async function sendFollowups(day: Day): Promise<void> {
     for (const f of ctx.store.dueFollowups(day) as Followup[]) {
+      // Its moment has passed (a clock skip, or a night held for quiet hours/Pause): "comes out
+      // tomorrow" or "it's Thursday night" would be wrong now, so it expires instead of going out.
+      if (f.atDay < day) {
+        ctx.store.patch('followups', f.id, { status: 'cancelled' });
+        ctx.bus.emit({ type: 'step.skipped', model: 'code', caseId: f.caseId, title: `Skipped a stale follow-up (was for day ${f.atDay}${f.atTime ? ` ${f.atTime}` : ''}, today is day ${day})`, detail: { followupId: f.id, text: f.text } });
+        continue;
+      }
       try {
-        const res = await sendText(ctx, f.text, { unprompted: true, caseId: f.caseId });
+        const text = freshReminderText(ctx, f);
+        const res = await sendText(ctx, text, { unprompted: true, caseId: f.caseId });
         if (!res.sent) continue; // quiet hours or paused: stays scheduled, retried on the next check
-        ctx.store.patch('followups', f.id, { status: 'sent', sentAt: ctx.clock.now() });
+        ctx.store.patch('followups', f.id, { status: 'sent', sentAt: ctx.clock.now(), ...(text !== f.text ? { text } : {}) });
         ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: f.caseId, title: `Sent the scheduled follow-up (day ${f.atDay}${f.atTime ? ` ${f.atTime}` : ''})` });
       } catch (err) {
         ctx.bus.emit({ type: 'step.failed', model: 'code', caseId: f.caseId, level: 'error', title: `Follow-up ${f.id} failed: ${(err as Error).message}` });

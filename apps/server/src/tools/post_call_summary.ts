@@ -1,20 +1,15 @@
 /**
  * Tool `post_call_summary` (SPEC §5.6). Implemented by: model-tools.
- * Super writes 2-3 lines from the call's (or, for text mode, the negotiation's) transcript and
- * outcome; sends through ../messaging/outbox.ts; stores summary and referenceNumber on the Call.
- *
- * Facts check (SPEC §5.5): every $ amount and % in Super's text must appear in the facts built
- * from the negotiation. Otherwise it is regenerated once, then the template text is sent.
+ * Every post-call text is written by code from the negotiation's facts (Done text, the honest
+ * changed-terms text, or noDealText); sends through ../messaging/outbox.ts; stores summary and
+ * referenceNumber on the Call. No model writes it: free-form summaries claimed deals that never happened.
  */
-import { TOOLS, doneText, formatDate, formatMoney, termsChangedText, type Call, type Negotiation, type TranscriptLine } from '@pacepay/shared';
-import { confirmedDeal } from '../agent/negotiator';
+import { TOOLS, doneText, formatDate, formatMoney, readDealReply, termsChangedText, termsFromPrompt, termsPhrase, type Call, type Negotiation } from '@pacepay/shared';
+import { HUNG_UP_REASON, confirmedDeal } from '../agent/negotiator';
+import { callEndText, readCallEnd, type CallEndRead } from '../messaging/call-end';
 import { defineTool, type ToolContext } from './registry';
 import { sendText } from '../messaging/outbox';
 import { unsupportedNumbers } from './send_message';
-import { ModelUnavailableError } from '../models';
-
-const SYSTEM = `You write the text message PacePay sends to Yoshua right after a call with a lender. 2 or 3 short plain sentences, no markdown, no emoji, no greeting.
-Say what the lender agreed or refused, in plain words. Use only the facts given. Any dollar amount or percentage you write must be copied exactly from the facts; never compute or invent numbers. Do not mention a reference number (it is added for you).`;
 
 export interface CallFacts {
   lines: string[];
@@ -70,8 +65,118 @@ function dealOffer(n: Negotiation): Negotiation['offers'][number] | undefined {
   return [...n.offers].reverse().find((o) => o.readBackConfirmed && passed.has(o.id)) ?? n.offers.at(-1);
 }
 
-function transcriptText(lines: TranscriptLine[]): string {
-  return lines.slice(-40).map((l) => `${l.speaker}: ${l.text}`).join('\n');
+/** The offer terms PacePay can stand behind naming: the one sent to Yoshua for approval, else one the lender confirmed on read-back. */
+function namedOffer(ctx: ToolContext, neg: Negotiation | undefined): { newDay: number; fee: number } | undefined {
+  if (!neg) return undefined;
+  const asked = ctx.store
+    .list('approvals')
+    .filter((a) => a.kind === 'deal' && a.negotiationId === neg.id)
+    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))
+    .at(-1);
+  if (asked?.newTerms) return asked.newTerms;
+  const confirmed = [...neg.offers].reverse().find((o) => o.readBackConfirmed);
+  if (confirmed) return { newDay: confirmed.newDay, fee: confirmed.fee };
+  return undefined;
+}
+
+/** The lender's last offer heard on the call, when none was sent to Yoshua or read back. */
+function lastOffer(neg: Negotiation | undefined): { newDay: number; fee: number } | undefined {
+  const o = neg?.offers.at(-1);
+  return o ? { newDay: o.newDay, fee: o.fee } : undefined;
+}
+
+/** The lender saying it is making the change now, without confirming it was done. */
+const WILL_PROCESS =
+  /\b(?:i'?ll|i will|i'?m going to|let me) (?:go ahead and |just )?(?:process|make|put through|submit|update|move|reschedule|change) (?:that|this|the|it|your)\b|\b(?:payment|due date) will (?:be )?(?:moved|changed|updated)\b/i;
+
+/**
+ * The honest text after a call that ended without a deal, from facts only:
+ * "Northside held their offer of Fri, Nov 13 for $20 while you decided, but I didn't agree to anything. Nothing changed. Want me to try again?"
+ */
+export function noDealText(ctx: ToolContext, neg: Negotiation | undefined, call: Call, lender: string, itemLabel: string, end: CallEndRead = readCallEnd(call.transcript)): string {
+  const outcome = neg?.outcome ?? call.outcome;
+  const day0 = ctx.store.household().day0Date;
+  const offer = namedOffer(ctx, neg);
+  const terms = offer ? `${formatDate(offer.newDay, day0)} ${offer.fee === 0 ? 'with no fee' : `for ${formatMoney(offer.fee)}`}` : '';
+  const claimed = offer ?? lastOffer(neg);
+  const termsParen = claimed ? `${formatDate(claimed.newDay, day0)} (${claimed.fee === 0 ? 'no fee' : formatMoney(claimed.fee)})` : '';
+  const deals = neg ? ctx.store.list('approvals').filter((a) => a.kind === 'deal' && a.negotiationId === neg.id) : [];
+  const declined = deals.some((a) => a.status === 'declined');
+  const again = 'Want me to try again?';
+  // What the lender said to do next (a form, an app setting, a callback, a deadline) and any reference: never dropped.
+  const steps = end.nextSteps.length ? ` They said ${end.nextSteps.join(', and ')}.` : '';
+  const ref = end.reference ? ` They gave ref ${end.reference}.` : '';
+  // An offer the lender made that passed PacePay's check (never a misheard one), for "they offered X, but...".
+  const passed = new Set((neg?.checks ?? []).filter((c) => c.pass).map((c) => c.offerId));
+  const checked = offer ?? [...(neg?.offers ?? [])].reverse().find((o) => passed.has(o.id));
+  const heard = checked ? `${formatDate(checked.newDay, day0)} ${checked.fee === 0 ? 'with no fee' : `for ${formatMoney(checked.fee)}`}` : undefined;
+  if (outcome === 'handoff_verification') {
+    // "needs to talk to you directly" already says "call them": only a deadline from that note is added.
+    const notes = end.nextSteps.map((x) => (x.startsWith('they want you to call them directly') ? x.replace('they want you to call them directly', '').trim() : x));
+    const callBy = notes.find((x) => /^(?:before|by) /.test(x));
+    const others = notes.filter((x) => x && !/^(?:before|by) /.test(x));
+    const item = neg ? ctx.store.household().scheduled.find((x) => x.id === neg.itemId || x.id === neg.itemId.split(/[@#:]/)[0]) : undefined;
+    const due = item && item.day >= ctx.clock.today() ? formatDate(item.day, day0) : undefined;
+    return (
+      `${lender} needs to talk to you directly before changing anything${callBy ? `, ${callBy}` : ''}, so nothing changed.` +
+      `${others.length ? ` They said ${others.join(', and ')}.` : ''}${ref} Your ${itemLabel} is still due ${due ?? 'as before'}.`
+    ).replace(/\s+/g, ' ');
+  }
+  if (declined) {
+    // He turned it down with a counter ("$15", "not friday"): say what he wanted, not "you passed".
+    const asked = deals.filter((a) => a.status === 'declined').at(-1)!;
+    const t = termsFromPrompt(asked.prompt);
+    const counter = ctx.store
+      .thread()
+      .filter((m) => m.direction === 'in' && m.text && m.at >= asked.requestedAt && (!asked.resolvedAt || m.at <= asked.resolvedAt))
+      .map((m) => readDealReply(m.text!, t))
+      .find((r) => r.kind === 'counter');
+    const offerWords = t ? termsPhrase(t) : terms;
+    if (counter?.fee !== undefined) return `You wanted a lower fee, but ${lender} didn't come down from ${offerWords || 'their offer'}, so I didn't agree to anything. Nothing changed.${ref}${steps}`;
+    if (counter?.day) return `You didn't want ${t?.label ?? 'that day'}, and ${lender} didn't offer another day I could take, so I didn't agree to anything. Nothing changed.${ref}${steps}`;
+    return `You passed on ${lender}'s offer${terms ? ` of ${terms}` : ''}, so I didn't agree to anything. Nothing changed.${ref}`;
+  }
+  // The lender says it already made a change nobody approved: say exactly that, never "nothing changed".
+  // Not when the lender only offered something other than a move (a note, a next-cycle change): that is
+  // never "they already moved it".
+  const policyOnly = /^The lender wouldn't move the due date\./.test(neg?.closeReason ?? '');
+  if (end.kind === 'lender_processed' && !policyOnly) return callEndText({ read: end, lender, itemLabel, terms, termsParen });
+  // He approved, the lender said it would make the change, then the call ended before it confirmed it.
+  // ("I'll go ahead and process that for you now", "your payment will be moved to that date").
+  const lenderWill =
+    end.lenderWill ||
+    (call.transcript ?? []).some((l) => l.speaker === 'counterparty' && WILL_PROCESS.test(l.text));
+  if (lenderWill && deals.some((a) => a.status === 'approved') && outcome !== 'deal' && !neg?.termsChange) {
+    return `You approved ${terms || 'their offer'}, and ${lender} said it would make the change, but the call ended before they confirmed it, so I can't be sure it went through.${ref} Want me to call back to confirm?`;
+  }
+  if (outcome === 'approval_timeout') {
+    // He did reply (a question, a maybe, a counter PacePay had to ask about): never "before you answered".
+    const asked = deals.at(-1);
+    const replied = !!asked && ctx.store.thread().some((m) => m.direction === 'in' && m.at >= asked.requestedAt);
+    const why = replied ? "but I didn't get a clear YES from you before the call ended" : 'but the call ended before you answered';
+    return (
+      terms
+        ? `${lender} offered ${terms}, ${why}, so I didn't agree to it. Nothing changed.${ref}${steps} ${again}`
+        : `The call ended while I was waiting on your answer, so I didn't agree to anything. Nothing changed.${ref}${steps} ${again}`
+    ).replace(/\s+/g, ' ');
+  }
+  const reason = neg?.closeReason?.trim();
+  // A canned reason (hung up, voicemail, closed, dropped): the transcript says how it really ended.
+  const generic = !reason || reason === HUNG_UP_REASON || /\b(?:voicemail|was closed|call dropped)\b/i.test(reason);
+  if (generic && call.transcript?.length && (reason || outcome === 'no_deal' || !outcome)) return callEndText({ read: end, lender, itemLabel, terms, termsParen, heard });
+  // A reason that already names the reference doesn't get it twice.
+  const refOnce = /\bref\b/i.test(reason ?? '') ? '' : ref;
+  if (reason && policyOnly) {
+    // The other option was not taken, so what it would have done ("no late fee until the 13th") is not a next step.
+    const item = neg ? ctx.store.household().scheduled.find((x) => x.id === neg.itemId || x.id === neg.itemId.split(/[@#:]/)[0]) : undefined;
+    const due = item && item.day >= ctx.clock.today() ? ` Your ${itemLabel} is still due ${formatDate(item.day, day0)}.` : '';
+    return `${reason}${due}${refOnce} ${again}`.replace(/\s+/g, ' ');
+  }
+  if (reason) return `${reason}${/nothing (?:changed|was agreed)/i.test(reason) ? '' : ' Nothing changed.'}${refOnce}${steps} ${again}`.replace(/\s+/g, ' ');
+  if (terms) return `${lender} offered ${terms}, but it wasn't settled on the call, so I didn't agree to it. Nothing changed. ${again}`;
+  if ((neg?.offers.length ?? 0) > 0) return `${lender} talked about moving your ${itemLabel}, but nothing was confirmed on the call, so I didn't agree to anything. Nothing changed. ${again}`;
+  if (outcome === 'no_deal') return `${lender} wouldn't move your ${itemLabel}. Nothing changed.`;
+  return `The call with ${lender} ended without a change to your ${itemLabel}. Nothing changed. ${again}`;
 }
 
 export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_call_summary.input, TOOLS.post_call_summary.output, async (input, ctx, scope) => {
@@ -83,8 +188,11 @@ export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_
   const lender = cp?.name ?? 'The lender';
   const itemLabel = (item?.label ?? 'payment').toLowerCase();
   const facts = buildCallFacts(ctx, call, neg, lender, itemLabel);
-  const lines = call.transcript.length ? call.transcript : (neg?.transcript ?? []);
-  const referenceNumber = call.referenceNumber ?? neg?.referenceNumber;
+  const end = readCallEnd(call.transcript);
+  // A reference the lender said in any state (a held offer, a change it says it made) is kept.
+  const rawRef = call.referenceNumber ?? neg?.referenceNumber ?? end.reference;
+  // Spelled out one character at a time ("LS-7-7-3-0-9-1"): written as one token.
+  const referenceNumber = rawRef && /^[A-Z0-9]*(?:-[A-Z0-9]){3,}$/i.test(rawRef) ? rawRef.replace(/-/g, '').toUpperCase() : rawRef;
 
   let text = facts.template;
   const outcome = neg?.outcome ?? call.outcome;
@@ -104,28 +212,11 @@ export const post_call_summaryTool = defineTool('post_call_summary', TOOLS.post_
   } else if (deal) {
     // SPEC §5.5: the Done text is filled by code, not written by a model.
     text = doneText({ itemLabel: item?.label ?? 'payment', toDay: deal.newDay, fee: deal.fee, reference: referenceNumber, day0Date: ctx.store.household().day0Date });
-  } else if (ctx.models.available('orchestrator')) {
-    const user = `FACTS\n${facts.lines.join('\n')}\n\nTRANSCRIPT\n${transcriptText(lines) || '(none)'}`;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await ctx.models.chat({
-          role: 'orchestrator',
-          messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
-          caseId: scope.caseId,
-          stepId: scope.stepId,
-          title: 'Super wrote the call summary',
-        });
-        const candidate = res.text.trim().replace(/\s*\n+\s*/g, ' ');
-        if (candidate && numbersAreGrounded(candidate, facts.allowed)) {
-          text = candidate;
-          break;
-        }
-        ctx.bus.emit({ type: 'tool.result', tool: 'post_call_summary', model: 'nemotron-super', caseId: scope.caseId, stepId: scope.stepId, level: 'warn', title: attempt === 0 ? 'Summary had a number outside the facts; regenerating' : 'Summary still had a number outside the facts; using the template', detail: { candidate } });
-      } catch (err) {
-        if (!(err instanceof ModelUnavailableError)) ctx.bus.emit({ type: 'tool.result', tool: 'post_call_summary', model: 'nemotron-super', caseId: scope.caseId, level: 'warn', title: `Summary model failed (${(err as Error).message}); using the template` });
-        break;
-      }
-    }
+  } else {
+    // No deal: the text is written by code from the facts (outcome, the offer read back or asked
+    // about, the reason), never by a model. A model once wrote "The lender agreed..." after nothing
+    // was agreed, and once sent a one-word text.
+    text = noDealText(ctx, neg, call, lender, itemLabel, end);
   }
   const honest = !deal && tc && tc.status !== 'resolved' && tc.status !== 'yoshua_approved';
   if (referenceNumber && !honest && !text.includes(referenceNumber)) text = `${text} Ref ${referenceNumber}.`;

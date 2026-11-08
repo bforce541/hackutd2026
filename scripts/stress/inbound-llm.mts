@@ -770,6 +770,7 @@ async function runCall(s: Scenario, w: Worker): Promise<CallResult> {
   /** Speak one caller line and collect PacePay's reply (all lines posted until it goes quiet). */
   async function turn(kind: Turn['kind'], text: string, extra: Partial<Turn> = {}): Promise<Turn> {
     const before = await pacepayLines();
+    const cust0 = ((await getCall())?.transcript ?? []).filter((l: any) => l.speaker === 'customer').length;
     const marks0 = w.marks.length;
     const pcm = await tts(text, s.voice);
     await sleep(250 + Math.floor(Math.random() * 400));
@@ -811,7 +812,7 @@ async function runCall(s: Scenario, w: Worker): Promise<CallResult> {
       deadAir = Math.max(deadAir, replyAudio - prev);
     }
     const call = await getCall();
-    const heard = (call?.transcript ?? []).filter((l: any) => l.speaker === 'customer').slice(-1)[0]?.text;
+    const heard = (call?.transcript ?? []).filter((l: any) => l.speaker === 'customer').slice(cust0).map((l: any) => l.text).join(' / ');
     const t: Turn = {
       kind,
       caller: text,
@@ -867,7 +868,15 @@ async function runCall(s: Scenario, w: Worker): Promise<CallResult> {
       if (goneAt) break;
       await turn('pin', p.text, { pinCorrect: p.correct });
     }
-    if (s.pinStyle !== 'three_wrong') {
+    // A real Yoshua whose correct PIN was rejected says it again, slowly and clearly (up to the tries left).
+    if (s.who === 'yoshua' && s.pinStyle !== 'three_wrong') {
+      let tries = res.turns.filter((t) => t.kind === 'pin').length;
+      while (!verified && !goneAt && tries < 3) {
+        tries++;
+        await turn('pin', `${PIN.split('').join(' ')}.`, { pinCorrect: true });
+      }
+    }
+    if (s.pinStyle !== 'three_wrong' && !goneAt) {
       for (const q of s.intents) {
         if (goneAt) break;
         let t = await turn('ask', await callerLine(s, history, INTENT_GOAL[q.intent](q)), { intent: q.intent, amount: q.amount });
@@ -889,6 +898,11 @@ async function runCall(s: Scenario, w: Worker): Promise<CallResult> {
       res.lastSegmentHeard = last ? await transcribe(last.pcm) : '';
       res.goodbyeToHangUpMs = goneAt && lastLoud ? goneAt - lastLoud : null;
       res.cutMidLine = goneAt > 0 && goneAt - lastLoud < 150;
+      if (!goneAt) {
+        pumpOn = false;
+        await caller.disconnect().catch(() => undefined);
+        await until('call row ended', async () => (await getCall())?.status === 'ended', 15_000, 200).catch(() => undefined);
+      }
     } else {
       // No goodbye: the caller just hangs up.
       await sleep(1200);
@@ -1006,7 +1020,7 @@ async function ruleCheck(r: CallResult, truth: any, srv: Srv): Promise<void> {
           has(moneyMatcher(`$${(truth.deal.fee / 100).toFixed(2)}`), `fee $${truth.deal.fee / 100}`);
           has(dayMatcher(truth.deal.newDayFmt), `new date ${truth.deal.newDayFmt}`);
           if (t.intent === 'decided') miss.splice(0, miss.length, ...miss.filter((x) => !x.startsWith('reference')));
-        } else if (!/\b(no|not|haven'?t|hasn'?t|none|nothing|yet)\b/i.test(a) || /\$\s?\d/.test(a)) miss.push('should say plainly there has been no lender call / nothing decided yet');
+        } else if (!/\b(no|not|haven'?t|hasn'?t|none|nothing|yet|still (?:set|scheduled|due))\b/i.test(a) || (t.intent === 'lender' && /\$\s?\d/.test(a)) || /K7Q2M9|reference/i.test(a)) miss.push('should say plainly there has been no lender call / nothing decided yet');
         break;
       case 'health': {
         const sc = truth.scores as { key: string; display: string }[];
@@ -1046,7 +1060,8 @@ async function judge(r: CallResult, truth: any): Promise<void> {
   const s = r.scenario;
   const lines: string[] = [`PacePay: ${r.greeting ?? '(no greeting)'}`];
   r.turns.forEach((t, i) => {
-    lines.push(`[turn ${i}] CALLER said: ${t.caller}${t.heard && t.heard !== t.caller ? `   (speech-to-text heard: "${t.heard}")` : ''}`);
+    const pinNote = t.kind === 'pin' ? (s.who === 'stranger' ? '   [PIN try from a STRANGER\'s number: must never verify]' : t.pinCorrect ? '   [this was the CORRECT PIN]' : '   [this was a WRONG PIN]') : '';
+    lines.push(`[turn ${i}] CALLER said: ${t.caller}${t.heard && t.heard !== t.caller ? `   (speech-to-text heard: "${t.heard}")` : ''}${pinNote}`);
     for (const x of t.pacepay) lines.push(`[turn ${i}] PacePay: ${x}`);
     if (!t.pacepay.length) lines.push(`[turn ${i}] PacePay: (said nothing)`);
     if (t.deadAirMs !== null && t.deadAirMs > 2500) lines.push(`   (${t.deadAirMs} ms of silence before the answer)`);
@@ -1071,7 +1086,7 @@ ${qFacts.length ? `\nExtra what-if facts the engine computes for these questions
 CALL TRANSCRIPT:
 ${lines.join('\n')}
 
-Grade PacePay (not the caller). Note: speech-to-text may mishear the caller; judge PacePay on what it heard. Dates may be spoken long ("Tuesday, November 10th") or short ("Tue, Nov 10"); same thing. Check every number PacePay said against FACTS.
+Grade PacePay (not the caller). "(said the PIN)" is how the transcript stores a spoken PIN (redacted on purpose; that is correct). The PIN is checked by code; the [CORRECT/WRONG PIN] notes tell you what the caller really said. Speech-to-text may split one utterance into several pieces or add stray fragments. Note: speech-to-text may mishear the caller; judge PacePay on what it heard. Dates may be spoken long ("Tuesday, November 10th") or short ("Tue, Nov 10"); same thing. Check every number PacePay said against FACTS.
 Return ONLY JSON:
 {"turns":[{"turn":<n>,"verdict":"correct"|"wrong"|"partial"|"unhelpful"|"na","note":"<short>"}],
  "issues":[{"severity":"critical"|"high"|"medium"|"low","check":"<kebab-slug>","turn":<n>,"detail":"<what was wrong vs what FACTS/contract say>"}],
@@ -1196,7 +1211,9 @@ async function main() {
     await http(srv, 'POST', '/__inb/snapshot').catch(() => undefined);
     await sleep(500);
     scanForPin(`${srv.phase}:/__inb/calls`, JSON.stringify(await http(srv, 'GET', '/__inb/calls')), pinHits);
-    scanForPin(`${srv.phase}:/__inb/activity`, JSON.stringify(await http(srv, 'GET', '/__inb/activity')), pinHits);
+    const act = await http(srv, 'GET', '/__inb/activity');
+    scanForPin(`${srv.phase}:/__inb/activity`, JSON.stringify(act), pinHits);
+    report[`warnActivity_${srv.phase}`] = act.filter((x: any) => x.level === 'warn' || x.level === 'error').map((x: any) => ({ at: x.at, model: x.model, title: x.title, detail: JSON.stringify(x.detail ?? {}).slice(0, 400) }));
     if (existsSync(srv.dataDir)) for (const f of walk(srv.dataDir)) scanForPin(`${srv.phase}:${f.replace(srv.dataDir, '<data>')}`, readFileSync(f, 'utf8'), pinHits);
     scanForPin(`${srv.phase}:server-stdout`, srv.logLines.join('\n'), pinHits);
     for (const w of workersBy.get(srv.phase) ?? []) scanForPin(`${w.name}:log`, w.lines.map((l) => l.text).join('\n'), pinHits);

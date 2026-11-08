@@ -1,12 +1,16 @@
 /**
  * Routes (SPEC §4). Implemented by: arena.
  * Mounted at /api by app.ts. Endpoints this router owns:
- *   GET  /arena (store.arena() or the sample results)
+ *   GET  /arena (store.arena() or the sample results: the full 50-run arena)
+ *   GET  /arena/live (the latest "Run 3 live", kept apart from the full results)
  *   POST /arena/run (agent/arena.ts startArenaRun; live: true runs 3; progress over SSE `arena`)
+ *
+ * A live request while a live run is going answers with that run's id (no error); live and full
+ * runs never block each other, and a live run never touches data/arena.json or store.arena.
  */
 import { Hono } from 'hono';
 import { ArenaRunRequestSchema, type ArenaResponse, type ArenaRunResponse } from '@pacepay/shared';
-import { startArenaRun } from '../agent/arena';
+import { getLiveArena, startArenaRun } from '../agent/arena';
 import type { ServerContext } from '../context';
 import { apiError, parseBody } from './http';
 
@@ -15,17 +19,24 @@ const SAMPLE: ArenaResponse = { runId: 'sample', total: 0, dealRate: 0, limitVio
 
 export function arenaRoutes(ctx: ServerContext): Hono {
   const r = new Hono();
-  let running: string | null = null;
+  const running: { full: string | null; live: string | null } = { full: null, live: null };
 
   r.get('/arena', (c) => c.json((ctx.store.arena() ?? SAMPLE) satisfies ArenaResponse));
 
+  r.get('/arena/live', (c) => c.json(getLiveArena() ?? { runId: null, total: 3, done: 0, finished: true, runs: [], sources: [] }));
+
   r.post('/arena/run', async (c) => {
     const body = await parseBody(c, ArenaRunRequestSchema);
-    if (running) return apiError(c, 409, 'conflict', `Arena run ${running} is still going`);
+    const kind = body.live ? 'live' : 'full';
+    const busy = running[kind];
+    if (busy) {
+      if (kind === 'live') return c.json({ runId: busy } satisfies ArenaRunResponse, 202);
+      return apiError(c, 409, 'conflict', `Arena run ${busy} is still going`);
+    }
     const { runId, done } = startArenaRun(ctx, body);
-    running = runId;
+    running[kind] = runId;
     const release = () => {
-      if (running === runId) running = null;
+      if (running[kind] === runId) running[kind] = null;
     };
     done.then(release, (err: Error) => {
       release();

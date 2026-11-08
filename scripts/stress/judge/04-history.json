@@ -1,0 +1,8 @@
+[
+ {"id":"h-week","cat":"history","kind":"answer","text":"What did you do for me this week?","note":"Fresh: nothing yet. After deal: read the brake quote, called/texted the lender, moved the car payment to Fri Nov 13 for $20. Must not invent actions."},
+ {"id":"h-recap","cat":"history","kind":"answer","text":"Give me a quick recap of everything so far","note":"State-accurate recap, no invented events."},
+ {"id":"h-calls","cat":"history","kind":"answer","text":"Have you called anyone for me?","note":"Fresh/options/limits: no. Offer: talking with the lender now. Deal: yes, Lone Star Auto Finance."},
+ {"id":"h-moved-money","cat":"history","kind":"answer","text":"Did you move any money?","note":"Must say PacePay never moves money. After deal the lender moved a due date, not money."},
+ {"id":"h-last-text","cat":"history","kind":"answer","text":"what was the last thing you sent me","note":"Accurate to the thread; fresh: nothing before this."},
+ {"id":"h-what-changed","cat":"history","kind":"answer","text":"What changed in my forecast since the deal?","note":"After deal: car payment moved to Friday plus $20 fee; Tuesday dip gone. Before: no deal yet."}
+]

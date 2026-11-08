@@ -94,6 +94,123 @@ describe('conductor', () => {
   });
 });
 
+describe('dead air', () => {
+  it('checks in on a quiet line (never the same line twice), then closes neutrally and hangs up', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness(() => ({ say: 'Okay, sure.' }));
+      const hung = vi.fn(async () => undefined);
+      (h.c as unknown as { port: CallPort }).port.hangUp = hung;
+      await (h.c as unknown as { port: CallPort }).port.speak('Hi, greeting.', 'greeting');
+      h.c.onUserState(true);
+      h.c.onUserState(false);
+      h.c.onTranscript('Okay, so what can I do for you?');
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(h.said).toEqual(['Hi, greeting.', 'Okay, sure.']);
+      await vi.advanceTimersByTimeAsync(19_000);
+      expect(h.said.at(-1)).toBe('Hello? Are you still there?');
+      await vi.advanceTimersByTimeAsync(41_000);
+      expect(h.said.slice(2)).toEqual(['Hello? Are you still there?', 'Sorry, are you still on the line?', 'Hi, just checking. Are you still there?']);
+      expect(hung).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(22_000);
+      expect(h.said.at(-1)).toMatch(/I haven't agreed to any change/);
+      expect(hung).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits longer when the lender put PacePay on hold', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness(() => ({ say: 'Sure, take your time.' }));
+      await (h.c as unknown as { port: CallPort }).port.speak('Hi, greeting.', 'greeting');
+      h.c.onUserState(true);
+      h.c.onUserState(false);
+      h.c.onTranscript('One moment, let me transfer you.');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(h.said.length).toBe(2);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(h.said.length).toBe(3);
+      h.c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up after two check-ins when nobody ever answered', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness(() => ({ say: '' }));
+      const hung = vi.fn(async () => undefined);
+      (h.c as unknown as { port: CallPort }).port.hangUp = hung;
+      await (h.c as unknown as { port: CallPort }).port.speak('Hi, greeting.', 'greeting');
+      await vi.advanceTimersByTimeAsync(62_000);
+      expect(h.said).toEqual(['Hi, greeting.', 'Hello? Can you hear me?', 'Hello? Is anyone there?', expect.stringMatching(/Nothing has been changed/)]);
+      expect(hung).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stays in hold mode through hold recordings', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness(() => ({ say: '' }));
+      await (h.c as unknown as { port: CallPort }).port.speak('Hi, greeting.', 'greeting');
+      for (const t of ['Please hold.', 'Your call is important to us. Did you know you can make payments on our app?']) {
+        h.c.onUserState(true);
+        h.c.onUserState(false);
+        h.c.onTranscript(t);
+        await vi.advanceTimersByTimeAsync(5_000);
+      }
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(h.said).toEqual(['Hi, greeting.']);
+      expect(h.utterances).toEqual(['Please hold.']); // the recording never went to decide
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(h.said.at(-1)).toBe("Hi, I'm still on the line whenever you're ready.");
+      h.c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('transfers', () => {
+  it('discloses again to a new person after a hold, once', async () => {
+    const h = harness((u) => ({ say: /hold/i.test(u) ? 'Sure, take your time.' : "We're hoping to move this month's payment to Friday the 13th, with no fee." }));
+    await (h.c as unknown as { port: CallPort }).port.speak("Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed.", 'greeting');
+    for (const t of ['Please hold.', 'Thanks for waiting, how can I help?', 'Sorry, how can I help?']) {
+      h.c.onUserState(true);
+      h.c.onUserState(false);
+      h.c.onTranscript(t);
+      await tick(5);
+    }
+    expect(h.said[2]).toBe(
+      "Hi, I'm PacePay, an AI assistant calling on Yoshua's behalf, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed. We're hoping to move this month's payment to Friday the 13th, with no fee.",
+    );
+    expect(h.said[3]).toBe("We're hoping to move this month's payment to Friday the 13th, with no fee.");
+    h.c.stop();
+  });
+
+  it("completes the server's own re-introduction with the loan ending", async () => {
+    const h = harness((u) => ({
+      say: /moment/i.test(u) ? 'Take your time.' : "I'm PacePay, an AI assistant calling on Yoshua's behalf, with Yoshua's permission. This call is transcribed. We're hoping to move this month's payment to Friday the 13th, with no fee.",
+    }));
+    await (h.c as unknown as { port: CallPort }).port.speak("Hi, I'm PacePay, an AI assistant calling on behalf of Yoshua, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed.", 'greeting');
+    for (const t of ["Let me get you over to collections, one moment.", 'Collections, this is Marcus, who am I speaking with?']) {
+      h.c.onUserState(true);
+      h.c.onUserState(false);
+      h.c.onTranscript(t);
+      await tick(5);
+    }
+    expect(h.said[2]).toBe(
+      "Hi, I'm PacePay, an AI assistant calling on Yoshua's behalf, with Yoshua's permission, about the auto loan ending 4417. This call is transcribed. We're hoping to move this month's payment to Friday the 13th, with no fee.",
+    );
+    h.c.stop();
+  });
+});
+
 describe('lines', () => {
   it('reads the asked-for day from the greeting', () => {
     const lines = targetDayLines("I'm calling to ask if this month's payment can move to Friday, November 13th, with no fee.");

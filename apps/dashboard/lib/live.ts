@@ -31,6 +31,7 @@ import {
   type Account,
   type ActivityEvent,
   type Approval,
+  type DealTerms,
   type ArenaProgress,
   type ArenaResults,
   type Bill,
@@ -278,6 +279,52 @@ function isHeld(raw: Raw): boolean {
 
 const HELD_TEXT = 'No answer from Yoshua, so the lender is holding the offer';
 
+/** The lender changed the terms and PacePay closed without a deal (Negotiation.termsChange + closeReason). */
+function isTermsNoDeal(raw: Raw): boolean {
+  const c = raw.case;
+  const n = raw.negotiation;
+  if (!c || !n || committedMove(c)) return false;
+  return !!n.termsChange && (n.termsChange.status === 'no_deal' || n.outcome === 'no_deal');
+}
+
+/** What moved between two terms, as "was -> now" rows (only the parts that differ). */
+function termsDiff(prev: DealTerms, next: DealTerms | undefined, day0?: string): { label: string; was: string; now: string }[] {
+  if (!next) return [];
+  const rows: { label: string; was: string; now: string }[] = [];
+  if (prev.newDay !== next.newDay) rows.push({ label: 'Payment', was: formatDate(prev.newDay, day0), now: formatDate(next.newDay, day0) });
+  if (prev.fee !== next.fee) rows.push({ label: 'Fee', was: formatMoney(prev.fee), now: formatMoney(next.fee) });
+  return rows;
+}
+
+/** One plain line on what changed: "The lender changed the fee after you approved $20." */
+function termsNote(prev: DealTerms, next: DealTerms | undefined, day0?: string): string {
+  if (!next) return 'The lender changed the terms after you approved.';
+  const dayChanged = prev.newDay !== next.newDay;
+  const feeChanged = prev.fee !== next.fee;
+  if (feeChanged && !dayChanged) return `The lender changed the fee after you approved ${formatMoney(prev.fee)}.`;
+  if (dayChanged && !feeChanged) return `The lender changed the date after you approved ${formatDate(prev.newDay, day0)}.`;
+  return 'The lender changed the date and the fee after you approved.';
+}
+
+function termsChangedView(raw: Raw): PanelView {
+  const n = raw.negotiation!;
+  const tc = n.termsChange!;
+  const day0 = raw.household.day0Date;
+  const prev = tc.previousTerms;
+  const changed = termsDiff(prev, tc.newTerms, day0);
+  return {
+    step: 'held',
+    variant: 'terms_changed',
+    title: 'The lender changed the terms',
+    detail: `${n.closeReason || "The lender changed the terms, so PacePay didn't agree."} Text PacePay if you want it to try again.`,
+    offer: [
+      { label: itemLabel(raw, n.itemId, 'Payment'), value: formatDate(prev.newDay, day0) },
+      { label: 'Fee', value: formatMoney(prev.fee) },
+    ],
+    ...(changed.length > 0 ? { changed } : {}),
+  };
+}
+
 /** The offer being discussed: the pending one, else the latest. */
 function currentOffer(neg: Negotiation | null): Offer | null {
   if (!neg || neg.offers.length === 0) return null;
@@ -399,15 +446,31 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
       const sched = applied.scheduled.find((s) => s.id === item);
       return sched ? (engine.postingDays(applied, sched, raw.day + HORIZON_DAYS)[0] ?? null) : null;
     }, null as number | null);
-    const rows = [
-      { label: 'Payment', before: before === null ? '' : formatDate(before), after: offer ? formatDate(offer.newDay) : '' },
-      { label: 'Fee', before: formatMoney(0), after: formatMoney(offer?.fee ?? 0) },
-      { label: 'Lowest', before: formatMoney(lowestIn(raw.forecast, 14).amount), after: check ? formatMoney(check.lowest.amount) : '' },
-    ];
+    // A fresh approval after the lender changed the terms: "what you approved -> what they now offer".
+    const prevT = deal.previousTerms;
+    const newT = deal.newTerms;
+    const changedApproval = !!prevT && !!newT;
+    const rows = changedApproval
+      ? [
+          ...(prevT.newDay !== newT.newDay ? [{ label: 'Payment', before: formatDate(prevT.newDay), after: formatDate(newT.newDay) }] : []),
+          ...(prevT.fee !== newT.fee || prevT.newDay === newT.newDay ? [{ label: 'Fee', before: formatMoney(prevT.fee), after: formatMoney(newT.fee) }] : []),
+          { label: 'Lowest', before: formatMoney(lowestIn(raw.forecast, 14).amount), after: check ? formatMoney(check.lowest.amount) : '' },
+        ]
+      : [
+          { label: 'Payment', before: before === null ? '' : formatDate(before), after: offer ? formatDate(offer.newDay) : '' },
+          { label: 'Fee', before: formatMoney(0), after: formatMoney(offer?.fee ?? 0) },
+          { label: 'Lowest', before: formatMoney(lowestIn(raw.forecast, 14).amount), after: check ? formatMoney(check.lowest.amount) : '' },
+        ];
     const secondsLeft = deal.timeoutMs
       ? Math.max(0, Math.ceil((Date.parse(deal.requestedAt) + deal.timeoutMs - now) / 1000))
       : undefined;
-    return { step: 'approve', rows, approvalId: deal.id, secondsLeft };
+    return {
+      step: 'approve',
+      rows,
+      approvalId: deal.id,
+      secondsLeft,
+      ...(changedApproval ? { termsChanged: { note: termsNote(prevT, newT, raw.household.day0Date) } } : {}),
+    };
   }
 
   // A bill PacePay is unsure about: asks before it builds options (only while no option is pending).
@@ -470,6 +533,7 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
   // Held: no answer to the deal in time. Nothing changed; the panel says so, and derive() also
   // puts HELD_TEXT on the chart's status line.
   if (isHeld(raw)) return heldView(raw);
+  if (isTermsNoDeal(raw) && (c.state === 'DONE' || c.state === 'SUMMARIZING' || c.state === 'ADVISED')) return termsChangedView(raw);
 
   const inNegotiation: Case['state'][] = ['REVIEWING', 'CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL', 'CONFIRMING', 'TEXT_NEGOTIATION'];
   if (inNegotiation.includes(c.state)) return { step: 'call' };
@@ -490,6 +554,20 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
       ];
       const reference = neg.referenceNumber ?? raw.call?.referenceNumber;
       return { step: 'done', coveredThrough: raw.day + HORIZON_DAYS, results, reference };
+    }
+    // A bill that causes no shortfall: the server said "You're covered" and closed the case, no options, no call.
+    if (!neg && !c.chosenOption && !c.options?.length && c.kind === 'bill' && raw.bill && lowest.amount >= raw.rules.checkingFloor) {
+      const b = raw.bill;
+      const due = b.dueDay === null || b.dueDay <= raw.day ? 'Today' : formatDate(b.dueDay, raw.household.day0Date);
+      return {
+        step: 'done',
+        headline: "You're covered",
+        coveredThrough: raw.day + HORIZON_DAYS,
+        results: [
+          { label: b.merchant, value: `${formatMoney(b.amount)}, ${b.dueDay === null || b.dueDay <= raw.day ? 'due today' : `due ${due}`}` },
+          { label: 'Lowest', value: formatMoney(lowest.amount) },
+        ],
+      };
     }
     if (c.chosenOption && !neg) {
       const opt = c.options?.find((o) => o.id === c.chosenOption);
@@ -855,7 +933,11 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
   }, [baseUrl]);
 
   // A one-second tick, only while a call or an approval countdown is on screen.
-  const ticking = raw?.case ? ['CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL', 'TEXT_NEGOTIATION', 'HOLD_REQUESTED'].includes(raw.case.state) : false;
+  // CONFIRMING covers the fresh approval after the lender changed the terms, so any pending deal approval ticks too.
+  const ticking = raw?.case
+    ? ['CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL', 'CONFIRMING', 'TEXT_NEGOTIATION', 'HOLD_REQUESTED'].includes(raw.case.state) ||
+      (raw.approvals ?? []).some((a) => a.kind === 'deal' && a.status === 'pending')
+    : false;
   useEffect(() => {
     if (!ticking) return;
     const id = setInterval(() => setNow(Date.now()), 1000);

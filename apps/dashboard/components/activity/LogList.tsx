@@ -3,7 +3,28 @@ import type { ActivityEvent, ModelRole } from '@pacepay/shared';
 import { ACTOR_LABELS, formatClockTime } from '@pacepay/shared';
 import { cn } from '@/lib/cn';
 
+function detailOf(e: ActivityEvent): Record<string, unknown> {
+  return e.detail && typeof e.detail === 'object' ? (e.detail as Record<string, unknown>) : {};
+}
+
+/** Inbound-call events in plain words: "Yoshua called in", what he asked, what PacePay answered, how it ended. */
+function present(e: ActivityEvent): { title: string; yoshua?: boolean } {
+  const d = detailOf(e);
+  if (e.type === 'call.answered' && d.direction === 'inbound') {
+    return { title: d.callerKnown === false ? 'Someone called in from an unknown number' : 'Yoshua called in', yoshua: d.callerKnown !== false };
+  }
+  if (e.type === 'call.transcript' && typeof d.speaker === 'string' && typeof d.text === 'string' && /^(customer|pacepay): /.test(e.title)) {
+    const inbound = !String(e.title).startsWith('PacePay said');
+    if (inbound && d.speaker === 'customer') return { title: `Yoshua asked: ${d.text}`, yoshua: true };
+    if (inbound && d.speaker === 'pacepay') return { title: `PacePay answered: ${d.text}` };
+  }
+  if (e.type === 'call.ended' && d.outcome === 'qa') return { title: 'Yoshua\u2019s call ended (questions only, nothing changed)' };
+  if (e.type === 'step.completed' && /^Answered a question on the call/.test(e.title)) return { title: 'Answered a question on the call' };
+  return { title: e.title };
+}
+
 function who(e: ActivityEvent): { label: string; model?: ModelRole | 'yoshua' } {
+  if (present(e).yoshua) return { label: ACTOR_LABELS.yoshua, model: 'yoshua' };
   if (e.model) return { label: ACTOR_LABELS[e.model], model: e.model };
   if (e.type === 'message.in') return { label: ACTOR_LABELS.yoshua, model: 'yoshua' };
   return { label: ACTOR_LABELS.code, model: 'code' };
@@ -35,7 +56,7 @@ function Row({ e, index }: { e: ActivityEvent; index: number }) {
           {w.label}
         </span>
         <span className={cn('min-w-0 flex-[1_1_16rem] leading-snug', e.level === 'error' && 'text-vermilion', e.level === 'warn' && 'text-ochre')}>
-          {e.title}
+          {present(e).title}
         </span>
       </div>
       {hasDetail ? (

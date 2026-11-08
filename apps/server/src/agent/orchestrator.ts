@@ -34,9 +34,11 @@ import {
   cdChoiceReplyText,
   contextItem,
   findDollarAmount,
+  findDueDay,
   formatDate,
   formatDayRelative,
   formatMoney,
+  HORIZON_DAYS,
   formatOneDecimal,
   formatPercent,
   formatWholeDollars,
@@ -78,6 +80,7 @@ import {
   type Plan,
   type PlanStep,
   type StepKind,
+  OPTION_NAMES,
 } from '@pacepay/shared';
 import type { Agent } from './index';
 import { runTool, type ToolContext, type ToolScope } from '../tools/registry';
@@ -86,13 +89,15 @@ import { assertCaseTransition, assertPlaceCallAllowed, caseApprovals, GateError,
 import { HUNG_UP_REASON, approvalOutcome, confirmedDeal, dealChanges, openingLine } from './negotiator';
 import { answerQuestion } from './qa';
 import { parseDay } from '../tools/simulate';
-import { needsBillCheck } from '../tools/read_bill';
+import { needsBillCheck, screenBillPhoto } from '../tools/read_bill';
 import { unsupportedNumbers } from '../tools/send_message';
 import { currentForecast, publishForecast } from '../forecast';
 import { sendText } from '../messaging/outbox';
 import { pendingApproval, timeoutApproval } from '../approvals';
 import { loadPrompt } from '../prompts/load';
 import { newId } from '../ids';
+import { refreshReminders } from './watcher';
+import { lenderSaidProcessed } from '../messaging/call-end';
 import type { ChatMessage } from '../models';
 
 
@@ -244,6 +249,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     const changes = opts.replace ?? [...(c.baseChanges ?? []), ...extra];
     if (changes.length) ctx.store.addAcceptedChanges(changes);
     patchCase(caseId, { baseChanges: [], acceptedChanges: [...(c.acceptedChanges ?? []), ...changes] });
+    if (changes.length) refreshReminders(ctx); // the night-before reminder's balance follows the plan
     publishForecast(ctx, { caseId, title: opts.title ?? 'Updated the forecast' });
   }
 
@@ -366,7 +372,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
   }
 
   const DEFAULT_PICK: Record<OptionId, string> = {
-    move_payment: 'no new debt',
+    move_payment: 'no new debt, no rules broken',
     savings: 'no new debt',
     card: 'keeps your savings',
     cd_payoff_card: 'saves the most',
@@ -433,7 +439,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
       }
       const reason = res.json.pickReason.trim().replace(/[.!]+$/, '').toLowerCase();
       const okReason = reason.length > 0 && reason.length <= 48 && !/[\d$%]/.test(reason);
-      return { ranked, pickReason: okReason ? reason : DEFAULT_PICK[ranked[0]!.id] };
+      // The pick reason is fixed per option so the options text reads the same every time; the model still ranks.
+      void okReason;
+      return { ranked, pickReason: DEFAULT_PICK[ranked[0]!.id] };
     } catch (err) {
       ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, stepId: step?.id, level: 'warn', title: `Ranked the options in code (${(err as Error).message})` });
       return { ranked: fallback, pickReason: DEFAULT_PICK[fallback[0]!.id] };
@@ -500,6 +508,29 @@ export function createRealAgent(ctx: ToolContext): Agent {
     };
   }
 
+  /**
+   * The options text on top of numberedCheck: option 1 carries exactly the fixed pick reason, no
+   * internal ids ("move_payment") or fact keys leak, and the card is never "no new debt".
+   */
+  function optionsCheck(ranked: Option[], firstLine: RegExp, pickReason: string): (text: string) => string | null {
+    const base = numberedCheck(ranked, firstLine);
+    return (text) => {
+      const b = base(text);
+      if (b) return b;
+      if (/\b[a-z]+_[a-z_]+\b/.test(text)) return 'Do not use internal ids or fact names (words with underscores); use plain words.';
+      const lines = text.split('\n').map((l) => l.trim());
+      const first = lines.find((l) => l.startsWith('1.')) ?? '';
+      if (!first.toLowerCase().includes(`my pick: ${pickReason.toLowerCase()}`)) return `Option 1 must end with exactly ". My pick: ${pickReason}".`;
+      if ((text.match(/my pick/gi) ?? []).length !== 1) return 'Say "My pick" once, after option 1 only.';
+      const cardIdx = ranked.findIndex((o) => o.id === 'card');
+      if (cardIdx >= 0) {
+        const cardLine = lines.find((l) => l.startsWith(`${cardIdx + 1}.`)) ?? '';
+        if (/no new debt|no debt/i.test(cardLine)) return 'The card option adds new debt; never call it "no new debt".';
+      }
+      return null;
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Step handlers
   // -------------------------------------------------------------------------
@@ -557,16 +588,48 @@ export function createRealAgent(ctx: ToolContext): Agent {
     const hh = ctx.engine.applyChanges(h(), ctx.store.acceptedChanges());
     let options: Option[];
     if (bill) {
+      // The bill doesn't push checking under his minimum: say so and close, no alarm, no options.
+      // Look far enough to include the bill's due day (a bill due in five weeks is outside the usual 30).
+      const f = currentForecast(ctx, { days: Math.max(HORIZON_DAYS, (bill.dueDay ?? fromDay) - fromDay + 3) });
+      const floor = h().rules.checkingFloor;
+      if (f.lowest.amount >= floor) return coveredPath(c, step, f.lowest, floor);
       options = ctx.engine.buildOptions(hh, { amount: bill.amount, day: Math.max(bill.dueDay ?? fromDay, fromDay), label: bill.merchant }, { fromDay });
     } else {
       // A shortfall with no new bill: card has nothing to charge, so only savings and moving a payment.
       options = ctx.engine.buildOptions(hh, { amount: 0, day: fromDay, label: 'Nothing new' }, { fromDay }).filter((o) => o.id !== 'card');
+    }
+    // Never offer "Use $0 of savings".
+    options = options.filter((o) => o.id !== 'savings' || savingsAmount(o) > 0);
+    if (!options.length) {
+      const f = currentForecast(ctx, { days: HORIZON_DAYS });
+      return coveredPath(c, step, f.lowest, h().rules.checkingFloor);
     }
     const { ranked, pickReason } = await rankOptions(c, step, options);
     patchCase(c.id, { options: ranked });
     pickReasons.set(c.id, pickReason);
     doneStep(getCase(c.id), 'build_options', ranked.map((o, i) => `${i + 1}. ${o.label}`).join(' · '));
     return 'continue';
+  }
+
+  /** "You're covered: lowest $293 on Tue, Nov 10, above your $100 minimum. Nothing to do." Then the case closes. */
+  async function coveredPath(c: Case, step: PlanStep, lowest: Lowest, floor: Cents): Promise<StepResult> {
+    const above = lowest.amount >= floor;
+    const bill = getBill(getCase(c.id));
+    const facts: Facts = { lowest: formatMoney(lowest.amount), lowest_date: formatDate(lowest.day, d0()), floor: formatWholeDollars(floor) };
+    if (bill?.dueDay != null && bill.dueDay > today()) facts.due = formatDate(bill.dueDay, d0());
+    // Covered means the money is there, not that it's paid: say when to pay it.
+    const payLine = facts.due ? ` Just pay it by ${facts.due}.` : ' Fine to pay it now.';
+    const text = above
+      ? `You're covered: with this bill paid, checking's lowest is ${facts.lowest} on ${facts.lowest_date}, above your ${facts.floor} minimum. Nothing else to do.${payLine}`
+      : `Lowest ${facts.lowest} on ${facts.lowest_date}, and I don't have a good fix to offer for it right now.`;
+    doneStep(getCase(c.id), 'build_options', above ? `No shortfall: lowest ${facts.lowest} on ${facts.lowest_date}` : 'No options to offer');
+    const p = getPlan(getCase(c.id));
+    for (const s2 of p?.steps ?? []) if (s2.status === 'pending' || s2.status === 'running') skipStep(getCase(c.id), s2.kind, above ? 'Covered: nothing to do' : 'No options');
+    await sendMessage(getCase(c.id), step, text, facts);
+    if ((getCase(c.id).baseChanges ?? []).length) commit(c.id, [], { title: 'Counted the bill as paid from checking' });
+    moveTo(c.id, 'DONE');
+    ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, planId: c.planId, title: `${getCase(c.id).title}: covered, nothing to do` });
+    return 'wait';
   }
 
   async function stepCdOptions(c: Case, step: PlanStep, accountId: string): Promise<StepResult> {
@@ -616,7 +679,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
       context: context.join(', '),
       ...(bill ? { bill_amount: formatMoney(bill.amount), merchant: bill.merchant } : {}),
       ...optionFacts(ranked),
-      option_order: ranked.map((o, i) => `${i + 1}. ${o.id}`).join(', '),
+      option_order: ranked.map((o, i) => `${i + 1}. ${o.label}`).join(', '),
       pick_reason: pickReason,
       reply: replyPrompt(ranked.length),
     };
@@ -627,7 +690,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
         `Last line: <reply>. Example shape:\n${template}`,
       facts,
       template,
-      validate: numberedCheck(ranked, /^Heads up/i),
+      validate: optionsCheck(ranked, /^Heads up/i, pickReason),
     });
     await requestApproval(c, step, { kind: 'option_choice', prompt: text, choices: ranked.map((_, i) => String(i + 1)), optionIds: ranked.map((o) => o.id) });
     doneStep(getCase(c.id), 'send_options', `Sent ${ranked.length} options; PacePay's pick: ${ranked[0]!.label.toLowerCase()}`);
@@ -654,9 +717,15 @@ export function createRealAgent(ctx: ToolContext): Agent {
       emergency_months_before: formatOneDecimal(t?.emergencyMonthsBefore ?? 0),
       emergency_months_after: formatOneDecimal(t?.emergencyMonthsAfter ?? 0),
       renew_earns: `about ${formatWholeDollars(aboutCents(renew?.tradeoffs.yearlyInterestEarned ?? 0))} a year`,
-      option_order: ranked.map((o, i) => `${i + 1}. ${o.id}`).join(', '),
+      option_order: ranked.map((o, i) => `${i + 1}. ${o.label}`).join(', '),
       reply: `${replyPrompt(ranked.length).replace(/\.$/, '')} and I'll send the steps.`,
     };
+    // The pick reason follows whichever option is ranked first (never the pay-off reason on renew).
+    const cdPick =
+      ranked[0]!.id === 'cd_payoff_card'
+        ? `saves ${facts.yearly_interest_saved}, and your emergency fund goes from ${facts.emergency_months_before} to ${facts.emergency_months_after} months`
+        : DEFAULT_PICK[ranked[0]!.id];
+    facts.pick_reason = cdPick;
     let template: string;
     if (payoff && renew && ranked[0]!.id === 'cd_payoff_card') {
       template = cdAlertText({
@@ -673,18 +742,18 @@ export function createRealAgent(ctx: ToolContext): Agent {
     } else {
       const lines = ranked.map((o, i) =>
         o.id === 'cd_renew'
-          ? `${i + 1}. Renew it: earns ${facts.renew_earns}${i === 0 ? `. My pick: ${pickReasons.get(c.id) ?? DEFAULT_PICK.cd_renew}` : ''}`
-          : `${i + 1}. Pay off your card (${facts.payoff_to_card}) and put ${facts.to_savings} in savings${i === 0 ? `. My pick: ${pickReasons.get(c.id) ?? DEFAULT_PICK.cd_payoff_card}` : ''}`,
+          ? `${i + 1}. Renew it: earns ${facts.renew_earns}${i === 0 ? `. My pick: ${cdPick}` : ''}`
+          : `${i + 1}. Pay off your card (${facts.payoff_to_card}) and put ${facts.to_savings} in savings${i === 0 ? `. My pick: ${cdPick}` : ''}`,
       );
       template = [`Your ${facts.cd_amount} CD matures ${facts.matures_on}.`, ...lines, facts.reply!].join('\n');
     }
     const text = await writeText(c, step, {
       instruction:
-        'Write the CD alert. First line: "Your <cd_amount> CD matures <matures_on>." Then the options in option_order, numbered; option 1 ends with "My pick: " and why in one clause (the yearly saving, and the emergency fund going from <emergency_months_before> to <emergency_months_after> months). ' +
+        'Write the CD alert. First line: "Your <cd_amount> CD matures <matures_on>." Then the options in option_order, numbered; option 1 ends with ". My pick: <pick_reason>" copied exactly, and no other option gets a pick. ' +
         `Last line: <reply>. Example shape:\n${template}`,
       facts,
       template,
-      validate: numberedCheck(ranked, /^Your .*CD matures/i),
+      validate: optionsCheck(ranked, /^Your .*CD matures/i, cdPick),
     });
     await requestApproval(c, step, { kind: 'option_choice', prompt: text, choices: ranked.map((_, i) => String(i + 1)), optionIds: ranked.map((o) => o.id) });
     doneStep(getCase(c.id), 'send_options', `Sent the CD alert; PacePay's pick: ${ranked[0]!.label.toLowerCase()}`);
@@ -908,8 +977,9 @@ export function createRealAgent(ctx: ToolContext): Agent {
     if (getCase(c.id).state !== 'SUMMARIZING') moveTo(c.id, 'SUMMARIZING');
     const neg = c.negotiationId ? ctx.store.getItem('negotiations', c.negotiationId) : undefined;
     const callId = neg?.callId ?? c.callId;
-    // The lender hung up before confirming anything: one honest text, written by code.
-    const hungUp = neg?.outcome === 'no_deal' && neg.closeReason === HUNG_UP_REASON;
+    // The lender hung up before confirming anything: one honest text, written by code. With a call,
+    // post_call_summary reads how it ended (menu, voicemail, a change the lender claims it made, a reference).
+    const hungUp = neg?.outcome === 'no_deal' && neg.closeReason === HUNG_UP_REASON && !callId;
     let sent = false;
     if (hungUp) {
       await sendMessage(c, step, `${HUNG_UP_REASON} Want me to try again?`, {});
@@ -934,8 +1004,12 @@ export function createRealAgent(ctx: ToolContext): Agent {
     }
     doneStep(getCase(c.id), 'post_call_summary', neg?.outcome ? `Outcome: ${neg.outcome.replace('_', ' ')}` : undefined);
     // After a change of terms the summary already says what happened and offers to try again.
-    if (neg?.outcome === 'no_deal' && !neg.termsChange && !hungUp) {
-      const nb = nextBestText(getCase(c.id), neg.closeReason ? 'Meanwhile, you can still cover it another way.' : "The lender wouldn't move it.");
+    // A no-deal or an unanswered hold: the other ways to cover it follow (the summary already said what happened).
+    // A hang-up too: the shortfall is still there, so the other ways to cover it follow.
+    // Not when the lender says it already moved the payment: "cover it another way" would contradict that.
+    const callRow = callId ? ctx.store.getItem('calls', callId) : undefined;
+    if ((neg?.outcome === 'no_deal' || neg?.outcome === 'approval_timeout') && !neg.termsChange && !lenderSaidProcessed(callRow?.transcript ?? neg.transcript)) {
+      const nb = nextBestText(getCase(c.id), neg.closeReason || neg.offers.length || neg.outcome === 'approval_timeout' ? 'Meanwhile, you can still cover it another way.' : "The lender wouldn't move it.");
       await inlineStep(getCase(c.id), 'send_message', 'Text Yoshua the other options', 'code', 'post_call_summary', (s) => sendMessage(getCase(c.id), s, nb.text, nb.facts));
     }
     return 'continue';
@@ -1156,8 +1230,62 @@ export function createRealAgent(ctx: ToolContext): Agent {
     return ctx.store.currentCase();
   }
 
+  /**
+   * A change of mind after the pick ("1", then "actually 2"): honored while nothing irreversible has
+   * happened (no call placed, no follow-up sent). The case goes back to waiting on the pick, with what
+   * the old pick counted taken back out of the forecast. False when it's too late (he gets told).
+   */
+  async function reopenForNewPick(c: Case, e: Extract<AgentEvent, { type: 'CHOICE_REPLY' }>): Promise<boolean> {
+    const a = ctx.store.getItem('approvals', e.approvalId);
+    if (!a || a.kind !== 'option_choice' || a.status !== 'answered' || !c.approvalIds.includes(a.id)) return false;
+    if (Number(a.answer) === e.choice) return false;
+    const followups = ctx.store.list('followups').filter((f) => f.caseId === c.id);
+    const neg = c.negotiationId ? ctx.store.getItem('negotiations', c.negotiationId) : undefined;
+    const called = !!c.callId || !!neg?.transcript?.length;
+    const open = ['PREPARING_CALL', 'AWAITING_LIMITS', 'ADVISED'].includes(c.state) || (c.state === 'DONE' && !neg);
+    if (!open || called || followups.some((f) => f.status === 'sent')) {
+      const was = a.optionIds?.[Number(a.answer) - 1];
+      await sendMessage(c, undefined, `You already picked ${a.answer}${was ? `, ${OPTION_NAMES[was]}` : ''}, and that's under way, so I kept it.`, {}, { unprompted: true });
+      return false;
+    }
+    for (const f of followups) if (f.status === 'scheduled') ctx.store.patch('followups', f.id, { status: 'cancelled' });
+    for (const x of approvalsOf(c)) if (x.status === 'pending') timeoutApproval(ctx, x.id);
+    if (neg && neg.state !== 'closed') ctx.store.patch('negotiations', neg.id, { state: 'closed' });
+    // Take the old pick's counted changes back out of the forecast; a bill goes back to "paid from checking".
+    const mine = [...(c.acceptedChanges ?? [])].map((ch) => JSON.stringify(ch));
+    if (mine.length) {
+      ctx.store.setAcceptedChanges(
+        ctx.store.acceptedChanges().filter((ch) => {
+          const i = mine.indexOf(JSON.stringify(ch));
+          if (i < 0) return true;
+          mine.splice(i, 1);
+          return false;
+        }),
+      );
+    }
+    const bill = getBill(c);
+    patchCase(c.id, { state: 'AWAITING_CHOICE', closedAt: undefined, chosenOption: undefined, negotiationId: undefined, acceptedChanges: [], baseChanges: bill ? [billChangeFor(bill)] : [] });
+    // Steps the old pick skipped (the call branch) are back on; steps it finished stay as history.
+    const p = getPlan(getCase(c.id));
+    if (p) {
+      const from = p.steps.findIndex((s) => s.kind === 'await_choice');
+      ctx.store.patch('plans', p.id, {
+        steps: p.steps.map((s, i) => (i > from && s.status !== 'done' ? { id: s.id, kind: s.kind, title: s.title, model: s.model, status: 'pending' as const } : s)),
+      });
+    }
+    ctx.store.patch('approvals', a.id, { answer: String(e.choice), resolvedAt: ctx.clock.now() });
+    publishForecast(ctx, { caseId: c.id, title: `Yoshua changed his pick to ${e.choice}` });
+    ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, title: `Yoshua changed his pick from ${a.answer} to ${e.choice}` });
+    return true;
+  }
+
   async function onChoice(e: Extract<AgentEvent, { type: 'CHOICE_REPLY' }>): Promise<void> {
-    const c = caseFor(e);
+    let c = caseFor(e);
+    let switched = '';
+    if (c && c.state !== 'AWAITING_CHOICE' && (await reopenForNewPick(c, e))) {
+      c = getCase(c.id);
+      switched = `OK, switched to ${e.choice}, ${OPTION_NAMES[e.optionId]}. `;
+    }
     if (!c || c.state !== 'AWAITING_CHOICE') {
       ctx.bus.emit({ type: 'event.received', model: 'code', level: 'warn', title: `Pick "${e.text}" arrived with no case waiting for one` });
       return;
@@ -1172,7 +1300,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
       const info = cdAccounts.get(c.id);
       const maturesOn = info?.maturesOn ?? h().accounts.find((a) => a.kind === 'cd')?.maturesOn ?? today();
       await inlineStep(getCase(c.id), 'send_message', 'Confirm the pick', 'code', 'await_choice', (s) =>
-        sendMessage(getCase(c.id), s, cdChoiceReplyText({ maturesOn, day0Date: d0() }), {}),
+        sendMessage(getCase(c.id), s, switched + cdChoiceReplyText({ maturesOn, day0Date: d0() }), {}),
       );
       ensureStep(getCase(c.id), 'schedule_followup', 'Text the steps when the CD matures', 'code', 'send_message');
       return advance(c.id);
@@ -1188,7 +1316,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     moveTo(c.id, 'ADVISED');
     if (option) {
       const { text, facts } = howToText(getCase(c.id), option);
-      await inlineStep(getCase(c.id), 'send_message', 'Tell Yoshua how to do it', 'code', 'await_choice', (s) => sendMessage(getCase(c.id), s, text, facts));
+      await inlineStep(getCase(c.id), 'send_message', 'Tell Yoshua how to do it', 'code', 'await_choice', (s) => sendMessage(getCase(c.id), s, switched + text, facts));
       commit(c.id, [], { replace: option.changes, title: `Counted the plan: ${option.label.toLowerCase()}` });
     }
     return advance(c.id);
@@ -1343,6 +1471,13 @@ export function createRealAgent(ctx: ToolContext): Agent {
     if (!['CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL'].includes(c.state)) return;
     const neg = ctx.store.mustGet('negotiations', negId);
     if (neg.state === 'closed') return;
+    if (e.reason === 'ended_without_outcome' && neg.channel !== 'text') {
+      // The phone call ended (hang-up, waited out, max turns) before anything was agreed. Never park
+      // the case on the lender console with Yoshua hearing nothing: close it without a deal and send
+      // the honest text through the post-call summary.
+      ctx.store.patch('negotiations', negId, { state: 'closed', outcome: 'no_deal', pendingOfferId: undefined, closeReason: neg.closeReason ?? HUNG_UP_REASON });
+      return onCallEnded({ id: e.id, at: e.at, type: 'CALL_ENDED', callId: e.callId, negotiationId: negId });
+    }
     moveTo(c.id, 'TEXT_NEGOTIATION');
     const next = ctx.store.patch('negotiations', negId, { channel: 'text' });
     ctx.bus.publish({ event: 'negotiation', data: next });
@@ -1401,12 +1536,23 @@ export function createRealAgent(ctx: ToolContext): Agent {
 
   async function onBillCorrection(e: Extract<AgentEvent, { type: 'BILL_CORRECTION' }>): Promise<void> {
     const c = caseFor(e);
-    if (!c || !['ANALYZING', 'OPTIONS_SENT', 'AWAITING_CHOICE'].includes(c.state)) return;
-    const bill = ctx.store.patch('bills', e.billId, { amount: e.amount, source: 'correction', confirmed: false });
+    if (!c || !['ANALYZING', 'OPTIONS_SENT', 'AWAITING_CHOICE', 'AWAITING_LIMITS'].includes(c.state)) return;
+    const prev = ctx.store.getItem('bills', e.billId);
+    const bill = ctx.store.patch('bills', e.billId, { amount: e.amount, ...(e.dueDay !== undefined ? { dueDay: e.dueDay } : {}), source: 'correction', confirmed: false });
     for (const a of approvalsOf(c)) if (a.status === 'pending') timeoutApproval(ctx, a.id);
+    // Before the call: the limits question (and its planned call) were for the old bill. Back to
+    // the analysis; nothing was dialed (AWAITING_LIMITS is before REVIEWING and CALLING).
+    if (c.state === 'AWAITING_LIMITS') {
+      if (c.negotiationId) {
+        const n = ctx.store.getItem('negotiations', c.negotiationId);
+        if (n && !n.transcript?.length) ctx.store.patch('negotiations', n.id, { state: 'closed' });
+      }
+      patchCase(c.id, { state: 'ANALYZING', negotiationId: undefined });
+    }
     moveTo(c.id, 'ANALYZING');
+    const what = [e.amount !== prev?.amount ? formatMoney(e.amount) : null, e.dueDay !== undefined && e.dueDay !== prev?.dueDay ? `due ${formatDate(e.dueDay, d0())}` : null].filter(Boolean).join(', ') || formatMoney(e.amount);
     patchCase(c.id, { title: caseTitle(bill), baseChanges: [billChangeFor(bill)], options: undefined, chosenOption: undefined });
-    publishForecast(ctx, { caseId: c.id, title: `Corrected the bill to ${formatMoney(e.amount)}` });
+    publishForecast(ctx, { caseId: c.id, title: `Corrected the bill: ${what}` });
     // Re-run from the forecast step.
     const p = getPlan(getCase(c.id))!;
     const from = p.steps.findIndex((s) => s.kind === 'read_bill');
@@ -1414,8 +1560,8 @@ export function createRealAgent(ctx: ToolContext): Agent {
       steps: p.steps.map((s, i) => (i > from ? { id: s.id, kind: s.kind, title: s.title, model: s.model, status: 'pending' as const } : s)),
     });
     const rb = findStep(getCase(c.id), 'read_bill');
-    if (rb) patchStep(getCase(c.id), rb.id, { status: 'done', note: `Corrected by Yoshua to ${formatMoney(e.amount)}` });
-    ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, title: `Yoshua corrected the bill to ${formatMoney(e.amount)}; re-running from the forecast` });
+    if (rb) patchStep(getCase(c.id), rb.id, { status: 'done', note: `Corrected by Yoshua: ${what}` });
+    ctx.bus.emit({ type: 'step.completed', model: 'code', caseId: c.id, title: `Yoshua corrected the bill (${what}); re-running from the forecast` });
     await sendAck(getCase(c.id), rb, bill);
     return advance(c.id);
   }
@@ -1497,8 +1643,20 @@ export function createRealAgent(ctx: ToolContext): Agent {
   function paycheckIntent(text: string): 'what_if' | 'late' | null {
     if (!isPaycheckNews(text)) return null;
     if (HYPOTHETICAL.test(text)) return 'what_if';
-    if (/\?\s*$/.test(text)) return null; // "Is my paycheck late?" is a question for Q&A
+    if (/\?\s*$/.test(text) && !isLateStatementWithAsk(text)) return null; // "Is my paycheck late?" is a question for Q&A
     return 'late';
+  }
+
+  /**
+   * "my paycheck is delayed till monday, can you help?": a report with a request tacked on, not a
+   * question. Strip the trailing ask; what's left must still be the news and not start like a question.
+   */
+  function isLateStatementWithAsk(text: string): boolean {
+    const ASK = /(?:^|[\s,.;:!-]+)(?:(?:so|and|but)\s+)?(?:(?:can|could|would|will) (?:you|u)\b[^?]*|(?:what|wat) (?:should|do|can|now)\b[^?]*|what now|any (?:ideas|advice|tips)|help(?: me)?(?: out)?|thoughts|ideas|now what|what do you think|is that (?:bad|ok|okay|a problem)|am i (?:ok|okay|good|screwed|fine))\s*\?+\s*$/i;
+    const rest = text.replace(ASK, '').trim();
+    if (!rest || rest === text.trim()) return false;
+    if (/^(?:is|will|does|did|when|has|have|was|are|am|do|would|could|should|what|how|why)\b/i.test(rest)) return false;
+    return isPaycheckNews(rest);
   }
 
   /** A text with no case behind it (the what-if, the watch replies), through send_message's facts check. */
@@ -1519,22 +1677,31 @@ export function createRealAgent(ctx: ToolContext): Agent {
       ctx.store.patch('followups', f.id, { status: 'cancelled' });
       ctx.bus.emit({ type: 'step.completed', model: 'code', title: `Stopped watching for the paycheck (${why})` });
     }
+    refreshReminders(ctx);
   }
 
   async function onPaycheckWhatIf(text: string): Promise<boolean> {
     const s = paycheckScenario(text);
     if (!s) return false;
     const floor = h().rules.checkingFloor;
-    const watch = !!s.hit && s.payDay >= today();
+    const open = pendingApproval(ctx);
+    const watch = !!s.hit && s.payDay >= today() && !open;
     ctx.bus.emit({
       type: 'step.completed',
       model: 'engine',
       title: `What-if: paycheck lands ${formatDate(s.lateDay, d0())} instead of ${formatDate(s.payDay, d0())}${s.hit ? `; checking ${formatMoney(s.hit.amount)} on ${formatDate(s.hit.day, d0())}` : '; checking stays above the minimum'}`,
       detail: { change: s.change, hit: s.hit, lowest: s.f.lowest },
     });
-    const text2 = paycheckWhatIfText({ payDay: s.payDay, lateDay: s.lateDay, hit: s.hit, cause: s.cause, negative: (s.hit?.amount ?? 0) < 0, checkingFloor: floor, lowest: s.f.lowest, staysNegative: s.staysNegative, watch, day0Date: d0() });
+    let text2 = paycheckWhatIfText({ payDay: s.payDay, lateDay: s.lateDay, hit: s.hit, cause: s.cause, negative: (s.hit?.amount ?? 0) < 0, checkingFloor: floor, lowest: s.f.lowest, staysNegative: s.staysNegative, watch, day0Date: d0() });
+    // The first dip may not be the bottom ("−$300 Tue" but "−$520 Mon"): say the lowest too.
+    if (s.hit && s.f.lowest.amount < s.hit.amount && s.f.lowest.day !== s.hit.day) {
+      const at = text2.search(/ I'll watch for it/);
+      const low = ` The lowest it gets is ${formatMoney(s.f.lowest.amount)} on ${formatDate(s.f.lowest.day, d0())}.`;
+      text2 = at >= 0 ? `${text2.slice(0, at)}${low}${text2.slice(at)}` : `${text2}${low}`;
+    }
     await sendCaseless(text2, { hit: s.hit ? formatMoney(s.hit.amount) : '', floor: formatWholeDollars(floor), lowest: formatMoney(s.f.lowest.amount) });
     if (watch && s.hit) startPaycheckWatch(s, s.hit);
+    if (open) await sendText(ctx, reaskText(open.kind, open.optionIds?.length ?? open.choices.length, open.prompt), { caseId: open.caseId });
     return true;
   }
 
@@ -1543,6 +1710,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     cancelPaycheckWatch('replaced by a new watch');
     const f = ctx.store.put('followups', { id: newId('fu'), atDay: s.payDay, atTime: '20:00', text: paycheckWatchText({ hit, payDay: s.payDay, day0Date: d0() }), status: 'scheduled' });
     paycheckWatch = { followupId: f.id, awaitingReply: true };
+    refreshReminders(ctx);
     ctx.bus.emit({ type: 'step.completed', model: 'code', title: `Watching for the paycheck: a text ${formatDate(s.payDay, d0())}, 8:00 PM, unless he says no`, detail: { followupId: f.id } });
   }
 
@@ -1605,6 +1773,7 @@ export function createRealAgent(ctx: ToolContext): Agent {
     await sendCaseless(paycheckLateAckText({ payDay: s.payDay, lateDay: s.lateDay, day0Date: d0() }), {});
     ctx.store.addAcceptedChanges([s.change]);
     publishForecast(ctx, { title: `Moved the paycheck to ${formatDate(s.lateDay, d0())}: Yoshua says it's late` });
+    refreshReminders(ctx);
     if (!s.hit) {
       const floor = formatWholeDollars(h().rules.checkingFloor);
       await sendCaseless(`Checking stays above your ${floor} minimum, so there's nothing to fix.`, { floor });
@@ -1619,22 +1788,68 @@ export function createRealAgent(ctx: ToolContext): Agent {
     return true;
   }
 
+  /** After a photo PacePay couldn't read: a due day he typed before the amount ("it's due friday"). */
+  const typedDue = new Map<string, Day>();
+
+  /**
+   * His reply to "I couldn't read that photo. Can you text me the amount and when it's due?": "650, due
+   * friday", "$650 on the 13th", "it's due tomorrow" (then the amount). Questions are not replies.
+   */
+  function typedBill(text: string): { amount: Cents | null; dueDay: Day | null } {
+    if (/\?/.test(text) || /^\s*(?:what|whats|what's|why|how|when|where|who|which|can|could|should|is|are|do|does|did)\b/i.test(text)) return { amount: null, dueDay: null };
+    let amount = findDollarAmount(text);
+    if (amount === null) {
+      // A bare number counts once dates are taken out ("650 due nov 13", "it's 650").
+      const left = text
+        .toLowerCase()
+        .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}(?:st|nd|rd|th)?\b/g, ' ')
+        .replace(/\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, ' ');
+      const m = /\b(\d{1,3}(?:,\d{3})+|\d{1,6})(?:\.(\d{1,2}))?\b/.exec(left);
+      if (m) amount = Number(m[1]!.replace(/,/g, '')) * 100 + (m[2] ? Number(m[2].padEnd(2, '0')) : 0);
+      if (amount !== null && amount < 100) amount = null;
+    }
+    const dueDay = findDueDay(text, today(), d0());
+    return { amount, dueDay };
+  }
+
   async function onText(e: Extract<AgentEvent, { type: 'TEXT' }>): Promise<void> {
-    // A typed amount after a photo PacePay couldn't read becomes the bill.
+    // A typed amount (and due day) after a photo PacePay couldn't read becomes the bill.
     const c = ctx.store.currentCase();
-    const amount = findDollarAmount(e.text);
-    if (c && c.kind === 'bill' && c.state === 'ANALYZING' && !c.billId && amount !== null) {
-      const bill: Bill = { id: newId('bill'), caseId: c.id, merchant: 'your bill', amount, dueDay: today(), description: e.text, confidence: 1, confirmed: false, source: 'typed' };
+    const awaitingTyped = !!c && c.kind === 'bill' && c.state === 'ANALYZING' && !c.billId;
+    const typed = awaitingTyped ? typedBill(e.text) : { amount: null, dueDay: null };
+    if (c && awaitingTyped && typed.amount === null && typed.dueDay !== null) {
+      typedDue.set(c.id, typed.dueDay);
+      const rb = findStep(getCase(c.id), 'read_bill');
+      if (rb) patchStep(getCase(c.id), rb.id, { note: `Yoshua typed the due day: ${formatDate(typed.dueDay, d0())}` });
+      await sendText(ctx, `Got it, due ${formatDayRelative(typed.dueDay, today(), d0())}. How much is the bill?`, { caseId: c.id });
+      return;
+    }
+    const amount = typed.amount;
+    if (c && awaitingTyped && amount !== null) {
+      const dueDay = typed.dueDay ?? typedDue.get(c.id) ?? today();
+      typedDue.delete(c.id);
+      const bill: Bill = { id: newId('bill'), caseId: c.id, merchant: 'your bill', amount, dueDay, description: e.text, confidence: 1, confirmed: false, source: 'typed' };
       ctx.store.put('bills', bill);
       patchCase(c.id, { billId: bill.id, title: caseTitle(bill), baseChanges: [billChangeFor(bill)] });
       publishForecast(ctx, { caseId: c.id });
       const rb = findStep(getCase(c.id), 'read_bill');
-      if (rb) patchStep(getCase(c.id), rb.id, { status: 'done', note: `Yoshua typed ${formatMoney(amount)}` });
+      if (rb) patchStep(getCase(c.id), rb.id, { status: 'done', note: `Yoshua typed ${formatMoney(amount)}, due ${formatDate(dueDay, d0())}` });
       await sendAck(getCase(c.id), rb, bill);
       return advance(c.id);
     }
 
     if (await onPaycheckWatchReply(e.text)) return;
+    // His answer to the payday-night "your paycheck hasn't landed yet... Text me when it's coming":
+    // "employer said it's coming Monday" is the late-paycheck news, even without the word paycheck.
+    const lastOut = ctx.store.thread().filter((m) => m.direction === 'out' && m.text).at(-1)?.text ?? '';
+    if (
+      /paycheck hasn't landed/.test(lastOut) &&
+      !/\?\s*$/.test(e.text) &&
+      /\b(?:coming|comes|come in|lands?|landing|late|delayed|arrives?|arriving|hits?|deposit\w*|mon|monday|tues?|tuesday|wed|wednesday|thu|thursday|fri|friday|next week|tomorrow)\b/i.test(e.text) &&
+      (await onPaycheckLate(`my paycheck is late, ${e.text}`))
+    ) {
+      return;
+    }
     const intent = paycheckIntent(e.text);
     if (intent === 'what_if' && (await onPaycheckWhatIf(e.text))) return;
     if (intent === 'late' && (await onPaycheckLate(e.text))) return;
@@ -1659,6 +1874,15 @@ export function createRealAgent(ctx: ToolContext): Agent {
     ctx.bus.emit({ type: 'event.received', model: 'code', caseId: 'caseId' in event ? event.caseId : undefined, title: `Received ${event.type}`, detail: event });
     switch (event.type) {
       case 'BILL_PHOTO': {
+        // Any photo can arrive (a judge may text a selfie): read it before a case opens. Not a
+        // bill, already paid, or two bills at once: one short reply, no case, nothing moves, and
+        // an open case keeps its pending approvals. The read is reused by the read_bill step.
+        const screen = await screenBillPhoto(ctx, event.mediaId);
+        if (screen.reply) {
+          ctx.bus.emit({ type: 'step.completed', model: 'code', title: `The photo is not a bill to check (${screen.kind}); replied without opening a case` });
+          await sendText(ctx, screen.reply, {});
+          return;
+        }
         const c = await openCase(event, 'bill', 'A new bill');
         return advance(c.id, { mediaId: event.mediaId });
       }

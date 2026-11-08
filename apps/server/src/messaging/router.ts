@@ -58,12 +58,17 @@ import { fileURLToPath } from 'node:url';
 import {
   confirmTermsText,
   dealConditionText,
+  dealCounterText,
+  dealYesNoteText,
+  readDealReply,
   feeLimitChangeText,
   feeLimitKeptText,
+  findBillCorrection,
   formatMoney,
   hasNoWord,
   hasYesWord,
   isClearYes,
+  isMoneyQuestion,
   isPaycheckNews,
   isPleasantry,
   limitsLockedText,
@@ -74,8 +79,11 @@ import {
   reaskText,
   refusalText,
   replySignals,
+  screenAsk,
+  screenReplyText,
   termsFromPrompt,
   termsPhrase,
+  waitText,
   type AgentEvent,
   type Approval,
   type ApprovalKind,
@@ -87,10 +95,10 @@ import {
 } from '@pacepay/shared';
 import type { ToolContext } from '../tools/registry';
 import type { Store } from '../store';
-import { ApprovalStateError, pendingApproval, resolveApproval } from '../approvals';
+import { ApprovalStateError, extendApproval, pendingApproval, resolveApproval } from '../approvals';
 import { recordInbound, sendText } from './outbox';
 import { newId } from '../ids';
-import { holdVerdict, proposeReply, validateProposal, CHOICE_CONFIDENCE, type Verdict } from './classify';
+import { holdVerdict, namesAnOption, proposeReply, validateProposal, CHOICE_CONFIDENCE, type Verdict } from './classify';
 
 export interface IncomingFromYoshua {
   text?: string;
@@ -116,6 +124,8 @@ const REPLY_BURST_MS = Number(process.env.PACEPAY_REPLY_BURST_MS ?? 1800);
 const REPLY_BURST_MAX_MS = 4500;
 /** A yes this soon after a re-sent deal approval (the lender changed terms) may have been meant for the old one. */
 const REAPPROVAL_GRACE_MS = 20_000;
+/** Once he replies to a deal approval, he gets at least this long to finish answering before it times out. */
+const DEAL_REPLY_GRACE_MS = 45_000;
 /** A late reply this long after the last approval closed still gets an honest "that one closed" text. */
 const LATE_WINDOW_MS = 2 * 60 * 60_000;
 /** A repeat yes this soon after the approval it answered needs no reply. */
@@ -217,16 +227,39 @@ export async function routeIncoming(ctx: ToolContext, msg: IncomingFromYoshua): 
 
   const message = recordInbound(ctx, { text, channel: msg.channel, at });
   const part: Part = { text, at, channel: msg.channel, messageId: message.id };
+  // He's answering the lender's offer: never let the timeout race his reply (the burst, a question, a "hang on").
+  if (pendingYesNo?.kind === 'deal') extendApproval(ctx, pendingYesNo.id, DEAL_REPLY_GRACE_MS);
 
   // Not about the pending approval at all: news that the paycheck is late (the orchestrator's paycheck
   // path), or a reply to "...if it hasn't landed. Reply NO to skip." when that was PacePay's last
   // question (an option's number or name still picks it).
-  if (!named && (isPaycheckNews(text) || (lastAskWasPaycheckWatch(store) && parsed.kind !== 'choice' && parsed.kind !== 'correction'))) {
+  // (A jailbreak or an off-limits ask is never news or a watch reply: it gets its fixed line below.)
+  if (!named && !screenAsk(text) && (isPaycheckNews(text) || (lastAskWasPaycheckWatch(store) && parsed.kind !== 'choice' && parsed.kind !== 'correction'))) {
     return emit(ctx, { id: newId('evt'), at, type: 'TEXT', text, channel: msg.channel, messageId: message.id });
   }
 
   if (parsed.kind === 'correction' && bill && case_) {
+    dropBurst(store);
     return emit(ctx, { id: newId('evt'), at, type: 'BILL_CORRECTION', caseId: case_.id, billId: bill.id, amount: parsed.amount, text });
+  }
+  // A correction while the options or the call's limits are still open ("1" then "wait its $700",
+  // "its not due today, i can pay next friday"): the analysis re-runs on the corrected bill before
+  // anything else happens, and a pick still waiting in the burst is dropped (it was for the old bill).
+  if (!named && bill && case_ && PRE_CALL_STATES.has(case_.state)) {
+    const fix = findBillCorrection(text, { billAmount: bill.amount, billDueDay: bill.dueDay, today: ctx.clock.today(), day0Date: store.household().day0Date });
+    if (fix) {
+      dropBurst(store);
+      return emit(ctx, {
+        id: newId('evt'),
+        at,
+        type: 'BILL_CORRECTION',
+        caseId: case_.id,
+        billId: bill.id,
+        amount: fix.amount ?? bill.amount,
+        ...(fix.dueDay !== undefined ? { dueDay: fix.dueDay } : {}),
+        text,
+      });
+    }
   }
 
   // Any other reply while the bill is unconfirmed confirms it, unless it leaves an open bill check unanswered.
@@ -246,6 +279,19 @@ export async function routeIncoming(ctx: ToolContext, msg: IncomingFromYoshua): 
   }
   if (waiting) return routeReplies(ctx, [part]);
   return routeIdle(ctx, part, parsed);
+}
+
+const CHITCHAT = /^(?:hey|hi|hello|yo|sup|hiya|howdy|hey there|hi there|good (?:morning|afternoon|evening)|hola|thanks|thank you|thank u|thx|ty|tysm|appreciate it|lol|haha|cool|nice)(?: pacepay| so much| a lot)?$/;
+
+/** Cases whose bill can still be corrected: nothing has been called or advised yet. */
+const PRE_CALL_STATES = new Set(['ANALYZING', 'OPTIONS_SENT', 'AWAITING_CHOICE', 'AWAITING_LIMITS']);
+
+/** Forgets replies still waiting in a burst (a correction makes them stale). */
+function dropBurst(store: Store): void {
+  const b = bursts.get(store);
+  if (!b) return;
+  clearTimeout(b.timer);
+  bursts.delete(store);
 }
 
 /** Adds a reply to the burst; the burst is acted on after REPLY_BURST_MS of quiet. */
@@ -301,7 +347,7 @@ async function routeReplies(ctx: ToolContext, parts: Part[]): Promise<AgentEvent
   if (meaningful.some((p) => replySignals(p.text).question)) return emitText(ctx, joined);
   // Ends in "wait" / "hold on": nothing yet.
   const lastRead = read[read.length - 1]!.r;
-  if (lastRead.kind === 'wait') return hold(ctx, waiting, verdictFor(waiting, 'wait'), joined, 'burst ends in a wait');
+  if (lastRead.kind === 'wait') return hold(ctx, waiting, verdictFor(waiting, 'wait', ctx), joined, 'burst ends in a wait');
   // "1", "wait", "2" / "2, actually 3": the last pick, after a change of mind, is the pick.
   if (waiting.kind === 'option_choice' && lastRead.kind === 'choice') {
     const changedMind = read.some((x, i) => (i < read.length - 1 && (x.r.kind === 'wait' || x.r.kind === 'no')) || /\b(?:actually|wait|nvm|nevermind|sorry|no|instead|change|scratch|make (?:it|that))\b/.test(normalizeReply(x.p.text)));
@@ -338,9 +384,53 @@ async function decide(ctx: ToolContext, waiting: Approval, part: Part, parsed: P
     }
   }
 
+  // The lender's offer, with extras around the answer: a yes with chatter, an SSN or an injected
+  // instruction is still his yes to exactly these terms; a limit at or above the fee is a yes; a lower
+  // fee or "not friday" turns the offer down so the negotiator can ask the lender for better.
+  // (A money question with an amount in it, "what if I spend $5,000?", is not about the offer.)
+  const aboutOffer = /\b(?:fee|fees|charge|cheaper|lower|less|discount|waive\w*|deal|offer|counter|they|them|lender|how about|what about|instead|day|date|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\w*\b/i.test(text);
+  if (waiting.kind === 'deal' && parsed.kind !== 'no' && !(isMoneyQuestion(text) && !aboutOffer)) {
+    const r = readDealReply(text, terms);
+    if (r.kind === 'yes' && !(parsed.kind === 'yes' && !r.pii && !r.injection && !r.viaLimit)) {
+      const stale = staleDealYes(ctx, waiting, part);
+      if (stale) return note('yes may be for the earlier offer', { act: 'ask', text: stale });
+      const ev = answerYesNo(ctx, waiting, 'yes', part);
+      const extra = dealYesNoteText(r, terms);
+      if (ev && extra) await sendText(ctx, extra, { caseId: waiting.caseId });
+      ctx.bus.emit({ type: 'tool.result', model: 'code', caseId: waiting.caseId, title: `Read "${text.slice(0, 40)}" as a yes to the offer${r.viaLimit ? ' (a limit above its fee)' : ' (extras ignored)'}` });
+      return ev;
+    }
+    // "yes $20 is fine" after the lender changed $20 to $35: that may be his answer to the earlier offer,
+    // so it's asked about below, not taken as a counter.
+    const earlierFee = r.kind === 'counter' && r.fee !== undefined && ctx.store
+      .list('approvals')
+      .some((a) => a.kind === 'deal' && a.id !== waiting.id && a.negotiationId === waiting.negotiationId && termsFromPrompt(a.prompt)?.fee === r.fee);
+    if (r.kind === 'counter' && !earlierFee) {
+      const ev = answerYesNo(ctx, waiting, 'no', part);
+      if (ev) await sendText(ctx, dealCounterText(r, terms), { caseId: waiting.caseId });
+      ctx.bus.emit({ type: 'tool.result', model: 'code', caseId: waiting.caseId, title: `Read "${text.slice(0, 40)}" as turning the offer down (${r.day ? 'another day' : 'a lower fee'})` });
+      return ev;
+    }
+  }
+
+  // Jailbreaks, outlandish asks, PII, other people's data, off-topic: the fixed short line, then the open
+  // question again. Nothing is answered. (An option's own words, "pay it from savings", still pick it.)
+  const screened = parsed.kind === 'choice' || parsed.kind === 'yes' || parsed.kind === 'no' ? null : screenAsk(text);
+  const optionWords = /\b(?:savings|saving|card|credit)\b/i.test(text) && !/\b(?:roth|ira|401k|retirement|brokerage)\b|\d/i.test(text);
+  if (screened && !(screened === 'move_money' && waiting.kind === 'option_choice' && optionWords)) {
+    return note(`screened: ${screened}`, { act: 'ask', text: `${screenReplyText(screened, { text })} ${reask()}` });
+  }
   // Instructions aimed at PacePay itself: a plain refusal, then the open question again.
   if (sig.injection || sig.standing) return note('instructions to PacePay', { act: 'ask', text: `${refusalText(sig.injection ? 'injection' : 'standing')} ${reask()}` });
-  if (sig.moveMoney && waiting.kind !== 'option_choice') return note('asked PacePay to move money', { act: 'ask', text: `${refusalText('moveMoney')} ${reask()}` });
+  if (sig.moveMoney && !sig.question && waiting.kind !== 'option_choice') return note('asked PacePay to move money', { act: 'ask', text: `${refusalText('moveMoney')} ${reask()}` });
+  // A question about his money ("wen paycheck", "lol ok whatever. whats my savings", "can i afford $900?"):
+  // Q&A answers it, then the open question is asked again. It never answers the approval.
+  // (A real question may carry "if" or "instead": "what if I put $400 on the card instead?".)
+  if (parsed.kind === 'text' && sig.feeCap === null && isMoneyQuestion(text) && (text.split(/\s+/).length > 12 || (!sig.mixed && (!sig.condition || sig.question)))) {
+    return act(ctx, waiting, { act: 'text' }, part, 'a money question');
+  }
+  // "hey", "thanks!!", "???", "💰❓": small talk. Q&A answers it in a line, then the question is asked again.
+  if (parsed.kind === 'text' && (CHITCHAT.test(normalizeReply(text)) || !normalizeReply(text))) return act(ctx, waiting, { act: 'text' }, part, 'small talk');
 
   if (waiting.kind === 'option_choice') return decideChoice(ctx, waiting, part, parsed, asked);
 
@@ -352,7 +442,7 @@ async function decide(ctx: ToolContext, waiting: Approval, part: Part, parsed: P
     return answerYesNo(ctx, waiting, 'yes', part);
   }
   if (parsed.kind === 'no') return answerYesNo(ctx, waiting, 'no', part);
-  if (parsed.kind === 'wait' || parsed.kind === 'defer') return note(`parser: ${parsed.kind}`, verdictFor(waiting, parsed.kind));
+  if (parsed.kind === 'wait' || parsed.kind === 'defer') return note(`parser: ${parsed.kind}`, verdictFor(waiting, parsed.kind, ctx));
 
   if (moneyMoving && !sig.question) {
     // "Go up to $50" / "only if it's under $15" / "yes but no fee" before the call: a new limit needs its own YES.
@@ -369,8 +459,18 @@ async function decide(ctx: ToolContext, waiting: Approval, part: Part, parsed: P
     }
     if (sig.mixed) return note('a yes and a no', { act: 'ask', text: mixedAnswerText(waiting.kind, { terms }) });
     if (sig.hedged) return note('hedged', { act: 'ask', text: confirmTermsText(waiting.kind as 'deal' | 'call_limits', terms) });
+    // "yes, then text me right after" / "ok go ahead, let me know how it goes": a clear yes with harmless words around it.
+    if (isClearYes(text, terms) && !namesAnOption(text, waiting.kind as 'deal' | 'call_limits')) {
+      const stale = staleDealYes(ctx, waiting, part);
+      if (stale) return note('yes may be for the earlier offer', { act: 'ask', text: stale });
+      return answerYesNo(ctx, waiting, 'yes', part);
+    }
   }
 
+  // "maybe? idk" / "hmm i guess?": a shrug, not a question for Q&A. Ask for a clear answer, with the terms.
+  if (moneyMoving && sig.hedged && !/^\s*(?:what|whats|why|how|when|where|who|which|is|are|does|did|can|could|will|would|should|do)\b/i.test(text)) {
+    return note('hedged', { act: 'ask', text: confirmTermsText(waiting.kind as 'deal' | 'call_limits', terms) });
+  }
   // A plain side question ("will this hurt my credit", "what's the fee?"): Q&A answers it, then the question is asked again.
   if (sig.question && !sig.condition && sig.feeCap === null && !hasYesWord(text) && !hasNoWord(text)) return act(ctx, waiting, { act: 'text' }, part, 'a side question');
 
@@ -405,7 +505,7 @@ async function decideChoice(ctx: ToolContext, waiting: Approval, part: Part, par
     }
     if (parsed.kind === 'no') return hold(ctx, waiting, verdictFor(waiting, 'no'), part, 'parser: no to the list');
   }
-  if (parsed.kind === 'wait' || parsed.kind === 'defer') return hold(ctx, waiting, verdictFor(waiting, parsed.kind), part, `parser: ${parsed.kind}`);
+  if (parsed.kind === 'wait' || parsed.kind === 'defer') return hold(ctx, waiting, verdictFor(waiting, parsed.kind, ctx), part, `parser: ${parsed.kind}`);
   // "no, go ahead" / "yeah no": a yes and a no, so ask which option rather than guess.
   if (replySignals(part.text).mixed) return hold(ctx, waiting, { act: 'ask', text: mixedAnswerText('option_choice', { count: waiting.optionIds?.length }) }, part, 'a yes and a no');
   const lastText = store.thread().filter((m) => m.direction === 'out' && m.text).at(-1)?.text;
@@ -428,25 +528,74 @@ async function routeIdle(ctx: ToolContext, part: Part, parsed: ParsedReply): Pro
   const { store } = ctx;
   const sig = replySignals(part.text);
   const c = store.currentCase();
-  const say = async (text: string, how: string): Promise<null> => {
+  const screened = parsed.kind === 'choice' ? null : screenAsk(part.text);
+  const say = async (text: string, how: string, again?: string): Promise<null> => {
     ctx.bus.emit({ type: 'tool.result', model: 'code', caseId: c?.id, title: `Read "${part.text.slice(0, 40)}" as ${how}` });
-    // "yes", "go ahead" in a row: the same honest line once, never twice in a row.
-    if (store.thread().filter((m) => m.direction === 'out').at(-1)?.text === text) return null;
+    // "yes", "go ahead" in a row: the same honest line once, never twice in a row (a short variant instead, when there is one).
+    if (store.thread().filter((m) => m.direction === 'out').at(-1)?.text === text) {
+      if (!again) return null;
+      text = again;
+    }
     await sendText(ctx, text, { caseId: c?.id });
     return null;
   };
+  if (screened) {
+    const line = screenReplyText(screened, { text: part.text });
+    return say(line, `a screened ask (${screened})`, `Same answer as before: ${line}`);
+  }
   if (sig.injection || sig.standing) return say(refusalText(sig.injection ? 'injection' : 'standing'), 'instructions to PacePay');
   if (sig.moveMoney && !sig.question) return say(refusalText('moveMoney'), 'a request to move money');
   if (c && CALL_STATES.has(c.state) && (sig.feeCap !== null || /\b(?:fee limit|limit)\b/i.test(part.text)) && !sig.question) {
     return say(limitsLockedText(store.rules().feeLimit), 'a new limit during the call');
   }
+  const changed = changeOfPick(ctx, part, sig);
+  if (changed) return changed;
   const late = lateReply(ctx, part, parsed, sig);
   if (late === 'silent') {
     ctx.bus.emit({ type: 'tool.result', model: 'code', caseId: c?.id, title: `"${part.text.slice(0, 40)}" repeats an answer already acted on; no reply needed` });
     return null;
   }
   if (late) return say(late, 'a late answer to a closed question');
+  // "yes" / "2" / "ok" with nothing waiting on him: say so plainly instead of guessing at a question.
+  // (An "ok" right after an update is just an acknowledgment, for Q&A; a bare number never is.)
+  const out = store.thread().filter((m) => m.direction === 'out' && m.text);
+  const lastOut = out.at(-1);
+  const recent = !!lastOut && Date.parse(ctx.clock.now()) - Date.parse(lastOut.at) < 30 * 60_000;
+  const bareNumber = /^\s*#?\d\s*$/.test(part.text);
+  if (!sig.question && !/\?\s*$/.test(lastOut?.text ?? '') && (bareNumber || (!recent && (parsed.kind === 'yes' || parsed.kind === 'no')))) {
+    const line = "There's nothing waiting on your answer right now. Send me a bill photo or ask me anything about your money.";
+    return say(lastOut?.text === line ? "Still nothing waiting on a reply from you. Ask me anything, or send a bill photo." : line, 'an answer with nothing pending');
+  }
+  // "ok" / "thanks" right after an update that asked nothing: a short acknowledgment, not an account dump.
+  if (!sig.question && recent && !/\?\s*$/.test(lastOut?.text ?? '') && (parsed.kind === 'yes' || isPleasantry(part.text)) && part.text.split(/\s+/).length <= 4) {
+    return say("Sounds good. I'm here if you need anything.", 'an acknowledgment', 'Got it.');
+  }
   return emitText(ctx, part);
+}
+
+/** "actually 2" / "change it to 2" / "make that the card instead" after a pick: the orchestrator re-picks if it's not too late. */
+const CHANGE_CUE = /\b(?:actually|instead|change|changed|switch|swap|make (?:it|that)|rather|scratch that|nvm|nevermind|never mind|wait|on second thought|no)\b/;
+function changeOfPick(ctx: ToolContext, part: Part, sig: ReplySignals): AgentEvent | null {
+  const { store } = ctx;
+  if (sig.question) return null;
+  const n = normalizeReply(part.text);
+  if (!CHANGE_CUE.test(n)) return null;
+  const last = store
+    .list('approvals')
+    .filter((a) => a.kind === 'option_choice' && a.status === 'answered')
+    .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))[0];
+  if (!last?.optionIds?.length || !last.caseId) return null;
+  const newest = store.list('approvals').sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))[0];
+  // Only the latest question round: a pick from an older case isn't reopened.
+  if (newest && newest.caseId !== last.caseId) return null;
+  const age = Date.parse(ctx.clock.now()) - Date.parse(last.resolvedAt ?? last.requestedAt);
+  if (!(age >= 0 && age < LATE_WINDOW_MS)) return null;
+  const r = parseReply(n.replace(CHANGE_CUE, ' '), { optionIds: last.optionIds });
+  if (r.kind !== 'choice' || String(r.choice) === last.answer) return null;
+  const optionId = last.optionIds[r.choice - 1];
+  if (!optionId) return null;
+  ctx.bus.emit({ type: 'tool.result', model: 'code', caseId: last.caseId, title: `Read "${part.text.slice(0, 40)}" as a change of pick to ${r.choice}` });
+  return emit(ctx, { id: newId('evt'), at: part.at, type: 'CHOICE_REPLY', approvalId: last.id, caseId: last.caseId, choice: r.choice, optionId, text: part.text });
 }
 
 /** An honest text for an answer to a question that already closed; 'silent' for a repeat yes; null for Q&A. */
@@ -472,7 +621,11 @@ function lateReply(ctx: ToolContext, part: Part, parsed: ParsedReply, sig: Reply
     const offer = t ? termsPhrase(t) : 'that offer';
     if (last.status === 'timeout' && (yes || no)) {
       if (neg?.outcome === 'deal') return null; // a later approval went through; Q&A has the facts
-      if (yes) return callOver ? `Your reply came in after the call ended, so I didn't accept ${offer}. Nothing changed.` : `Your reply came in after that offer closed, so I didn't accept ${offer}. Nothing changed. If they make another offer, I'll text you first.`;
+      if (yes) {
+        return callOver
+          ? `Your YES came in after the call ended, so I didn't accept ${offer}. Nothing changed. Want me to call back and ask for it again?`
+          : `Your YES came in just after I asked them to hold ${offer}, so I haven't accepted it. Nothing changed yet. If they're still holding it, I'll text you before agreeing to anything.`;
+      }
       return `OK. I didn't accept ${offer}, so nothing changed.`;
     }
     if (last.status === 'declined' && yes) return `You'd said NO to ${offer}, so I passed on it.${callOver ? ' Nothing changed.' : " If they make another offer, I'll text you first."}`;
@@ -526,7 +679,11 @@ function staleDealYes(ctx: ToolContext, approval: Approval, part: Part): string 
   if (!prev) return null;
   const requested = Date.parse(approval.requestedAt);
   const sentBefore = Date.parse(part.at) < requested;
-  const soon = Date.parse(ctx.clock.now()) - requested < REAPPROVAL_GRACE_MS;
+  // He already answered the earlier offer (his YES, then the lender changed it): a yes sent after the
+  // new question is to the new question. Only a yes that may have been typed for an offer that was still
+  // open when it changed is asked about once.
+  const answeredBefore = (prev.status === 'approved' || prev.status === 'declined') && !!prev.resolvedAt && Date.parse(prev.resolvedAt) < requested;
+  const soon = !answeredBefore && Date.parse(ctx.clock.now()) - requested < REAPPROVAL_GRACE_MS;
   if (!sentBefore && !soon) return null;
   seen.add(approval.id);
   const now = termsFromPrompt(approval.prompt);
@@ -588,13 +745,20 @@ async function act(ctx: ToolContext, approval: Approval, verdict: Verdict, part:
   if (verdict.act === 'answer') return answerYesNo(ctx, approval, verdict.answer, part);
   if (verdict.act === 'ask') {
     if (approval.kind === 'option_choice' && verdict.choice) askedAbout.set(ctx.store, { approvalId: approval.id, choice: verdict.choice });
+    if (approval.kind === 'deal') extendApproval(ctx, approval.id, DEAL_REPLY_GRACE_MS);
     await sendText(ctx, verdict.text, { caseId: approval.caseId });
     return null;
   }
   return emitText(ctx, part);
 }
 
-function verdictFor(approval: Approval, kind: 'wait' | 'defer' | 'no'): Verdict {
+function verdictFor(approval: Approval, kind: 'wait' | 'defer' | 'no', ctx?: ToolContext): Verdict {
+  // "They're holding on the line" only while PacePay is on a live call with the lender.
+  if (ctx && kind === 'wait' && approval.kind === 'deal' && approval.callId) {
+    const neg = approval.negotiationId ? ctx.store.getItem('negotiations', approval.negotiationId) : undefined;
+    const call = ctx.store.getItem('calls', approval.callId);
+    if (neg?.channel !== 'voice' || (call && call.endedAt)) return { act: 'ask', text: waitText('deal') };
+  }
   const v = holdVerdict(approval, kind);
   // A deal's "Just to check" names the terms.
   if (v.act === 'ask' && kind === 'defer' && (approval.kind === 'deal' || approval.kind === 'call_limits')) return { act: 'ask', text: confirmTermsText(approval.kind, termsFromPrompt(approval.prompt)) };

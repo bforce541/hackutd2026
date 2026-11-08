@@ -156,6 +156,8 @@ export type PanelView =
   | {
       step: 'done';
       coveredThrough: Day; // "Covered through Dec 7"
+      /** Replaces "Covered through ..." as the title: "You're covered" for a bill that causes no shortfall. */
+      headline?: string;
       results: { label: string; value: string }[]; // "Car payment" / "Fri, Nov 13"; the Reference row is added from `reference`
       reference?: string; // "A1B2C3"
     }

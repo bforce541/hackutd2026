@@ -78,7 +78,13 @@ const conductorMod: any = await import(`${REPO}/apps/voice/src/conductor.ts`);
 const FILLER_TEXTS: string[] = (conductorMod.FILLERS ?? []).map((f: any) => f.text);
 const HOLDS: string[] = conductorMod.holdUpdates?.('Yoshua') ?? [];
 const CODE_LINES: string[] = [conductorMod.APPROVAL_FALLBACK_LINE, conductorMod.LOST_PLACE_LINE, ...(conductorMod.likelyLines?.('Yoshua') ?? [])].filter((x: unknown): x is string => typeof x === 'string');
-const norm = (s: string) => digitizeWords(s.toLowerCase().replace(/[’']/g, '').replace(/\$/g, ' ')).replace(/[^a-z0-9]+/g, ' ').trim();
+const HUND: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+const norm = (s: string) =>
+  digitizeWords(
+    s.toLowerCase().replace(/[’']/g, '').replace(/\$/g, ' ').replace(/,(?=\d{3})/g, '')
+      .replace(/\b(one|two|three|four|five|six|seven|eight|nine)[\s-]+hundred\b/g, (_, d) => String(HUND[d]! * 100))
+      .replace(/\b(\d)[\s-]+hundred\b/g, (_, d) => String(Number(d) * 100)),
+  ).replace(/[^a-z0-9]+/g, ' ').trim();
 
 // ---------------------------------------------------------------------------------------------
 // Personas: ~5 per category, limits reply affirmative (the snapshot is past the limits text)
@@ -255,6 +261,8 @@ async function transcribe(pcm: Int16Array): Promise<string> {
 // Snapshot of the real flow at the calling step (photo -> pick 1 -> OK limits), made once
 // ---------------------------------------------------------------------------------------------
 async function makeSnapshot(): Promise<string> {
+  const reuse = arg('snap');
+  if (reuse && reuse !== 'true' && existsSync(join(resolve(REPO, reuse), 'state.json'))) return resolve(REPO, reuse);
   const port = BASE - 10;
   const dataDir = join(SCRATCH, 'setup-data');
   const child = await startChild({ port, dataDir, logFile: join(OUT, 'logs', '_setup.log') });
@@ -293,6 +301,7 @@ async function makeSnapshot(): Promise<string> {
   }
   const snap = join(SCRATCH, 'snapshot');
   cpSync(dataDir, snap, { recursive: true });
+  cpSync(dataDir, join(OUT, 'snapshot'), { recursive: true });
   return snap;
 }
 
@@ -438,7 +447,16 @@ async function lenderTurn(p: Persona, history: { role: 'user' | 'assistant'; con
   }
   if (!merged.length || merged[0]!.role !== 'user') merged.unshift({ role: 'user', content: '(The call connects.)' });
   if (merged[merged.length - 1]!.role !== 'user') merged.push({ role: 'user', content: '(silence on the line)' });
-  const raw = await superChat([{ role: 'system', content: lenderSystem(p) }, ...merged]);
+  let raw = await superChat([{ role: 'system', content: lenderSystem(p) }, ...merged]);
+  // Super sometimes parrots the caller's last line back: retry once with a nudge
+  const lastCaller = [...merged].reverse().find((m) => m.role === 'user')?.content.replace(/^CALLER:\s*/gm, '') ?? '';
+  const overlap = (a: string, b: string) => {
+    const wa = new Set(norm(a).split(' '));
+    const wb = norm(b).split(' ').filter(Boolean);
+    return wb.length ? wb.filter((w) => wa.has(w)).length / wb.length : 0;
+  };
+  if (raw.split(/\s+/).length > 8 && overlap(lastCaller, raw) > 0.8)
+    raw = await superChat([{ role: 'system', content: lenderSystem(p) }, ...merged, { role: 'assistant', content: raw }, { role: 'user', content: '(That just repeated the caller. Answer as the lender, in your own words.)' }]);
   const own = raw.split(/\n\s*(?:CALLER|PacePay)\s*:/i)[0]!.replace(/\s*\n\s*/g, ' ');
   return own.replace(/^["']|["']$/g, '').replace(/^(lender|rep|agent)\s*:\s*/i, '').replace(/\*[^*]{0,40}\*/g, '').replace(/\((?:sigh|pause|typing|clicking)[^)]*\)/gi, '').trim();
 }
@@ -693,7 +711,7 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
     void Promise.all(interj.map(async (t) => interjAudio.set(t, await tts(t, vp).catch(() => new Int16Array(0)))));
 
     /** Wait until PacePay has finished what it is saying in response to whatever came before `since`. */
-    const waitPacePayDone = async (since: number, maxMs: number): Promise<'done' | 'silent' | 'gone' | 'timeout'> => {
+    const waitPacePayDone = async (since: number, maxMs: number, allowSilent = true): Promise<'done' | 'silent' | 'gone' | 'timeout'> => {
       const end = Date.now() + maxMs;
       const n0 = ppPosted().filter((l) => l.t < since).length;
       for (;;) {
@@ -704,14 +722,14 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
           const lastPost = fresh[fresh.length - 1]!.t;
           const heardIt = segs.some((s) => s.end > lastPost - 200) || (!!cur && cur.start < Date.now());
           if (heardIt && quiet && slot.inflightDecide === 0 && Date.now() - lastPost > 900) return 'done';
-        } else if (slot.inflightDecide === 0 && quiet && Date.now() - since > (approvalPending ? 25_000 : 6_500)) return 'silent';
+        } else if (allowSilent && slot.inflightDecide === 0 && quiet && Date.now() - since > (approvalPending ? 25_000 : 6_500)) return 'silent';
         if (Date.now() > end) return 'timeout';
         await sleep(100);
       }
     };
 
     // the greeting
-    const g = await waitPacePayDone(T0, 40_000);
+    const g = await waitPacePayDone(T0, 45_000, false);
     if (g !== 'done') throw new Error(`no greeting heard (${g})`);
     let shown = 0;
     const history: { role: 'user' | 'assistant'; content: string }[] = [];
@@ -743,11 +761,23 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
         break;
       }
       res.timings.lenderLlmMs += Date.now() - t0;
+      res.workerLog!.push(`${(T() / 1000).toFixed(1)}s LENDER RAW${holding ? ' (holding)' : ''}: ${raw}`);
       if (holding) history.pop();
       if (gone) break;
-      const hang = /\[HANGUP\]/i.test(raw);
-      const beep = /\[BEEP\]/i.test(raw);
+      let hang = /\[HANGUP\]/i.test(raw);
+      let beep = /\[BEEP\]/i.test(raw);
       let said = raw.replace(/\[HANGUP\]|\[WAIT\]|\[BEEP\]/gi, '').trim();
+      // Super sometimes gets stuck on [WAIT] when nobody is on hold: nudge it once (unless the persona is about silence)
+      if (!said && !hang && !beep && !holding && !approvalPending && !/silen|dead air|says nothing|no one|nobody/i.test(p.behavior)) {
+        const nudged = await lenderTurn(p, [...history, { role: 'user', content: '(Nobody is on hold: the caller is waiting for you to answer what it just said. Reply in words, in character.)' }]).catch(() => '');
+        res.workerLog!.push(`${(T() / 1000).toFixed(1)}s LENDER RAW (nudged): ${nudged}`);
+        if (nudged.replace(/\[WAIT\]/gi, '').trim()) {
+          raw = nudged;
+          said = raw.replace(/\[HANGUP\]|\[WAIT\]|\[BEEP\]/gi, '').trim();
+          hang = /\[HANGUP\]/i.test(raw);
+          beep = /\[BEEP\]/i.test(raw);
+        }
+      }
       if (!said && !hang && !beep) {
         waits += 1;
         const before = ppPosted().length;
@@ -836,12 +866,7 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
               const pl = await play([{ pcm: interjAudio.get(ij)!, part: true }]);
               lenderUtts.push({ text: ij, start: pl.start, end: pl.end, parts: pl.parts, pauses: [], kind: 'interjection', turn });
               latSamples.push({ stop: pl.end, after: ij });
-              const stopAt = (() => {
-                // when did PacePay's audio stop after we started talking?
-                const s = [...segs, ...(cur ? [cur] : [])].find((x) => x.start <= pl.start && x.end >= pl.start - 50);
-                return s && s.end < pl.end + 2000 ? s.end - pl.start : null;
-              })();
-              bargeOutcomes.push({ t: pl.start - T0, interjection: ij, pacepayStoppedMs: stopAt });
+              bargeOutcomes.push({ t: pl.start - T0, interjection: ij, pacepayStoppedMs: null, at: pl.start } as any);
             }
           }
         }
@@ -978,7 +1003,8 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
   res.call = callLines;
 
   // meaning-changing transcription errors: rules (terms/digits/negation) + Nemotron Super check
-  const digits = (s: string) => (norm(s).match(/\b\d+\b/g) ?? []).join(' ');
+  // numbers that matter (amounts, dates, reference/account digits); a lone "one" ("one moment") is not one
+  const digits = (s: string) => norm(s.replace(/\bone (moment|sec|second|minute|thing|more)\b/gi, '$1')).replace(/[^0-9]/g, '');
   const neg = (s: string) => /\b(no|not|can't|cannot|won't|don't|isn't)\b/i.test(s);
   for (const a of asr) {
     if (!a.heard) {
@@ -1064,6 +1090,12 @@ async function runCall(slot: Slot, p: Persona, snap: string): Promise<RunResult 
     const got = lw.filter((w) => hset.has(w)).length / Math.max(1, lw.length);
     const lenderOver = lenderUtts.some((u) => u.parts.some((pt) => pt.start < s.end + 300 && pt.end > s.start));
     if (got < 0.55 && !lenderOver && lw.length >= 5 && s.end - s.start < 400 * lw.length) selfCut.push({ t: s.start - T0, line: l.text, heard: hs.heard });
+  }
+  // barge-ins: when did PacePay's audio stop after the lender cut in?
+  for (const b of bargeOutcomes as any[]) {
+    const sg = segs.find((x) => x.start <= b.at && x.end >= b.at - 50);
+    b.pacepayStoppedMs = sg ? sg.end - b.at : 0;
+    delete b.at;
   }
   // talk-over and jumping into a mid-sentence pause
   const talkOver: AudioMetrics['talkOverLender'] = [];
@@ -1238,7 +1270,7 @@ function audioReport(results: AR[]): string {
 // ---------------------------------------------------------------------------------------------
 log(`${PERSONAS.length} personas (${[...new Set(PERSONAS.map((p) => p.category))].join(', ')}), concurrency ${CONC}, out=${OUT}`);
 const slots: Slot[] = Array.from({ length: CONC }, (_, k) => ({
-  k, serverPort: BASE + 10 * k, proxyPort: BASE + 10 * k + 1, workerPort: BASE + 10 * k + 2, agent: `pacepay-voice-stress-${k + 1}`,
+  k, serverPort: BASE + 10 * k, proxyPort: BASE + 10 * k + 1, workerPort: BASE + 10 * k + 2, agent: `pacepay-voice-stress-${k + 1}-${stamp.slice(11).replace(/-/g, '')}`,
   recs: [], inflightDecide: 0, workerLines: [], ready: false,
 }));
 for (const s of slots) for (const port of [s.serverPort, s.proxyPort, s.workerPort]) if (!(await portFree(port))) throw new Error(`port ${port} busy`);
@@ -1304,6 +1336,14 @@ await Promise.all(
 );
 await Promise.all(grading);
 slots.forEach(killWorker);
+await sleep(2500);
+for (const sl of slots) {
+  try {
+    if (sl.worker?.pid) process.kill(-sl.worker.pid, 'SIGKILL');
+  } catch {
+    /* gone */
+  }
+}
 const md = audioReport(results.filter(Boolean));
 writeFileSync(join(OUT, 'report.md'), md + '\n\n---\n\n' + grader.report(results.filter((r) => r.grade), { source: 'stress-audio', concurrency: CONC }));
 writeFileSync(join(OUT, 'results.json'), JSON.stringify(results, null, 2));

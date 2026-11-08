@@ -65,6 +65,8 @@ export interface BillCorrectionEvent extends AgentEventBase {
   caseId: string;
   billId: string;
   amount: Cents;
+  /** Addition: the corrected due day ("its not due till friday"), when the correction names one. */
+  dueDay?: Day;
   text: string;
 }
 

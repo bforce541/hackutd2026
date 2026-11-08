@@ -132,6 +132,16 @@ export function dealApprovalText(p: { toDay: Day; fee: Cents; checkingFloor: Cen
   return `They'll move it to ${formatDate(p.toDay, p.day0Date)} ${feePhrase(p.fee)}. You stay above ${whole(p.checkingFloor)}. Approve? YES or NO`;
 }
 
+/**
+ * The deal approval when the agreed day is a weekend day that posts on the next business day, so
+ * the day said on the call and the day in the forecast both show:
+ * "They'll move it to Sat, Nov 14 with no fee. It posts Mon, Nov 16. You stay above $100. Approve? YES or NO"
+ */
+export function dealApprovalPostsText(p: { toDay: Day; postsOnDay: Day; fee: Cents; checkingFloor: Cents } & DateCtx): string {
+  if (p.postsOnDay === p.toDay) return dealApprovalText(p);
+  return `They'll move it to ${formatDate(p.toDay, p.day0Date)} ${feePhrase(p.fee)}. It posts ${formatDate(p.postsOnDay, p.day0Date)}. You stay above ${whole(p.checkingFloor)}. Approve? YES or NO`;
+}
+
 /** "Done. Car payment is now Fri, Nov 13 ($20). Ref A1B2C3." */
 export function doneText(p: { itemLabel: string; toDay: Day; fee: Cents; reference?: string } & DateCtx): string {
   const label = p.itemLabel.charAt(0).toUpperCase() + p.itemLabel.slice(1);

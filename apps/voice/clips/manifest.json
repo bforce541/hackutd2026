@@ -1,0 +1,216 @@
+{
+ "model": "gpt-4o-mini-tts-2025-12-15",
+ "voice": "marin",
+ "clips": [
+  {
+   "text": "Mm-hm…",
+   "file": "96346f1cd3b8110e.pcm",
+   "f0": 205,
+   "soundSec": 0.45
+  },
+  {
+   "text": "Okay, let me see…",
+   "file": "2034fbdb21679740.pcm",
+   "f0": 211,
+   "soundSec": 1.11
+  },
+  {
+   "text": "Uh, one sec…",
+   "file": "1224e282f5d8eeaa.pcm",
+   "f0": 211,
+   "soundSec": 1.15
+  },
+  {
+   "text": "Sure, so…",
+   "file": "e3fc8622436c1a48.pcm",
+   "f0": 211,
+   "soundSec": 1.03
+  },
+  {
+   "text": "Got it, one moment…",
+   "file": "836cb59b05e7dadc.pcm",
+   "f0": 200,
+   "soundSec": 1.33
+  },
+  {
+   "text": "Okay…",
+   "file": "b3827791f7effed5.pcm",
+   "f0": 195,
+   "soundSec": 0.36
+  },
+  {
+   "text": "Hmm…",
+   "file": "0ffc7e04d9220872.pcm",
+   "f0": 195,
+   "soundSec": 0.5
+  },
+  {
+   "text": "Still checking, one sec…",
+   "file": "439321c572a826e2.pcm",
+   "f0": 205,
+   "soundSec": 1.51
+  },
+  {
+   "text": "Almost there…",
+   "file": "03eb00f1916e8ffb.pcm",
+   "f0": 205,
+   "soundSec": 0.8
+  },
+  {
+   "text": "Hi, this is PacePay, Yaw-shoo-uh's money assistant. For your security, please say your four-digit PIN.",
+   "file": "b5ffe2829d13a43a.pcm",
+   "f0": 195,
+   "soundSec": 6.41
+  },
+  {
+   "text": "Hi, this is PacePay, Yaw-shoo-uh's money assistant. For your security, please say or type your four-digit PIN.",
+   "file": "15f45d3f2f37d444.pcm",
+   "f0": 200,
+   "soundSec": 6.1
+  },
+  {
+   "text": "Thanks, you are verified. What would you like to know?",
+   "file": "0f5b2b7d93caa472.pcm",
+   "f0": 211,
+   "soundSec": 3.28
+  },
+  {
+   "text": "That PIN did not match. Please say it again.",
+   "file": "750c4300d3c8eba0.pcm",
+   "f0": 200,
+   "soundSec": 3.17
+  },
+  {
+   "text": "Sure. First, please say or type your four-digit PIN.",
+   "file": "f1eb882a8f8f2ae7.pcm",
+   "f0": 200,
+   "soundSec": 3.57
+  },
+  {
+   "text": "Okay, talk soon. Bye!",
+   "file": "2177d6dd6ca7834c.pcm",
+   "f0": 200,
+   "soundSec": 2.03
+  },
+  {
+   "text": "Sorry, I didn't catch that. What would you like to know?",
+   "file": "9ecbfd3646a8c38e.pcm",
+   "f0": 216,
+   "soundSec": 3.32
+  },
+  {
+   "text": "I could not verify the PIN, so I have to end the call. Goodbye.",
+   "file": "bf944b3f950541eb.pcm",
+   "f0": 205,
+   "soundSec": 4.4
+  },
+  {
+   "text": "I can only discuss account details with the account holder.",
+   "file": "6f58e4ee6e056dea.pcm",
+   "f0": 182,
+   "soundSec": 3.69
+  },
+  {
+   "text": "Text me and I'll set it up.",
+   "file": "902ada5c63d0e738.pcm",
+   "f0": 178,
+   "soundSec": 2.23
+  },
+  {
+   "text": "Sorry, that's taking longer than it should. Ask me again in a moment.",
+   "file": "07f7363c6aa48ee6.pcm",
+   "f0": 205,
+   "soundSec": 4.16
+  },
+  {
+   "text": "You're welcome. Anything else?",
+   "file": "c50204357d665fba.pcm",
+   "f0": 216,
+   "soundSec": 1.71
+  },
+  {
+   "text": "Sure. What would you like to know?",
+   "file": "72b5c118078ae0cb.pcm",
+   "f0": 211,
+   "soundSec": 2.2
+  },
+  {
+   "text": "I'm just your financial assistant, so I can't help with that. Anything about your money I can check?",
+   "file": "d570e1d6fa149bb7.pcm",
+   "f0": 211,
+   "soundSec": 5.9
+  },
+  {
+   "text": "That PIN did not match. Please say or type it again.",
+   "file": "e45ce67fe06b15f9.pcm",
+   "f0": 190,
+   "soundSec": 3.95
+  },
+  {
+   "text": "I'm just your financial assistant, so I can't move money. PacePay never moves money: you make any move at your bank.",
+   "file": "8e7254ede704feff.pcm",
+   "f0": 200,
+   "soundSec": 7.66
+  },
+  {
+   "text": "I haven't heard anything for a bit, so I'll let you go. Call or text me anytime. Bye!",
+   "file": "15705bcfedd8f1ac.pcm",
+   "f0": 200,
+   "soundSec": 6
+  },
+  {
+   "text": "Let me confirm that with Yaw-shoo-uh.",
+   "file": "d572854938a9de82.pcm",
+   "f0": 205,
+   "soundSec": 2.52
+  },
+  {
+   "text": "Thanks, let me run that by Yaw-shoo-uh real quick.",
+   "file": "88815901a0f66c29.pcm",
+   "f0": 200,
+   "soundSec": 3.39
+  },
+  {
+   "text": "Okay, I'll check with Yaw-shoo-uh. Bear with me.",
+   "file": "5ef0f14dc8bb3d35.pcm",
+   "f0": 195,
+   "soundSec": 3.04
+  },
+  {
+   "text": "Thanks. Let me get Yaw-shoo-uh's okay on that.",
+   "file": "2f24897496706ec9.pcm",
+   "f0": 205,
+   "soundSec": 2.87
+  },
+  {
+   "text": "Sorry about the wait. I'm still waiting to hear back from Yaw-shoo-uh.",
+   "file": "5d6ef7ca548922a9.pcm",
+   "f0": 200,
+   "soundSec": 3.69
+  },
+  {
+   "text": "Still here! Yaw-shoo-uh should get back to me any second now.",
+   "file": "7da7fdf94676f6f1.pcm",
+   "f0": 200,
+   "soundSec": 4.02
+  },
+  {
+   "text": "Thanks so much for hanging on. Still waiting on Yaw-shoo-uh's answer.",
+   "file": "e17c0db9bf4913ee.pcm",
+   "f0": 195,
+   "soundSec": 4.05
+  },
+  {
+   "text": "Sorry, I lost my place for a moment. Could you say that again?",
+   "file": "38da01200f96d3ed.pcm",
+   "f0": 205,
+   "soundSec": 3.52
+  },
+  {
+   "text": "Sorry, could you say that again?",
+   "file": "3a731507c1062749.pcm",
+   "f0": 200,
+   "soundSec": 1.72
+  }
+ ]
+}

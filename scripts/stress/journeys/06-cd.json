@@ -1,0 +1,156 @@
+[
+ {
+  "id": "cd-pick-1",
+  "category": "cd",
+  "title": "Day 11 CD alert; Yoshua picks 1; steps arrive on day 13",
+  "style": "Short.",
+  "steps": [
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "1",
+    "expect": "."
+   },
+   {
+    "clock": 13,
+    "expect": "."
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Alert: $5,000 CD matures Fri Nov 20; option 1 pay off card ($2,214 or the right current number) + rest to savings; option 2 renew. After '1': 'Got it, I'll text you the steps Friday morning'. On day 13: concrete steps he does himself. PacePay never moves money."
+ },
+ {
+  "id": "cd-renew-words",
+  "category": "cd",
+  "title": "Day 11 CD alert; Yoshua says 'just renew it'",
+  "style": "Brief.",
+  "steps": [
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "just renew it"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  }
+ },
+ {
+  "id": "cd-question-then-pick",
+  "category": "cd",
+  "title": "CD alert; Yoshua asks 'which is better long term?' then picks",
+  "style": "Thoughtful, full sentences.",
+  "steps": [
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "which one is better long term? and is there a penalty?"
+   },
+   {
+    "yoshua": "pick the option PacePay recommends"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Answer the question with honest numbers (card APR 24.99% vs CD ~4.1%); it matures so there's no early-withdrawal penalty. Then the pick is understood."
+ },
+ {
+  "id": "cd-neither",
+  "category": "cd",
+  "title": "CD alert; Yoshua: 'neither, ill figure it out'",
+  "style": "Brief.",
+  "steps": [
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "neither, ill figure it out"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "Respect it; short ack; no nagging."
+ },
+ {
+  "id": "cd-after-demo",
+  "category": "cd",
+  "title": "Full demo deal, then skip to day 11: CD alert reflects the new state",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   },
+   {
+    "say": "thanks"
+   },
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "1"
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "Skipping days fires the reminders/paycheck watch on the way (that's fine if accurate). CD alert numbers must match the card balance by then."
+ },
+ {
+  "id": "cd-stale-reply",
+  "category": "cd",
+  "title": "CD: Yoshua picks 1, then later texts '2' (change of mind)",
+  "style": "Indecisive.",
+  "steps": [
+   {
+    "clock": 11,
+    "expect": "CD"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "say": "actually 2"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "A change of mind before maturity should be honored or clearly addressed, not ignored or misread."
+ }
+]

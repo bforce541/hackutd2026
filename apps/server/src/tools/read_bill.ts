@@ -8,15 +8,23 @@
  * Bill-check rule (SPEC §5.2, UI.md): the agent asks Yoshua outright only when `needsBillCheck`
  * is true: the two reads disagree on amount or due date, or confidence < 0.8.
  *
- * Due date: an ISO date on the bill becomes a demo Day. "Due at pickup" or "due on receipt" on a
- * bill that prints its own date is due that day (v2.md: the repair quote is "due today"). With no
- * date to anchor it, dueDay is null.
+ * Not every photo is a bill (a judge may text anything). The reads also say what the photo is:
+ * a bill, an already-paid receipt, not a bill at all, a bill too blurry to read, or more than one
+ * bill. screenBillPhoto() runs before a case opens: anything but a bill (or an unreadable bill,
+ * which keeps the "text me the amount" path) gets one short reply and nothing moves. The read is
+ * cached by media id, so the read_bill step in the case reuses it (no second model call).
+ *
+ * Due date: an ISO date on the bill becomes a demo Day. A past-due bill is due today. "Due at pickup" or "due on receipt" on a
+ * bill that prints its own date is due that day (v2.md: the repair quote is "due today"); with no
+ * printed date it is due today (the bill is in hand). With no due words at all, dueDay is null.
  */
 import { z } from 'zod';
 import { Resvg } from '@resvg/resvg-js';
 import {
   TOOLS,
   dayToISODate,
+  formatDayRelative,
+  formatMoney,
   isoDateToDay,
   type Bill,
   type Cents,
@@ -30,9 +38,14 @@ import { newId } from '../ids';
 
 export const BILL_CONFIDENCE_FLOOR = 0.8;
 
+const KINDS = ['bill', 'paid', 'not_a_bill', 'unreadable'] as const;
+type RawKind = (typeof KINDS)[number];
+
 const RawRead = z.object({
-  merchant: z.string(),
-  amount_dollars: z.number(),
+  kind: z.string().nullable().optional(),
+  bill_count: z.number().nullable().optional(),
+  merchant: z.string().nullable().optional(),
+  amount_dollars: z.number().nullable().optional(),
   due_date: z.string().nullable().optional(),
   due_phrase: z.string().nullable().optional(),
   document_date: z.string().nullable().optional(),
@@ -41,8 +54,15 @@ const RawRead = z.object({
 });
 type RawRead = z.infer<typeof RawRead>;
 
-const SYSTEM = `You read photos of bills, invoices, repair quotes and receipts. Reply with JSON only, no prose:
-{"merchant": string, "amount_dollars": number, "due_date": "YYYY-MM-DD" | null, "due_phrase": string | null, "document_date": "YYYY-MM-DD" | null, "description": string, "confidence": number}
+const SYSTEM = `You read photos people text to a bill-paying assistant. Most are bills, invoices, repair quotes or receipts, but some are anything else. Reply with JSON only, no prose:
+{"kind": "bill" | "paid" | "not_a_bill" | "unreadable", "bill_count": number, "merchant": string | null, "amount_dollars": number | null, "due_date": "YYYY-MM-DD" | null, "due_phrase": string | null, "document_date": "YYYY-MM-DD" | null, "description": string, "confidence": number}
+- kind:
+  "bill": a bill, invoice, statement, repair quote or notice asking the customer to pay an amount (in any language; past due is still a bill).
+  "paid": a receipt or invoice that is already paid and owes nothing: a PAID stamp, "paid in full", "thank you for your payment", "balance $0.00", or a card or cash payment already taken.
+  "not_a_bill": anything else: people, selfies, pets, places, memes, screenshots of chats, menus, price lists, ads, products, or a blank, black or empty image. A menu with prices is not a bill.
+  "unreadable": it looks like a bill but you cannot read the total (too blurry, dark, cut off). Do not guess digits; say unreadable.
+- bill_count: how many separate bills or documents are in the photo (usually 1, 0 when not a bill).
+- For "not_a_bill" and "unreadable", merchant and amount_dollars may be null.
 - merchant: the business that is owed money, as printed.
 - amount_dollars: the total the customer must pay (the final total due, not a subtotal, deposit or previous balance), in dollars with cents, e.g. 650.00.
 - due_date: the date payment is due, as YYYY-MM-DD. null when the bill gives no calendar date (for example "due at pickup" or "due on receipt").
@@ -57,6 +77,8 @@ function question(today: ISODate): string {
 }
 
 export interface BillRead {
+  kind: RawKind;
+  billCount: number;
   merchant: string;
   amount: Cents;
   dueDay: Day | null;
@@ -74,16 +96,35 @@ function parseIso(s: string | null | undefined): ISODate | null {
 
 const IMMEDIATE = /pick\s?-?up|receipt|upon|immediate|today|on delivery|at completion|at service/i;
 
-function toBillRead(raw: RawRead, day0Date: ISODate): BillRead {
+function normKind(raw: RawRead): RawKind {
+  const k = (raw.kind ?? 'bill').toLowerCase().replace(/[\s-]+/g, '_');
+  if ((KINDS as readonly string[]).includes(k)) return k as RawKind;
+  if (/not|none|other/.test(k)) return 'not_a_bill';
+  if (/paid|receipt/.test(k)) return 'paid';
+  if (/blur|unread|illegible/.test(k)) return 'unreadable';
+  return 'bill';
+}
+
+function toBillRead(raw: RawRead, day0Date: ISODate, today: ISODate): BillRead {
+  let kind = normKind(raw);
+  // A "bill" with no readable total is unreadable.
+  if (kind === 'bill' && !(typeof raw.amount_dollars === 'number' && raw.amount_dollars > 0)) kind = 'unreadable';
   const docDate = parseIso(raw.document_date);
   // A due date before the bill's own date is a misread (one run read "Nov 7" as Jun 7): drop it.
   const read = parseIso(raw.due_date);
   const due = read && docDate && read < docDate ? null : read;
   let dueDay: Day | null = due ? isoDateToDay(due, day0Date) : null;
   if (dueDay === null && docDate && ((raw.due_phrase && IMMEDIATE.test(raw.due_phrase)) || (read && !due))) dueDay = isoDateToDay(docDate, day0Date);
+  const todayDay = isoDateToDay(today, day0Date);
+  // "Due at pickup" / "due on receipt" with no printed date: the bill is in his hand, so it's due now.
+  if (dueDay === null && !read && raw.due_phrase && IMMEDIATE.test(raw.due_phrase)) dueDay = todayDay;
+  // Past due (or an old statement): it's due now.
+  if (dueDay !== null && dueDay < todayDay) dueDay = todayDay;
   return {
-    merchant: raw.merchant.trim(),
-    amount: Math.round(raw.amount_dollars * 100),
+    kind,
+    billCount: Math.max(0, Math.round(raw.bill_count ?? (kind === 'not_a_bill' ? 0 : 1))),
+    merchant: (raw.merchant ?? '').trim() || 'your bill',
+    amount: Math.max(0, Math.round((raw.amount_dollars ?? 0) * 100)),
     dueDay,
     description: (raw.description ?? '').trim(),
     confidence: Math.min(1, Math.max(0, raw.confidence ?? 0.5)),
@@ -148,7 +189,7 @@ async function readWith(
     stepId: scope.stepId,
     title: job === 'vision' ? 'Nemotron read the bill photo' : 'Claude cross-checked the bill photo',
   });
-  return toBillRead(res.json, day0Date);
+  return toBillRead(res.json, day0Date, today);
 }
 
 /** True when Yoshua must be asked: the reads disagree or the reader is unsure (SPEC §5.2). */
@@ -156,16 +197,61 @@ export function needsBillCheck(out: Pick<ToolOutput<'read_bill'>, 'confidence' |
   return out.confidence < BILL_CONFIDENCE_FLOOR || out.crossCheck?.agrees === false;
 }
 
+/** What a texted photo is. "multiple" is more than one bill in one photo; "too_big" is a bill larger than checking, savings and the card's open credit together. */
+export type PhotoKind = RawKind | 'multiple' | 'too_big';
+
+export const NOT_A_BILL_TEXT = "That doesn't look like a bill. Send me a photo of a bill or quote and I'll check your week.";
+export const ALREADY_PAID_TEXT = 'Looks like this is already paid; nothing to do.';
+export const MULTIPLE_BILLS_TEXT = "I see more than one bill in that photo. Send them one at a time and I'll check each.";
+
+/** The one-line reply for a photo that opens no case, or null when a case should open. */
+export function replyForPhoto(kind: PhotoKind): string | null {
+  return kind === 'not_a_bill' ? NOT_A_BILL_TEXT : kind === 'paid' ? ALREADY_PAID_TEXT : kind === 'multiple' ? MULTIPLE_BILLS_TEXT : null;
+}
+
+/** Checking + savings + the card's open credit: the most any PacePay option could put toward a bill. */
+export function coverCapacity(accounts: { kind: string; balance: Cents; limit?: Cents }[]): Cents {
+  let total = 0;
+  for (const a of accounts) {
+    if (a.kind === 'checking' || a.kind === 'savings') total += Math.max(0, a.balance);
+    if (a.kind === 'credit_card' && a.limit) total += Math.max(0, a.limit - a.balance);
+  }
+  return total;
+}
+
+/** A bill bigger than everything he could move: say so plainly instead of offering options that can't work. */
+export function tooBigText(out: Pick<ToolOutput<'read_bill'>, 'merchant' | 'amount' | 'dueDay'>, today: Day, day0Date: ISODate): string {
+  const due = out.dueDay !== null ? `, due ${formatDayRelative(out.dueDay, today, day0Date)}` : '';
+  return `That's ${formatMoney(out.amount)} to ${out.merchant}${due}. That's more than your checking, savings and card could cover together, so moving a payment won't fix it. Call them and ask for a payment plan or financial assistance before it's due.`;
+}
+
+export class UnreadableBillError extends Error {
+  constructor(public readonly kind: PhotoKind) {
+    super(kind === 'unreadable' ? 'the photo is too unclear to read the total' : `the photo is not a bill to pay (${kind})`);
+  }
+}
+
+export interface PhotoRead {
+  kind: PhotoKind;
+  /** The bill read, when kind is "bill". */
+  out?: ToolOutput<'read_bill'>;
+}
+
+function strip(r: BillRead): ToolOutput<'read_bill'> {
+  return { merchant: r.merchant, amount: r.amount, dueDay: r.dueDay, description: r.description, confidence: r.confidence };
+}
+
 /**
- * Reads a bill image: vision first, Claude as the cross-check. If vision fails but Claude works,
- * Claude's read is returned with confidence capped at 0.7, so the agent asks Yoshua. Throws when
- * no model could read it (the agent then asks Yoshua to type the amount and due date).
+ * Reads a photo: vision first, Claude as the cross-check. Claude decides what the photo is when it
+ * answered (it is the better judge of "is this a bill", and of "too blurry to read"); otherwise the
+ * vision read does. If Claude read a bill but the vision model failed or did not, Claude's read is used
+ * with confidence capped at 0.7, so the agent asks Yoshua. Throws when no model could read it.
  */
-export async function readBillImage(
+export async function readBillPhoto(
   ctx: Ctx,
   image: { data: Buffer; contentType: string },
   opts: { today: ISODate; day0Date: ISODate; caseId?: string; stepId?: string },
-): Promise<ToolOutput<'read_bill'>> {
+): Promise<PhotoRead> {
   const scope = { caseId: opts.caseId, stepId: opts.stepId };
   image = shrinkForVision(image);
   const warn = (title: string, err: unknown) =>
@@ -178,30 +264,84 @@ export async function readBillImage(
 
   const claude = claudeRes.status === 'fulfilled' ? claudeRes.value : null;
   if (claudeRes.status === 'rejected' && !(claudeRes.reason instanceof ModelUnavailableError)) warn(`Skipped the Claude bill cross-check: ${(claudeRes.reason as Error).message}`, claudeRes.reason);
+  const vision = visionRes.status === 'fulfilled' ? visionRes.value : null;
+  if (!vision && !claude) throw (visionRes as PromiseRejectedResult).reason;
 
-  if (visionRes.status === 'rejected') {
-    if (!claude) throw visionRes.reason;
-    warn(`The bill reader failed (${(visionRes.reason as Error).message}); using Claude's read at low confidence`, visionRes.reason);
-    return { ...claude, confidence: Math.min(claude.confidence, 0.7) };
+  const judge = claude ?? vision!;
+  if (judge.kind === 'bill' && judge.billCount >= 2) return { kind: 'multiple' };
+  const lowConfidence = (r: BillRead): PhotoRead => ({ kind: 'bill', out: { ...strip(r), confidence: Math.min(r.confidence, 0.7) } });
+
+  // Claude saying unreadable wins over a vision "read" of the same blur (Nemotron invents a
+  // merchant and total for a blurred bill): ask him to type it instead.
+  if (judge.kind !== 'bill') return { kind: judge.kind };
+  if (!vision || vision.kind !== 'bill') {
+    if (!vision) warn(`The bill reader failed (${(visionRes as PromiseRejectedResult).reason?.message}); using Claude's read at low confidence`, (visionRes as PromiseRejectedResult).reason);
+    return lowConfidence(judge);
   }
-  const read = visionRes.value;
-  const out: ToolOutput<'read_bill'> = { ...read };
+  const out = strip(vision);
   if (claude) {
-    const agrees = claude.amount === read.amount && claude.dueDay === read.dueDay;
+    const agrees = claude.amount === vision.amount && claude.dueDay === vision.dueDay;
     out.crossCheck = { agrees, amount: claude.amount, ...(claude.dueDay !== null ? { dueDay: claude.dueDay } : {}) };
+    // Two independent reads that match exactly are good evidence even when one model hedges its
+    // own confidence (Nemotron sometimes says 0.75 on the clean demo quote).
+    if (agrees) out.confidence = Math.max(vision.confidence, claude.confidence);
   }
-  return out;
+  return { kind: 'bill', out };
+}
+
+/** The bill read, or UnreadableBillError when the photo is not a readable bill. */
+export async function readBillImage(
+  ctx: Ctx,
+  image: { data: Buffer; contentType: string },
+  opts: { today: ISODate; day0Date: ISODate; caseId?: string; stepId?: string },
+): Promise<ToolOutput<'read_bill'>> {
+  const r = await readBillPhoto(ctx, image, opts);
+  if (!r.out) throw new UnreadableBillError(r.kind);
+  return r.out;
+}
+
+// Reads done by screenBillPhoto before the case opened, for the read_bill step to reuse.
+const screened = new Map<string, PhotoRead | Error>();
+
+function readOpts(ctx: Pick<ToolContext, 'clock' | 'store'>) {
+  const day0Date = ctx.store.household().day0Date;
+  return { today: dayToISODate(ctx.clock.today(), day0Date), day0Date };
+}
+
+/**
+ * Reads a texted photo before any case opens. Returns the reply to send when the photo opens no
+ * case (not a bill, already paid, more than one bill), else reply null. Never throws: a failed read
+ * opens the case, and the read_bill step then asks Yoshua to type the amount.
+ */
+export async function screenBillPhoto(ctx: Pick<ToolContext, 'models' | 'bus' | 'clock' | 'store'>, mediaId: string): Promise<{ kind: PhotoKind | 'error'; reply: string | null }> {
+  const media = ctx.store.getMedia(mediaId);
+  if (!media) return { kind: 'error', reply: null };
+  let r: PhotoRead | Error;
+  try {
+    r = await readBillPhoto(ctx, { data: media.data, contentType: media.meta.contentType }, readOpts(ctx));
+  } catch (err) {
+    r = err as Error;
+  }
+  if (!(r instanceof Error) && r.out && !needsBillCheck(r.out) && r.out.amount > coverCapacity(ctx.store.household().accounts)) {
+    const o = readOpts(ctx);
+    return { kind: 'too_big', reply: tooBigText(r.out, isoDateToDay(o.today, o.day0Date), o.day0Date) };
+  }
+  if (screened.size > 50) screened.clear();
+  screened.set(mediaId, r);
+  return r instanceof Error ? { kind: 'error', reply: null } : { kind: r.kind, reply: replyForPhoto(r.kind) };
 }
 
 export const read_billTool = defineTool('read_bill', TOOLS.read_bill.input, TOOLS.read_bill.output, async (input, ctx, scope) => {
   const media = ctx.store.getMedia(input.mediaId);
   if (!media) throw new Error(`read_bill: media ${input.mediaId} not found`);
-  const out = await readBillImage(ctx, { data: media.data, contentType: media.meta.contentType }, {
-    today: dayToISODate(ctx.clock.today(), ctx.store.household().day0Date),
-    day0Date: ctx.store.household().day0Date,
-    caseId: scope.caseId,
-    stepId: scope.stepId,
-  });
+  let read = screened.get(input.mediaId);
+  screened.delete(input.mediaId);
+  if (read === undefined) {
+    read = await readBillPhoto(ctx, { data: media.data, contentType: media.meta.contentType }, { ...readOpts(ctx), caseId: scope.caseId, stepId: scope.stepId });
+  }
+  if (read instanceof Error) throw read;
+  if (!read.out) throw new UnreadableBillError(read.kind);
+  const out = read.out;
 
   if (scope.caseId && ctx.store.getItem('cases', scope.caseId)) {
     const bill: Bill = {

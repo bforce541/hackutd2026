@@ -468,21 +468,39 @@ export function ensureDir(d: string): string {
  * except an un-negated waiver ("I'll waive the $35 fee", "no fee") which means 0.
  */
 export function feeOf(text: string): number | undefined {
-  // spelled-out digits ("one-five", "one five" -> "1-5") read as one number (15), not a $5 fee
-  const t = digitizeWords(text.replace(/,(?=\d{3})/g, '')).replace(/\b\d(?:[ -]\d\b)+/g, (m) => m.replace(/[ -]/g, ''));
-  const waive = /\b(waiv(e|ed|ing)|no (fee|charge)|without (a |any )?(fee|charge)|fee[- ]free|free of charge|no[- ]cost|at no cost)\b/i;
-  const neg = /\b(can'?t|cannot|won'?t|not able to|unable to|no way|not going to|isn'?t|is not|there'?s no way)\b[^.?!]{0,30}\bwaiv/i;
-  if (waive.test(t) && !neg.test(t)) return 0;
-  const re = /\$\s?(\d{1,4})(?:\.\d{2})?|\b(\d{1,4})(?:\.\d{2})?\s?(?:dollars?|bucks|usd)\b|\b(?:fee|charge)\s(?:of|is|would be|will be|is gonna be|of about|of like)?\s?(\d{1,4})\b|\b(\d{1,3})[\s-](?:dollar[\s-])?(?:fee|charge)\b/gi;
+  // spelled-out digits ("one-five", "one five" -> "1-5") read as one number (15), not a $5 fee;
+  // cents ("21 dollars and 60 cents", "twenty-one sixty fee") read as 21.6
+  const t = digitizeWords(text.replace(/,(?=\d{3})/g, ''))
+    .replace(/\b\d(?:[ -]\d\b)+/g, (m) => m.replace(/[ -]/g, ''))
+    .replace(/\b(\d{1,3}) dollars? and (\d{1,2}) cents?\b/gi, (_m, d, c) => `$${d}.${String(c).padStart(2, '0')}`)
+    .replace(/\b([1-9]\d{1,2})[ -](\d{2})\b(?=\s*(?:fee|total|dollars?|in fees|charge))/gi, (_m, d, c) => `$${d}.${c}`);
+  // Events in order: un-negated waivers count 0, amounts their value; the LAST mention wins
+  // ("no fee... oh wait, $15" is 15; "I'll waive the $35 fee" is 0).
+  const ev: { at: number; v: number }[] = [];
+  const waive = /\b(waiv(e|ed|ing)|no (fee|charge)|without (a |any )?(fee|charge)|fee[- ]free|free of charge|no[- ]cost|at no cost)\b/gi;
+  const neg = /\b(can'?t|cannot|won'?t|not able to|unable to|no way|not going to|isn'?t|is not|there'?s no way)\b[^.?!]{0,30}$/i;
+  let w: RegExpExecArray | null;
+  // "no fee isn't an option" / "there's no option to move it with no fee" deny a waiver
+  const noOption = (at: number, len: number) =>
+    /^\s*(isn['’]?t|is not|is never|wouldn['’]?t be|won['’]?t be|not)\s+(an option|possible|available)/i.test(t.slice(at + len, at + len + 30)) ||
+    /\b(no option|not an option|not possible|can['’]?t|cannot|unable|no way)\b[^.?!]{0,30}$/i.test(t.slice(Math.max(0, at - 45), at));
+  while ((w = waive.exec(t)))
+    if (!(/^waiv/i.test(w[0]) && neg.test(t.slice(Math.max(0, w.index - 40), w.index))) && !(/^(no|without)/i.test(w[0]) && noOption(w.index, w[0].length)))
+      ev.push({ at: w.index, v: 0 });
+  const re = /\$\s?(\d{1,4}(?:\.\d{2})?)|\b(\d{1,4}(?:\.\d{2})?)\s?(?:dollars?|bucks|usd)\b|\b(?:fee|charge)\s(?:of|is|would be|will be|is gonna be|of about|of like)?\s?(\d{1,4})\b|\b(\d{1,3})[\s-](?:dollar[\s-])?(?:fee|charge)\b/gi;
   let m: RegExpExecArray | null;
-  let last: number | undefined;
   while ((m = re.exec(t))) {
     const v = Number(m[1] ?? m[2] ?? m[3] ?? m[4]);
+    if (!Number.isFinite(v)) continue;
     // $400 is the car payment itself and $420 a total, not fees (unless literally called a fee)
     if (v >= 300 && !/^\s?(?:-?dollars?)?[\s-]*(fee|charge)/i.test(t.slice(m.index + m[0].length))) continue;
-    if (Number.isFinite(v)) last = v;
+    // "waive the $35 fee": the amount being waived (unless "can't waive the $35 fee")
+    const before = t.slice(Math.max(0, m.index - 30), m.index);
+    const waivedHere = /\bwaiv(e|ed|ing)\b[^.?!$\d,;]{0,20}$/i.test(before) && !neg.test(t.slice(Math.max(0, m.index - 70), m.index).replace(/waiv[\s\S]*$/i, ''));
+    ev.push({ at: m.index, v: waivedHere ? 0 : v });
   }
-  return last;
+  ev.sort((x, y) => x.at - y.at);
+  return ev.length ? ev[ev.length - 1]!.v : undefined;
 }
 /** The day (of November 2026) one line settles on: the last explicit date, else a weekday name. */
 export function dayOf(text: string): number | undefined {

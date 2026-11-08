@@ -1,0 +1,230 @@
+[
+ {
+  "id": "pay-watch-optout",
+  "category": "paycheck",
+  "title": "After the deal, Yoshua replies NO to the paycheck watch; Thursday passes silently",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {},
+    "expect": "Reply NO"
+   },
+   {
+    "say": "no",
+    "expect": "."
+   },
+   {
+    "clock": 5,
+    "expectNot": "hasn.t landed"
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "'no' cancels the watch (confirmed in a short text). On Thursday night no paycheck-watch text arrives (the reminder about tomorrow's payment may still come)."
+ },
+ {
+  "id": "pay-watch-late-second-call",
+  "category": "paycheck",
+  "title": "Paycheck watch fires Thursday; Yoshua says it's coming Monday; second call",
+  "style": "Casual, a bit worried.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   },
+   {
+    "say": "thanks"
+   },
+   {
+    "clock": 5,
+    "expect": "hasn.t landed"
+   },
+   {
+    "yoshua": "tell PacePay your employer said the paycheck is delayed until Monday"
+   },
+   {
+    "waitFor": "option_choice",
+    "timeoutMs": 120000
+   },
+   {
+    "yoshua": "pick the option where PacePay calls the lender again"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 0
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {},
+    "expect": "^Done"
+   }
+  ],
+  "expect": {
+   "calls": 2,
+   "deals": 2
+  },
+  "judgeNotes": "The late-paycheck options must reflect the already-moved car payment (now Fri Nov 13 + $20 fee) and the paycheck on Mon Nov 16; the second call asks to move it again to after Monday. Both Done texts accurate."
+ },
+ {
+  "id": "pay-late-news-savings",
+  "category": "paycheck",
+  "title": "Right after the deal, 'fyi my paycheck is delayed till monday', picks savings",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "brake_quote"
+   },
+   {
+    "waitFor": "option_choice"
+   },
+   {
+    "say": "1"
+   },
+   {
+    "waitFor": "call_limits"
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 20
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   },
+   {
+    "say": "fyi my paycheck is delayed till monday"
+   },
+   {
+    "waitFor": "option_choice",
+    "timeoutMs": 120000
+   },
+   {
+    "yoshua": "pick the savings option"
+   }
+  ],
+  "expect": {
+   "calls": 1,
+   "deals": 1
+  },
+  "judgeNotes": "News is not read as an answer to the watch question. Options computed on the new state. Savings choice: no second call; clear steps he does himself."
+ },
+ {
+  "id": "pay-whatif-no-case",
+  "category": "paycheck",
+  "title": "No case: 'what if my paycheck is late next week?' then 'nah dont watch it'",
+  "style": "Casual.",
+  "steps": [
+   {
+    "say": "what if my paycheck is late next week?"
+   },
+   {
+    "say": "nah dont watch it"
+   }
+  ],
+  "expect": {
+   "calls": 0
+  },
+  "judgeNotes": "A what-if answer with the correct numbers (paycheck Thu Nov 12); the 'nah' cancels the watch with a short confirmation."
+ },
+ {
+  "id": "pay-late-real-no-case",
+  "category": "paycheck",
+  "title": "No case: 'my paycheck is going to be 4 days late' -> options -> pick call -> deal",
+  "style": "Worried, full sentences.",
+  "steps": [
+   {
+    "say": "my paycheck is going to be 4 days late this time, landing monday the 16th"
+   },
+   {
+    "waitFor": "option_choice",
+    "timeoutMs": 120000
+   },
+   {
+    "yoshua": "pick the option PacePay recommends"
+   },
+   {
+    "waitFor": "call_limits",
+    "timeoutMs": 60000
+   },
+   {
+    "say": "ok"
+   },
+   {
+    "lender": {
+     "fee": 0,
+     "optional": true
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {},
+  "judgeNotes": "With no repair, a Monday paycheck makes the mortgage (Mon) and car payment (Tue) tight; check the numbers and options are right and honest."
+ }
+]

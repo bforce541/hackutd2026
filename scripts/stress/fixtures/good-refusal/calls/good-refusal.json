@@ -161,5 +161,23 @@
     "totalMs": 60000,
     "lenderLlmMs": 0,
     "decideMs": []
+  },
+  "grade": {
+    "pass": true,
+    "issues": [],
+    "facts": {
+      "endReason": "negotiator_end",
+      "outcome": "no_deal",
+      "committed": false,
+      "approved": "Fri Nov 13 / $20",
+      "approvals": [
+        "approved:Fri Nov 13 / $20"
+      ],
+      "lenderLast": "Fri Nov 13 / $35",
+      "disputed": true,
+      "doneTexts": [],
+      "moved": false,
+      "caseState": "WAITING"
+    }
   }
 }

@@ -6,10 +6,13 @@
  * enqueues APPROVAL_TIMEOUT { reminder: false } if the approval really timed out.
  */
 import { TOOLS, type Approval } from '@pacepay/shared';
-import { timeoutApproval } from '../approvals';
+import { extensionLeft, timeoutApproval } from '../approvals';
 import { newId } from '../ids';
 import { sendText } from '../messaging/outbox';
 import { defineTool } from './registry';
+
+/** Extra seconds a deal approval waits past its timeout, once, for a reply already on its way. */
+const DEAL_GRACE_MS = 5_000;
 
 export const request_approvalTool = defineTool('request_approval', TOOLS.request_approval.input, TOOLS.request_approval.output, async (input, ctx, scope) => {
   if (input.kind === 'option_choice' && input.optionIds && input.optionIds.length !== input.choices.length) {
@@ -45,13 +48,27 @@ export const request_approvalTool = defineTool('request_approval', TOOLS.request
   await sendText(ctx, input.prompt, { caseId: scope.caseId, stepId: scope.stepId, model: scope.model });
 
   if (input.timeoutMs) {
-    const timer = setTimeout(() => {
+    let graced = false;
+    const fire = (): void => {
       const before = ctx.store.getItem('approvals', approval.id);
       if (before?.status !== 'pending') return;
+      // A deal approval gets a few seconds' grace once: a YES sent right at the deadline still counts.
+      if (input.kind === 'deal' && !graced) {
+        graced = true;
+        setTimeout(fire, DEAL_GRACE_MS).unref?.();
+        return;
+      }
+      // Yoshua is mid-reply ("hang on", a question, a reply PacePay asked about): wait for him.
+      const left = extensionLeft(approval.id);
+      if (left > 0) {
+        setTimeout(fire, left).unref?.();
+        return;
+      }
       const after = timeoutApproval(ctx, approval.id);
       if (after.status !== 'timeout') return;
       ctx.enqueue({ id: newId('evt'), at: ctx.clock.now(), type: 'APPROVAL_TIMEOUT', approvalId: approval.id, caseId: approval.caseId, reminder: false });
-    }, input.timeoutMs);
+    };
+    const timer = setTimeout(fire, input.timeoutMs);
     timer.unref?.();
   }
   return { approvalId: approval.id };

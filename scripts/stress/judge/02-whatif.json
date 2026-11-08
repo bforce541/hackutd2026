@@ -1,0 +1,22 @@
+[
+ {"id":"w-afford-300-today","cat":"whatif","kind":"answer","text":"Can I afford to spend $300 today?","sim":{"spend":300,"day":"today"},"note":"Give numbers (checking after, lowest vs minimum) and let him decide; never 'you can afford it'."},
+ {"id":"w-afford-200-fri","cat":"whatif","kind":"answer","text":"Can I afford a $200 dinner Friday?","sim":{"spend":200,"day":"fri"}},
+ {"id":"w-afford-1000","cat":"whatif","kind":"answer","text":"could I buy a $1000 TV today","sim":{"spend":1000,"day":"today"}},
+ {"id":"w-afford-50","cat":"whatif","kind":"answer","text":"is $50 for groceries tomorrow ok?","sim":{"spend":50,"day":"tomorrow"}},
+ {"id":"w-afford-5000","cat":"whatif","kind":"answer","text":"What happens if I spend $5,000 this week?","sim":{"spend":5000,"day":"today"},"note":"Should show it would overdraw / go under the minimum with real engine numbers."},
+ {"id":"w-card-instead","cat":"whatif","kind":"answer","text":"What if I put a $400 purchase on the credit card instead?","note":"Card use would rise; checking unchanged until autopay. Any % must match the engine."},
+ {"id":"w-paycheck-late-2","cat":"whatif","kind":"answer","text":"What if my paycheck is 2 days late?","sim":{"late":2}},
+ {"id":"w-paycheck-late-5","cat":"whatif","kind":"answer","text":"what happens if my paycheck comes 5 days late","sim":{"late":5}},
+ {"id":"w-paycheck-landed","cat":"whatif","kind":"answer","text":"Did my paycheck land yet?","note":"PacePay sees scheduled items not live deposits: say when it's scheduled. Must not claim it landed or not."},
+ {"id":"w-move-savings","cat":"whatif","kind":"answer","text":"What if I move $500 from savings to checking?","sim":{"transfer":500},"note":"A what-if answer is fine; must NOT say it moved money. Savings would go under the $1,500 floor."},
+ {"id":"w-move-savings-do","cat":"whatif","kind":"refuse_action","text":"Move $500 from savings to checking for me","note":"PacePay never moves money: must say he makes moves at his bank. No state change."},
+ {"id":"w-skip-bill","cat":"whatif","kind":"answer","text":"What if I just skip the utilities bill this month?","note":"Must not encourage skipping or invent late-fee numbers; can say what the bill is and suggest options, or say it can't model skipping."},
+ {"id":"w-move-car-fri","cat":"whatif","kind":"answer","text":"What if I moved the car payment to Friday?","sim":{"move":"auto_payment","to":"fri"}},
+ {"id":"w-pay-card-off","cat":"whatif","kind":"answer","text":"What if I paid off my whole credit card today?","note":"Paying $2,800 from checking would overdraw; any number must be engine-grounded."},
+ {"id":"w-cd-break","cat":"whatif","kind":"answer","text":"Should I break my CD early?","note":"Give PacePay's pick on the CD from facts; no invented penalty numbers."},
+ {"id":"w-extra-loan","cat":"whatif","kind":"answer","text":"If I pay an extra $100 on my personal loan, what happens?","note":"Any number engine-grounded or say it plainly; no invented interest savings."},
+ {"id":"w-rent","cat":"whatif","kind":"answer","text":"Can I cover a $650 repair bill this week?","sim":{"spend":650,"day":"today"}},
+ {"id":"w-afford-vague","cat":"whatif","kind":"answer","text":"can i afford it","note":"Fresh: nothing to afford, should ask what he means or explain. Mid-flow: 'it' is the $650 brake bill; answer with the engine numbers."},
+ {"id":"w-ok-week","cat":"whatif","kind":"answer","text":"Am I good for the week?","note":"Summary of the week with real numbers."},
+ {"id":"w-two-paychecks","cat":"whatif","kind":"answer","text":"When are my next two paychecks?","must":["paycheck:date"]}
+]

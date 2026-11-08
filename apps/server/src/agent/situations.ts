@@ -228,7 +228,8 @@ const AUTOMATED = [
   /\bpound\b/,
   /\bfor english\b|\bpara espa|\bespa ?nol\b/,
   /\byou can (also )?say( things like)?\b/,
-  /\bplease (say|choose|select) (one of|from)\b/,
+  // "Please say one of the following" (an IVR), never "please choose one of the first two" (a person).
+  /\bplease (say|choose|select) (one of the following|from the following|one of these options|from these options|from the menu)\b/,
 ];
 
 const IVR_MENU_CUES = [
@@ -237,7 +238,7 @@ const IVR_MENU_CUES = [
   /\bmenu (options|has changed|have changed)\b/,
   /\blisten carefully\b/,
   /\byou can (also )?say( things like)?\b/,
-  /\bplease (say|choose|select) (one of|from|the option)\b/,
+  /\bplease (say|choose|select) (one of the following|from the following|one of these options|from these options|from the menu|the option that)\b/,
   /\bin a few words\b.{0,30}\b(tell|say)\b/,
   /\bbriefly (tell|say|describe)\b/,
   /\bhow can i help you today\b.{0,20}\b(you can say|for example)\b/,

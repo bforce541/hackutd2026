@@ -16,7 +16,7 @@ Two kinds of footage: **P** = real phone (you on your iPhone, Ram's laptop runni
 | 5 | 1:15 to 1:30 | P | The phone buzzes mid-call: "Approve?" You reply YES. Done text lands | "Before it says yes out loud, it texts me the exact terms. Nothing final without my yes." |
 | 6 | 1:30 to 1:50 | D | **Home** turns green left to right, cash cushion tile fills. Click the four health stats | "Code does all the math. The forecast updates: checking never drops below $100." |
 | 7 | 1:50 to 2:05 | D | **What-if** panel, then **Skip to Wed, Nov 18**: the CD alert, compare renew vs pay off the card | "Later, unprompted: the CD matures. Paying off the card saves about $550 a year." |
-| 8 | 2:05 to 2:20 | D | **Activity** tab: each step with its model chip (Nemotron Ultra, Super, Nano VL, Claude, code). Then **Arena** tab, click one transcript | "Every step shows which model did it. Nemotron plans, reads the bill and negotiates. Claude double-checks. We tested it against [ARENA] simulated lenders." |
+| 8 | 2:05 to 2:20 | D | **Activity** tab: each step with its model chip (Nemotron Ultra, Super, Nano VL, Claude, code). Then **Arena** tab, click one transcript | "Every step shows which model did it. Nemotron plans and reads the bill. Code runs the call and the math. Claude double-checks. We tested it against [ARENA] simulated lenders." |
 | 9 | 2:20 to 2:35 | P | Paycheck-late texts: PacePay flagged it on its own, you text "my paycheck is going to be late", options come back, call first | "It even watches for the paycheck Friday depends on." |
 | 10 | 2:35 to 2:50 | D | `docs/architecture.png` on screen, then the logo | "PNC: one picture of your whole financial life. NVIDIA: Nemotron runs the workflow. Photon: real texts and real calls. PacePay." |
 

@@ -1,121 +1,230 @@
 [
-  {
-    "id": "bill-01-lonestar-821",
-    "category": "bills",
-    "title": "Different repair quote: Lone Star Auto Repair $821.50 due Sat Nov 14 (rendered photo)",
-    "style": "Short, casual texts.",
-    "steps": [
-      { "photo": "data/bills-code/bill-01.png" },
-      { "yoshua": "respond to PacePay's last text naturally: if it gave numbered options, pick the one it recommends; if it asks you to confirm the bill, confirm" },
-      { "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say thanks" },
-      { "lender": { "fee": 20, "optional": true } },
-      { "say": "yes" },
-      { "lenderFinish": {} }
-    ],
-    "expect": { "billCents": 82150 },
-    "judgeNotes": "The ack must restate Lone Star Auto Repair, $821.50 and Sat Nov 14 (not today). Options/numbers must be consistent with an $821.50 bill due day 7."
+ {
+  "id": "bill-01-lonestar-821",
+  "category": "bills",
+  "title": "Different repair quote: Lone Star Auto Repair $821.50 due Sat Nov 14 (rendered photo)",
+  "style": "Short, casual texts.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-01.png"
+   },
+   {
+    "yoshua": "respond to PacePay's last text naturally: if it gave numbered options, pick the one it recommends; if it asks you to confirm the bill, confirm"
+   },
+   {
+    "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say thanks"
+   },
+   {
+    "say": "YES",
+    "onlyIf": "call_limits",
+    "note": "re-answer a Just-to-check"
+   },
+   {
+    "lender": {
+     "fee": 20,
+     "optional": true
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {
+   "billCents": 82150
   },
-  {
-    "id": "bill-03-oncor-small",
-    "category": "bills",
-    "title": "Small utility bill: Oncor $138.13 due Nov 21",
-    "style": "Curious, asks a follow-up.",
-    "steps": [
-      { "photo": "data/bills-code/bill-03.png" },
-      { "yoshua": "ask whether you need to do anything about this bill" }
-    ],
-    "expect": { "billCents": 13813, "calls": 0 },
-    "judgeNotes": "A small bill that probably doesn't cause a shortfall: PacePay should say so plainly (no alarming options, no call), with correct merchant/amount/date."
+  "judgeNotes": "The ack must restate Lone Star Auto Repair, $821.50 and Sat Nov 14 (not today). Options/numbers must be consistent with an $821.50 bill due day 7."
+ },
+ {
+  "id": "bill-03-oncor-small",
+  "category": "bills",
+  "title": "Small utility bill: Oncor $138.13 due Nov 21",
+  "style": "Curious, asks a follow-up.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-03.png"
+   },
+   {
+    "yoshua": "ask whether you need to do anything about this bill"
+   }
+  ],
+  "expect": {
+   "billCents": 13813,
+   "calls": 0
   },
-  {
-    "id": "bill-08-copay-57",
-    "category": "bills",
-    "title": "Medical copay $57.00 due on receipt",
-    "style": "Brief.",
-    "steps": [
-      { "photo": "data/bills-code/bill-08.png" },
-      { "yoshua": "say ok thanks" }
-    ],
-    "expect": { "billCents": 5700, "calls": 0 },
-    "judgeNotes": "Due on receipt means due now. Small bill: no call, plain reassurance."
+  "judgeNotes": "A small bill that probably doesn't cause a shortfall: PacePay should say so plainly (no alarming options, no call), with correct merchant/amount/date."
+ },
+ {
+  "id": "bill-08-copay-57",
+  "category": "bills",
+  "title": "Medical copay $57.00 due on receipt",
+  "style": "Brief.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-08.png"
+   },
+   {
+    "yoshua": "say ok thanks"
+   }
+  ],
+  "expect": {
+   "billCents": 5700,
+   "calls": 0
   },
-  {
-    "id": "bill-15-plumbing-1103",
-    "category": "bills",
-    "title": "Big plumbing invoice $1,103.00 due on receipt",
-    "style": "Stressed, short.",
-    "steps": [
-      { "photo": "data/bills-code/bill-15.png" },
-      { "yoshua": "say this is stressing you out and ask what your best option is" },
-      { "yoshua": "go with the option PacePay recommends" },
-      { "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say thanks" },
-      { "lender": { "fee": 20, "optional": true } },
-      { "say": "yes" },
-      { "lenderFinish": {} }
-    ],
-    "expect": { "billCents": 110300 },
-    "judgeNotes": "$1,103 due now makes a much bigger hole than the demo; check the options' numbers are sane and honest (moving the car payment alone may not be enough; it must say so if so)."
+  "judgeNotes": "Due on receipt means due now. Small bill: no call, plain reassurance."
+ },
+ {
+  "id": "bill-15-plumbing-1103",
+  "category": "bills",
+  "title": "Big plumbing invoice $1,103.00 due on receipt",
+  "style": "Stressed, short.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-15.png"
+   },
+   {
+    "yoshua": "say this is stressing you out and ask what your best option is"
+   },
+   {
+    "yoshua": "go with the option PacePay recommends"
+   },
+   {
+    "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say thanks"
+   },
+   {
+    "say": "YES",
+    "onlyIf": "call_limits",
+    "note": "re-answer a Just-to-check"
+   },
+   {
+    "lender": {
+     "fee": 20,
+     "optional": true
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {
+   "billCents": 110300
   },
-  {
-    "id": "bill-02-transmission-photo",
-    "category": "bills",
-    "title": "AI-generated crumpled photo: Plano Transmission Works $999.00 due at pickup",
-    "style": "Casual.",
-    "steps": [
-      { "photo": "data/bills/bill-02.png" },
-      { "yoshua": "respond naturally: if PacePay asks to confirm the amount, confirm $999; if it gives options, ask which one it recommends" },
-      { "yoshua": "say thanks, you'll think about it" }
-    ],
-    "expect": { "billCents": 99900 },
-    "judgeNotes": "Ack restates Plano Transmission Works $999.00; due at pickup should be treated as due now/today or asked about, not invented."
+  "judgeNotes": "$1,103 due now makes a much bigger hole than the demo; check the options' numbers are sane and honest (moving the car payment alone may not be enough; it must say so if so)."
+ },
+ {
+  "id": "bill-02-transmission-photo",
+  "category": "bills",
+  "title": "AI-generated crumpled photo: Plano Transmission Works $999.00 due at pickup",
+  "style": "Casual.",
+  "steps": [
+   {
+    "photo": "data/bills/bill-02.png"
+   },
+   {
+    "yoshua": "respond naturally: if PacePay asks to confirm the amount, confirm $999; if it gives options, ask which one it recommends"
+   },
+   {
+    "yoshua": "say thanks, you'll think about it"
+   }
+  ],
+  "expect": {
+   "billCents": 99900
   },
-  {
-    "id": "bill-11-imaging-later",
-    "category": "bills",
-    "title": "AI photo: Dallas Imaging Center $625.00 due Dec 12 (after payday)",
-    "style": "Brief.",
-    "steps": [
-      { "photo": "data/bills/bill-11.png" },
-      { "yoshua": "ask if you can afford it" }
-    ],
-    "expect": { "billCents": 62500 },
-    "judgeNotes": "Due Dec 12, well after paychecks; PacePay should place it on the right date and answer the affordability question with real numbers."
+  "judgeNotes": "Ack restates Plano Transmission Works $999.00; due at pickup should be treated as due now/today or asked about, not invented."
+ },
+ {
+  "id": "bill-11-imaging-later",
+  "category": "bills",
+  "title": "AI photo: Dallas Imaging Center $625.00 due Dec 12 (after payday)",
+  "style": "Brief.",
+  "steps": [
+   {
+    "photo": "data/bills/bill-11.png"
+   },
+   {
+    "yoshua": "ask if you can afford it"
+   }
+  ],
+  "expect": {
+   "billCents": 62500
   },
-  {
-    "id": "bill-21-hoa-monday",
-    "category": "bills",
-    "title": "HOA dues $280.00 due Mon Nov 9 (same day as the mortgage)",
-    "style": "Short.",
-    "steps": [
-      { "photo": "data/bills-code/bill-21.png" },
-      { "yoshua": "respond naturally to PacePay's last text; if there are options pick its recommendation" },
-      { "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say got it" },
-      { "lender": { "fee": 20, "optional": true } },
-      { "say": "yes" },
-      { "lenderFinish": {} }
-    ],
-    "expect": { "billCents": 28000 }
-  },
-  {
-    "id": "bill-27-tires-photo",
-    "category": "bills",
-    "title": "AI photo: Frisco Tire and Lube $777.99 due at pickup",
-    "style": "Casual, typos.",
-    "steps": [
-      { "photo": "data/bills/bill-27.png" },
-      { "yoshua": "respond naturally; if options, pick option 2 (the card)" }
-    ],
-    "expect": { "billCents": 77799, "calls": 0 }
-  },
-  {
-    "id": "bill-23-appliance-friday",
-    "category": "bills",
-    "title": "Fix-It Fast Appliance Repair $349.23 due Fri Nov 13",
-    "style": "Short.",
-    "steps": [
-      { "photo": "data/bills-code/bill-23.png" },
-      { "yoshua": "ask what this does to your week" }
-    ],
-    "expect": { "billCents": 34923 }
+  "judgeNotes": "Due Dec 12, well after paychecks; PacePay should place it on the right date and answer the affordability question with real numbers."
+ },
+ {
+  "id": "bill-21-hoa-monday",
+  "category": "bills",
+  "title": "HOA dues $280.00 due Mon Nov 9 (same day as the mortgage)",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-21.png"
+   },
+   {
+    "yoshua": "respond naturally to PacePay's last text; if there are options pick its recommendation"
+   },
+   {
+    "yoshua": "if PacePay is asking you to OK limits for a call, say ok; otherwise say got it"
+   },
+   {
+    "say": "YES",
+    "onlyIf": "call_limits",
+    "note": "re-answer a Just-to-check"
+   },
+   {
+    "lender": {
+     "fee": 20,
+     "optional": true
+    }
+   },
+   {
+    "say": "yes"
+   },
+   {
+    "lenderFinish": {}
+   }
+  ],
+  "expect": {
+   "billCents": 28000
   }
+ },
+ {
+  "id": "bill-27-tires-photo",
+  "category": "bills",
+  "title": "AI photo: Frisco Tire and Lube $777.99 due at pickup",
+  "style": "Casual, typos.",
+  "steps": [
+   {
+    "photo": "data/bills/bill-27.png"
+   },
+   {
+    "yoshua": "respond naturally; if options, pick option 2 (the card)"
+   }
+  ],
+  "expect": {
+   "billCents": 77799,
+   "calls": 0
+  }
+ },
+ {
+  "id": "bill-23-appliance-friday",
+  "category": "bills",
+  "title": "Fix-It Fast Appliance Repair $349.23 due Fri Nov 13",
+  "style": "Short.",
+  "steps": [
+   {
+    "photo": "data/bills-code/bill-23.png"
+   },
+   {
+    "yoshua": "ask what this does to your week"
+   }
+  ],
+  "expect": {
+   "billCents": 34923
+  }
+ }
 ]

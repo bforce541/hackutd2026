@@ -2,7 +2,8 @@
 /**
  * Arena tab: simulated lenders played by Nemotron, graded by Claude. The stat cards, the field of
  * run tiles (each opens that run's transcript in a side sheet), the legend and "Run 3 live"
- * (actions.runArenaLive), whose progress is three tiles that light up in the spectrum. Every count
+ * (arena/live-store.ts), whose three runs fill their own tiles under the button (each opens its
+ * transcript) and never replace the 50-run field. Every count
  * and sentence derives from the results. Live mode shows state.arena (the server's /api/arena);
  * demo mode loads the real results shipped in public/demo/arena-results.json (regenerate it with
  * scripts/arena-to-demo.mjs). Says "Sample results" only when the data is a sample.
@@ -13,6 +14,8 @@ import { formatPercent, type ArenaResults } from '@pacepay/shared';
 import type { DashboardProps } from '@/lib/view-model';
 import { ArenaKey } from './arena/ArenaKey';
 import { ArenaStats } from './arena/ArenaStats';
+import { LiveRuns } from './arena/LiveRuns';
+import { pokeLive, restoreLive, startLive, useLiveRuns } from './arena/live-store';
 import { RunGrid } from './arena/RunGrid';
 import { RunSheet } from './arena/RunSheet';
 
@@ -39,13 +42,25 @@ function useDemoResults(enabled: boolean): ArenaResults | null {
   return results;
 }
 
-export function ArenaTab({ state, actions }: DashboardProps) {
+export function ArenaTab({ state }: DashboardProps) {
   const { arenaProgress } = state;
+  // "Run 3 live" (arena/live-store.ts): its own three tiles, never mixed into the 50-run field.
+  const live = useLiveRuns();
+  const liveServer = state.mode === 'live' && !state.readOnly;
+  useEffect(() => {
+    if (liveServer) void restoreLive();
+  }, [liveServer]);
+  useEffect(() => {
+    if (arenaProgress) pokeLive(arenaProgress.runId);
+  }, [arenaProgress]);
+  const liveDone = live ? live.runs.filter(Boolean).length : 0;
+  const liveRunning = !!live && !live.finished;
+  const [openLive, setOpenLive] = useState<number | null>(null);
+  const openLiveRun = live && openLive !== null ? live.runs[openLive] : null;
   // Live mode falls back to the shipped results when the server has none yet (a demo reset clears them).
   const serverHasRuns = !!state.arena && !state.arena.sample && state.arena.runs.length > 0;
   const demoResults = useDemoResults(state.mode === 'demo' || !serverHasRuns);
   const arena = state.mode === 'demo' || !serverHasRuns ? (demoResults ?? state.arena) : state.arena;
-  const running = arenaProgress !== null && arenaProgress.done < arenaProgress.total;
   const clean = arena && arena.limitViolations === 0 && arena.disclosures === 0;
 
   const [openId, setOpenId] = useState<string | null>(null);
@@ -58,6 +73,11 @@ export function ArenaTab({ state, actions }: DashboardProps) {
       return null;
     });
   }, []);
+  const closeLive = useCallback(() => {
+    const id = openLiveRun?.id;
+    setOpenLive(null);
+    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-run-id="${CSS.escape(id)}"]`)?.focus());
+  }, [openLiveRun]);
 
   return (
     <section aria-labelledby="arena-h" className="mx-auto max-w-[78rem]">
@@ -86,33 +106,41 @@ export function ArenaTab({ state, actions }: DashboardProps) {
       <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-3">
         <button
           type="button"
-          onClick={actions.runArenaLive}
-          disabled={running}
-          className="pp-write min-h-12 rounded-full bg-ink px-7 font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
+          onClick={() => {
+            void startLive(liveServer);
+            // Bring the three live tiles into view (they sit under the field).
+            setTimeout(() => document.getElementById('arena-live')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+          }}
+          disabled={liveRunning}
+          className="min-h-12 rounded-full bg-ink px-7 font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
         >
-          Run 3 live
+          {live?.finished ? 'Run 3 more' : 'Run 3 live'}
         </button>
-        {running && arenaProgress ? (
+        {live ? (
           <div role="status" className="flex items-center gap-3">
             <span className="flex gap-1" aria-hidden="true">
               {SPECTRUM.map((c, i) => (
                 <span
                   key={c}
                   className="h-3 w-7 rounded-[5px] transition-colors duration-[var(--dur-slow)]"
-                  style={{ background: i < arenaProgress.done ? c : 'var(--hairline)' }}
+                  style={{ background: i < liveDone ? c : 'var(--hairline)' }}
                 />
               ))}
             </span>
             <span className="eyebrow text-muted">
-              {arenaProgress.done} of {arenaProgress.total} done
+              {live.finished ? 'Live runs done · open any to read the call' : `${liveDone} of ${live.total} done`}
             </span>
           </div>
         ) : arena === null ? (
           <p className="eyebrow m-0 text-muted">No runs yet</p>
         ) : null}
       </div>
+      {live ? <LiveRuns live={live} onOpen={setOpenLive} /> : null}
 
       {openRun && arena ? <RunSheet run={openRun} position={openIndex + 1} total={arena.runs.length} onClose={close} /> : null}
+      {openLiveRun && live && openLive !== null ? (
+        <RunSheet run={openLiveRun} position={openLive + 1} total={live.total} onClose={closeLive} />
+      ) : null}
     </section>
   );
 }

@@ -167,5 +167,97 @@
     "totalMs": 60000,
     "lenderLlmMs": 0,
     "decideMs": []
+  },
+  "grade": {
+    "pass": false,
+    "issues": [
+      {
+        "check": "agreed_after_change",
+        "severity": "critical",
+        "detail": "Lender said \"Uh, no, it's $35 now.\" (?day / $35); approved: Fri Nov 13 / $20. PacePay's reply sounds like agreement.",
+        "line": "That's fine. Thank you for taking care of that. Goodbye.",
+        "cause": "sounds like agreeing to unapproved terms",
+        "area": "negotiator",
+        "by": "rule"
+      },
+      {
+        "check": "ignored_change_after_approval",
+        "severity": "critical",
+        "detail": "After approval of Fri Nov 13 / $20, lender changed to ?day / $35: \"Uh, actually, I want to make that $35.\". PacePay did not restate the approved terms.",
+        "line": "Sorry, could I get a reference number for that change?",
+        "cause": "post-approval change not handled",
+        "area": "negotiator",
+        "by": "rule"
+      },
+      {
+        "check": "ignored_change_after_approval",
+        "severity": "high",
+        "detail": "After approval of Fri Nov 13 / $20, lender changed to ?day / $35: \"Uh, no, it's $35 now.\". PacePay did not restate the approved terms.",
+        "line": "That's fine. Thank you for taking care of that. Goodbye.",
+        "cause": "post-approval change not handled",
+        "area": "negotiator",
+        "by": "rule"
+      },
+      {
+        "check": "deal_on_disputed_terms",
+        "severity": "critical",
+        "detail": "Deal committed on Fri Nov 13 / $20 but the lender last stated Fri Nov 13 / $35 (\"Uh, no, it's $35 now.\").",
+        "line": "Done. Car payment is now Fri, Nov 13 ($20).",
+        "cause": "outcome ignores the lender's last change",
+        "area": "texts",
+        "by": "rule"
+      },
+      {
+        "check": "done_text_before_call_end",
+        "severity": "high",
+        "detail": "Done text at 50 s; call ended at 58 s.",
+        "line": "Done. Car payment is now Fri, Nov 13 ($20).",
+        "cause": "Done texted mid-call",
+        "area": "texts",
+        "by": "rule"
+      },
+      {
+        "check": "false_didnt_catch",
+        "severity": "high",
+        "detail": "Said it didn't catch an intelligible turn: heard \"Yeah, something like that.\".",
+        "line": "Sorry, I didn't catch that.",
+        "cause": "\"didn't catch\" on intelligible speech",
+        "area": "negotiator",
+        "by": "rule"
+      },
+      {
+        "check": "no_final_text",
+        "severity": "high",
+        "detail": "No text to Yoshua after the call ended (end=negotiator_end, outcome=deal).",
+        "cause": "no final text to Yoshua",
+        "area": "texts",
+        "by": "rule"
+      },
+      {
+        "check": "agreeing_closing",
+        "severity": "critical",
+        "detail": "Closing sounds like agreement while terms were disputed (lender Fri Nov 13 / $35 vs approved Fri Nov 13 / $20).",
+        "line": "That's fine. Thank you for taking care of that. Goodbye.",
+        "cause": "closing sounds like agreement",
+        "area": "negotiator",
+        "by": "rule"
+      }
+    ],
+    "facts": {
+      "endReason": "negotiator_end",
+      "outcome": "deal",
+      "committed": true,
+      "approved": "Fri Nov 13 / $20",
+      "approvals": [
+        "approved:Fri Nov 13 / $20"
+      ],
+      "lenderLast": "Fri Nov 13 / $35",
+      "disputed": true,
+      "doneTexts": [
+        "Done. Car payment is now Fri, Nov 13 ($20)."
+      ],
+      "moved": true,
+      "caseState": "DONE"
+    }
   }
 }

@@ -1,0 +1,22 @@
+[
+ {"id":"m-typo-bal","cat":"messy","kind":"answer","text":"whats my chekcing balanace","must":["acct:checking"]},
+ {"id":"m-allcaps","cat":"messy","kind":"answer","text":"HOW MUCH MONEY DO I HAVE","must":["acct:checking"]},
+ {"id":"m-slang","cat":"messy","kind":"answer","text":"yo am i broke rn or nah","note":"Plain answer with real numbers, no judging."},
+ {"id":"m-emoji","cat":"messy","kind":"answer","text":"💰❓","note":"Reasonable: give a balance summary or ask what he wants. No invented numbers."},
+ {"id":"m-emoji2","cat":"messy","kind":"answer","text":"when do i get paid 🤑🤑","must":["paycheck:date"]},
+ {"id":"m-multi","cat":"messy","kind":"answer","text":"whats my checking and savings and when do i get paid next","must":["acct:checking","acct:savings","paycheck:date"]},
+ {"id":"m-multi2","cat":"messy","kind":"answer","text":"how much do i owe on the car and whats my card balance?","must":["acct:auto_loan","acct:card"]},
+ {"id":"m-paycheck-slang","cat":"messy","kind":"answer","text":"wen paycheck","must":["paycheck:date"]},
+ {"id":"m-tired","cat":"messy","kind":"answer","text":"ugh money stuff is stressing me out. am i ok?","note":"Calm, kind, real numbers, no judging."},
+ {"id":"m-swear","cat":"messy","kind":"answer","text":"wtf is my net worth","must":["networth"]},
+ {"id":"m-question-marks","cat":"messy","kind":"answer","text":"???","note":"Ask what he needs or restate pending question. Must not hallucinate."},
+ {"id":"m-hi","cat":"messy","kind":"answer","text":"hey","note":"Friendly short greeting; mid-flow, restate pending question."},
+ {"id":"m-thanks","cat":"messy","kind":"answer","text":"thanks!!","note":"Short acknowledgment; must not approve anything mid-flow."},
+ {"id":"m-long","cat":"messy","kind":"answer","text":"ok so basically my brother wants to borrow some money and i told him maybe but i dont really know how much i have right now and also my car has been making weird noises so i might need a repair soon, so like how much do i actually have in checking","must":["acct:checking"]},
+ {"id":"m-spanish","cat":"messy","kind":"answer","text":"cuanto tengo en mi cuenta de cheques?","must":["acct:checking"],"note":"Answering in Spanish or English is fine; numbers must be right."},
+ {"id":"m-lowercase-lowest","cat":"messy","kind":"answer","text":"lowest point this month??","must":["lowest:amount"]},
+ {"id":"m-k-dollars","cat":"messy","kind":"answer","text":"can i drop 2k on a trip friday","sim":{"spend":2000,"day":"fri"}},
+ {"id":"m-mixed-jb","cat":"messy","kind":"answer","text":"lol ok whatever. whats my savings","must":["acct:savings"],"note":"'ok whatever' must not count as a yes mid-flow."},
+ {"id":"m-hmm","cat":"messy","kind":"answer","text":"hmm let me think about it","note":"Mid-flow: must not approve or decline; short ack, pending question stays open."},
+ {"id":"m-wrong-fact","cat":"messy","kind":"answer","text":"I thought I had $10,000 in checking?","note":"Must correct him politely with the real balance, not agree."}
+]

@@ -3,6 +3,7 @@
  * "Next 14 days" (UI.md): date · name · signed amount, straight from the current plan's forecast.
  * A payment the accepted changes moved gets the green tint. Owned by: dash-tabs-b.
  */
+import type { CSSProperties } from 'react';
 import { formatDate, formatSignedMoney } from '@pacepay/shared';
 import { cn } from '@/lib/cn';
 import type { DashboardState } from '@/lib/view-model';
@@ -39,22 +40,25 @@ export function NextDays({ state }: { state: DashboardState }) {
   };
 
   return (
-    <section aria-labelledby="up-h">
-      <h2 id="up-h" className="mb-2 text-xl font-semibold">
+    <section aria-labelledby="up-h" className="rise rounded-[1.5rem] border border-hairline bg-panel p-5 shadow-panel" style={{ '--d': '120ms' } as CSSProperties}>
+      <h2 id="up-h" className="eyebrow m-0 text-muted">
         Next 14 days
       </h2>
       {rows.length === 0 ? (
-        <p className="border-b border-hairline py-2 text-muted">Nothing scheduled.</p>
+        <p className="m-0 mt-3 text-muted">Nothing scheduled.</p>
       ) : (
-        <ul className="m-0 list-none border-b border-hairline p-0">
+        <ul className="m-0 mt-3 list-none p-0">
           {rows.map((r) => (
             <li
               key={r.key}
-              className={cn('flex items-baseline gap-3 border-t border-hairline px-2 py-2', r.moved && 'bg-green-tint')}
+              className={cn('-mx-2 flex items-baseline gap-3 rounded-xl px-2 py-2 transition-colors duration-[var(--dur-slow)]', r.moved && 'bg-green-tint')}
             >
-              <span className="w-[6.5em] flex-none text-muted">{dateLabel(r.day)}</span>
-              <span className="min-w-0 flex-1">{r.name}</span>
-              <span className="num flex-none text-right font-medium">{formatSignedMoney(r.amount)}</span>
+              <span className="eyebrow w-[5.75rem] flex-none text-muted">{dateLabel(r.day)}</span>
+              <span className="min-w-0 flex-1 leading-tight">
+                {r.name}
+                {r.moved ? <span className="eyebrow ml-2 text-green">Moved</span> : null}
+              </span>
+              <span className={cn('num flex-none text-right font-medium', r.amount > 0 && 'text-green')}>{formatSignedMoney(r.amount)}</span>
             </li>
           ))}
         </ul>

@@ -1,35 +1,46 @@
 'use client';
 /**
- * Accounts tab (UI.md): left, accounts under PNC's six categories with net worth in the header;
- * right, "Next 14 days" (a moved payment on a green tint) and "Your rules" with the Pause PacePay
- * switch. Two columns straight on the page, wrapping to one at phone width.
- * Owned by: dash-tabs-b.
+ * Accounts tab: net worth as the headline, then PNC's six categories as cards, with the next 14
+ * days and your rules (and the Pause PacePay switch) beside them. Owned by: dash-tabs-b.
  */
+import type { CSSProperties } from 'react';
 import { formatMoney } from '@pacepay/shared';
+import { useTween } from '@/lib/motion';
 import type { DashboardProps } from '@/lib/view-model';
 import { AccountList } from './accounts/AccountList';
 import { NextDays } from './accounts/NextDays';
 import { YourRules } from './accounts/YourRules';
 
 export function AccountsTab({ state, actions }: DashboardProps) {
+  const { assets, liabilities, netWorth } = state.household.netWorth;
+  const shown = useTween(netWorth, { from: 0, ms: 1000 });
   return (
-    <section aria-label="Accounts" className="flex flex-wrap items-start gap-10">
-      <section aria-labelledby="acct-h" className="min-w-0 flex-[1_1_360px]">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 id="acct-h" className="text-xl font-semibold">
-            Accounts
+    <section aria-labelledby="acct-h" className="mx-auto max-w-[78rem]">
+      <div className="rise flex flex-wrap items-end justify-between gap-x-10 gap-y-3 px-1 pb-6 pt-2" style={{ '--d': '0ms' } as CSSProperties}>
+        <div>
+          <p className="eyebrow text-muted">Accounts · {state.household.accountCount} in one place</p>
+          <h2 id="acct-h" className="display num m-0 mt-2 text-hero">
+            {formatMoney(Math.round(shown))}
           </h2>
-          <span className="text-muted">
-            Net worth <strong className="num font-semibold text-ink">{formatMoney(state.household.netWorth.netWorth)}</strong>
-          </span>
+          <p className="m-0 mt-2 text-body text-muted">Net worth</p>
         </div>
-        <div className="mt-2">
-          <AccountList state={state} />
+        <dl className="m-0 flex gap-8">
+          <div>
+            <dt className="eyebrow text-muted">Assets</dt>
+            <dd className="display num m-0 mt-1 text-[1.5rem]">{formatMoney(assets)}</dd>
+          </div>
+          <div>
+            <dt className="eyebrow text-muted">Owed</dt>
+            <dd className="display num m-0 mt-1 text-[1.5rem]">{formatMoney(liabilities)}</dd>
+          </div>
+        </dl>
+      </div>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
+        <AccountList state={state} />
+        <div className="flex min-w-0 flex-col gap-5">
+          <NextDays state={state} />
+          <YourRules state={state} actions={actions} />
         </div>
-      </section>
-      <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-8">
-        <NextDays state={state} />
-        <YourRules state={state} actions={actions} />
       </div>
     </section>
   );

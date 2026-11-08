@@ -42,7 +42,7 @@ export function ArenaTab({ state, actions }: DashboardProps) {
           type="button"
           onClick={actions.runArenaLive}
           disabled={running}
-          className="min-h-12 rounded-full bg-ink px-7 font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
+          className="pp-write min-h-12 rounded-full bg-ink px-7 font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
         >
           Run 3 live
         </button>

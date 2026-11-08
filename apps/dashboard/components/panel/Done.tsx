@@ -39,7 +39,7 @@ export function Done({ view, state, actions }: DashboardProps & { view: StepOf<'
           <DefRows rows={rows} />
         </div>
       )}
-      <SecondaryButton className="mt-[1.25em]" onClick={actions.openActivity}>
+      <SecondaryButton read className="mt-[1.25em]" onClick={actions.openActivity}>
         What happened
       </SecondaryButton>
     </div>

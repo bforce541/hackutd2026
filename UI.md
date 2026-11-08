@@ -27,6 +27,7 @@ The first version was correct but plain. This pass keeps every behavior and rebu
 - **Health stats have five-tile meters** instead of numbers alone: one tile is far from the goal, five means it is met. No gauges, no grades.
 - **Two themes on one token set.** Light is the default; Night is one click (the moon in the header). Presenter mode compacts the page to fit a 1440 × 800 screen.
 - **Motion, only where it explains:** the balance counts up on load; tiles rise in a wave; tiles glide and re-color when the plan changes (a deal landing turns the dip green, left to right); steps ease in; the lowest point pulses twice; the plan's checks draw themselves. Curves: `--ease-out` (expo-out) for things that arrive or morph, a gentle ease for color.
+- **View only.** Through the public tunnel the server answers reads only (`/api/health` says `readOnly`). The header then says "View only", Skip and Reset disappear, every control that changes something is dimmed and inert (`.pp-write`), and the panel says actions run on the presenter's laptop. Reading, tabs, What-if and Presenter keep working, so anyone on pacepay.work can watch the live demo.
 - **Messages is a phone** showing the iMessage thread, with tappable questions. **Activity** is a flight recorder: every step and log row carries the model that did it. **Accounts** is net worth plus six category cards. **Arena** is a field of 50 tiles.
 
 Source of truth for the values is `apps/dashboard/app/globals.css`; where this section and the older text below disagree, this section wins.

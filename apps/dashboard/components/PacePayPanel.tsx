@@ -103,6 +103,12 @@ export function PacePayPanel(props: DashboardProps) {
         })}
       </div>
 
+      {props.state.readOnly && (
+        <p className="eyebrow mb-[1.25em] mt-0 rounded-xl bg-secondary-hover px-3 py-2 text-muted">
+          View only · actions run on the presenter&apos;s laptop
+        </p>
+      )}
+
       {/* Keyed by step, so each step eases in; the panel's height follows its content */}
       <div key={step} className="rise" style={{ '--d': '0ms', animationDuration: '480ms' } as CSSProperties}>
         <Step {...props} />

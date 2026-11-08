@@ -52,13 +52,13 @@ export function Header({ state, actions }: DashboardProps) {
             className="eyebrow mr-1 flex items-center gap-1.5 px-2 text-muted [html[data-presenter=true]_&]:hidden"
           >
             <span aria-hidden="true" className={cn('size-1.5 rounded-full', state.mode === 'live' ? 'bg-leaf' : 'bg-amber')} />
-            {state.notice && state.mode === 'demo' ? state.notice : modeNote}
+            {state.notice ?? (state.readOnly ? 'View only' : modeNote)}
           </span>
 
           <span className="eyebrow rounded-full border border-hairline px-3 py-[0.55rem] text-ink [html[data-presenter=true]_&]:hidden">
             {formatDate(state.day)}
           </span>
-          {!inCall && (
+          {!inCall && !state.readOnly && (
             <button
               type="button"
               onClick={actions.skipClock}
@@ -77,9 +77,11 @@ export function Header({ state, actions }: DashboardProps) {
           >
             Presenter
           </button>
-          <button type="button" onClick={actions.reset} className={GHOST}>
-            Reset
-          </button>
+          {!state.readOnly && (
+            <button type="button" onClick={actions.reset} className={GHOST}>
+              Reset
+            </button>
+          )}
           <button
             type="button"
             onClick={toggle}

@@ -76,7 +76,7 @@ export function MessagesTab({ state, actions }: DashboardProps) {
           </ol>
         </div>
 
-        <form onSubmit={send} className="flex flex-none items-center gap-2 border-t border-hairline bg-panel/70 px-3 py-2.5">
+        <form onSubmit={send} className="pp-write flex flex-none items-center gap-2 border-t border-hairline bg-panel/70 px-3 py-2.5">
           <label htmlFor="pp-msg" className="sr-only">
             Message PacePay
           </label>
@@ -113,7 +113,7 @@ export function MessagesTab({ state, actions }: DashboardProps) {
         </p>
 
         <p className="eyebrow mt-8 text-muted">Try asking</p>
-        <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
+        <ul className="pp-write m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
           {SUGGESTIONS.map((q) => (
             <li key={q}>
               <button
@@ -131,7 +131,7 @@ export function MessagesTab({ state, actions }: DashboardProps) {
         <button
           type="button"
           onClick={actions.injectBillPhoto}
-          className="mt-3 min-h-11 rounded-full bg-ink px-5 text-label font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97]"
+          className="pp-write mt-3 min-h-11 rounded-full bg-ink px-5 text-label font-medium text-page transition-[opacity,transform] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97]"
         >
           Text PacePay the $650 repair quote
         </button>

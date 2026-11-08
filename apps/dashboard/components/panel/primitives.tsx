@@ -60,7 +60,7 @@ export function PrimaryButton({ className, type = 'button', ...rest }: BtnProps)
     <button
       type={type}
       className={cn(
-        'min-h-12 cursor-pointer rounded-full border-0 bg-ink px-[1.25em] text-[1em] font-medium text-page transition-[transform,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:cursor-default disabled:opacity-50',
+        'pp-write min-h-12 cursor-pointer rounded-full border-0 bg-ink px-[1.25em] text-[1em] font-medium text-page transition-[transform,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:cursor-default disabled:opacity-50',
         FOCUS,
         className,
       )}
@@ -69,11 +69,12 @@ export function PrimaryButton({ className, type = 'button', ...rest }: BtnProps)
   );
 }
 
-export function SecondaryButton({ className, type = 'button', ...rest }: BtnProps) {
+export function SecondaryButton({ className, type = 'button', read, ...rest }: BtnProps & { read?: boolean }) {
   return (
     <button
       type={type}
       className={cn(
+        !read && 'pp-write',
         'min-h-12 cursor-pointer rounded-full border bg-panel px-[1.25em] text-[1em] font-medium text-ink transition-[transform,background-color] duration-[var(--dur-base)] ease-[var(--ease-out)] active:scale-[0.97]',
         CONTROL_BORDER,
         SECONDARY_HOVER,
@@ -122,7 +123,7 @@ export function OptionRowButton({ title, detail, onClick }: { title: string; det
       type="button"
       onClick={onClick}
       className={cn(
-        'group -mx-[0.75em] flex min-h-12 w-[calc(100%+1.5em)] cursor-pointer items-center gap-[0.75em] rounded-2xl border-0 bg-transparent px-[0.75em] py-[0.625em] text-left text-[1em] text-ink transition-colors duration-[var(--dur-base)] hover:bg-secondary-hover',
+        'pp-write group -mx-[0.75em] flex min-h-12 w-[calc(100%+1.5em)] cursor-pointer items-center gap-[0.75em] rounded-2xl border-0 bg-transparent px-[0.75em] py-[0.625em] text-left text-[1em] text-ink transition-colors duration-[var(--dur-base)] hover:bg-secondary-hover',
         FOCUS,
       )}
     >

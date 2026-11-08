@@ -8,7 +8,7 @@
  * is probed again every few seconds, so starting the server mid-rehearsal switches to live.
  */
 import { useEffect, useState } from 'react';
-import { probeHealth, serverUrl } from './api';
+import { fetchHealth, serverUrl } from './api';
 import { useDemoDashboard } from './demo-machine';
 import { useLiveDashboard } from './live';
 import type { UseDashboard } from './view-model';
@@ -19,16 +19,19 @@ export function useDashboard(): UseDashboard {
   const base = serverUrl();
   const demo = useDemoDashboard();
   const [liveBase, setLiveBase] = useState<string | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
 
   useEffect(() => {
     if (!base || liveBase) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const probe = async () => {
-      const ok = await probeHealth(base, 1500);
+      const health = await fetchHealth(base, 1500);
       if (cancelled) return;
-      if (ok) setLiveBase(base);
-      else timer = setTimeout(probe, REPROBE_MS);
+      if (health) {
+        setReadOnly(health.readOnly);
+        setLiveBase(base);
+      } else timer = setTimeout(probe, REPROBE_MS);
     };
     void probe();
     return () => {
@@ -37,6 +40,6 @@ export function useDashboard(): UseDashboard {
     };
   }, [base, liveBase]);
 
-  const live = useLiveDashboard(liveBase);
+  const live = useLiveDashboard(liveBase, readOnly);
   return live ?? demo;
 }

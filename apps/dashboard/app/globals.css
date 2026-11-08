@@ -233,6 +233,13 @@ html.theme-switching *::after {
   outline-offset: 3px;
 }
 
+/* View only (the public tunnel): controls that change things are dimmed and inert. The actions
+   behind them also refuse, so a keyboard press explains instead of failing. */
+html[data-readonly='true'] .pp-write {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* Every amount uses tabular figures. Add class "num" to amounts. */
 .num {
   font-variant-numeric: tabular-nums;

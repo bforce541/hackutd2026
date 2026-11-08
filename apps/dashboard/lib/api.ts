@@ -36,18 +36,26 @@ export const apiGet = <T>(path: string) => request<T>('GET', path);
 export const apiPost = <T>(path: string, body: unknown = {}) => request<T>('POST', path, body);
 export const apiPut = <T>(path: string, body: unknown) => request<T>('PUT', path, body);
 
-/** The live/demo probe: true when GET /api/health answers 200 within `timeoutMs` (default 1.5 s). */
-export async function probeHealth(base: string, timeoutMs = 1500): Promise<boolean> {
+/**
+ * The live/demo probe: GET /api/health within `timeoutMs` (default 1.5 s). Null when the server
+ * does not answer; otherwise whether it is view-only (the public tunnel: every write is a 403).
+ */
+export async function fetchHealth(base: string, timeoutMs = 1500): Promise<{ readOnly: boolean } | null> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const res = await fetch(`${base}${API.health}`, { signal: ctl.signal, cache: 'no-store' });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const body = (await res.json()) as Partial<HealthResponse>;
-    return body.ok === true;
+    return body.ok === true ? { readOnly: body.readOnly === true } : null;
   } catch {
-    return false;
+    return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** True when GET /api/health answers 200 (kept for callers that only need up or down). */
+export async function probeHealth(base: string, timeoutMs = 1500): Promise<boolean> {
+  return (await fetchHealth(base, timeoutMs)) !== null;
 }

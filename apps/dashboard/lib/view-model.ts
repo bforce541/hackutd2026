@@ -253,6 +253,12 @@ export interface DashboardState {
   arenaProgress: ArenaProgress | null;
   /** A non-blocking note for the header, e.g. "Server unreachable, showing demo data". */
   notice: string | null;
+  /**
+   * Live mode through the public tunnel: the server answers reads only, every write is a 403
+   * (GET /api/health says `readOnly`). The page shows "View only" and disables the write controls.
+   * Absent or false everywhere else.
+   */
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------

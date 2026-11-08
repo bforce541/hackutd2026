@@ -629,7 +629,7 @@ function householdSummary(raw: Raw): HouseholdSummary {
   };
 }
 
-function derive(raw: Raw, ui: UiState, now: number, notice: string | null): DashboardState {
+function derive(raw: Raw, ui: UiState, now: number, notice: string | null, readOnly: boolean): DashboardState {
   const basePanel = derivePanelBase(raw, ui, now);
   const inCall = basePanel.step === 'call' || basePanel.step === 'approve';
   const whatIfOn = ui.whatIfOpen && !inCall;
@@ -684,6 +684,7 @@ function derive(raw: Raw, ui: UiState, now: number, notice: string | null): Dash
     arena: raw.arena,
     arenaProgress: raw.arenaProgress,
     notice: notice ?? (raw.connection === 'reconnecting' ? 'Reconnecting to the server' : null),
+    readOnly,
   };
 }
 
@@ -691,13 +692,15 @@ function derive(raw: Raw, ui: UiState, now: number, notice: string | null): Dash
 // The hook
 // ---------------------------------------------------------------------------
 
-export function useLiveDashboard(baseUrl: string | null): UseDashboard | null {
+export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseDashboard | null {
   const [raw, setRaw] = useState<Raw | null>(null);
   const [ui, setUi] = useState<UiState>(initialUi);
   const [notice, setNotice] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const rawRef = useRef<Raw | null>(null);
   rawRef.current = raw;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Load the snapshot, then follow the stream. Retry the snapshot until it answers.
@@ -789,7 +792,7 @@ export function useLiveDashboard(baseUrl: string | null): UseDashboard | null {
     return () => clearInterval(id);
   }, [ticking]);
 
-  const state = useMemo(() => (raw ? derive(raw, ui, now, notice) : null), [raw, ui, now, notice]);
+  const state = useMemo(() => (raw ? derive(raw, ui, now, notice, readOnly) : null), [raw, ui, now, notice, readOnly]);
 
   const actions = useMemo<Actions>(() => {
     const flash = (message: string) => {
@@ -817,7 +820,7 @@ export function useLiveDashboard(baseUrl: string | null): UseDashboard | null {
       return run(() => apiPost(API.approval(approval.id), { answer: text }), 'Could not send that answer');
     };
 
-    return {
+    const base: Actions = {
       setTab: (tab) => patchUi({ tab }),
       setRange: (range: ChartRange) => patchUi({ range }),
       togglePresenter: () => setUi((u) => ({ ...u, presenter: !u.presenter })),
@@ -881,6 +884,22 @@ export function useLiveDashboard(baseUrl: string | null): UseDashboard | null {
       },
       runArenaLive: () => void run(() => apiPost(API.arenaRun, { count: 3, live: true }), 'Could not start the arena run'),
     };
+
+    // Through the public tunnel the server refuses every write (403 read_only). Rather than let a
+    // button fail, each write says why and does nothing; reading, tabs, what-if and Presenter still work.
+    const WRITES = [
+      'pickOption', 'approveLimits', 'startCall', 'nextLine', 'endCall', 'failCall', 'lenderSays', 'approveDeal', 'decline',
+      'skipClock', 'reset', 'injectBillPhoto', 'sendMessage', 'setRules', 'togglePause', 'runArenaLive',
+    ] as const satisfies readonly (keyof Actions)[];
+    const guarded: Actions = { ...base };
+    for (const key of WRITES) {
+      const fn = base[key] as (...args: never[]) => void;
+      (guarded as unknown as Record<string, (...args: never[]) => void>)[key] = (...args: never[]) => {
+        if (readOnlyRef.current) flash('View only: actions run from the presenter laptop');
+        else fn(...args);
+      };
+    }
+    return guarded;
   }, []);
 
   if (!baseUrl || !state) return null;

@@ -43,7 +43,7 @@ export function YourRules({ state, actions }: DashboardProps) {
         role="switch"
         aria-checked={paused}
         onClick={actions.togglePause}
-        className="mt-1 flex min-h-14 w-full items-center gap-3 rounded-2xl border border-hairline bg-page px-4 py-2.5 text-left transition-colors duration-[var(--dur-base)] hover:bg-secondary-hover"
+        className="pp-write mt-1 flex min-h-14 w-full items-center gap-3 rounded-2xl border border-hairline bg-page px-4 py-2.5 text-left transition-colors duration-[var(--dur-base)] hover:bg-secondary-hover"
       >
         <span className="min-w-0 flex-1">
           <span className="block font-medium">Pause PacePay</span>

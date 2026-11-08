@@ -53,7 +53,8 @@ const NO_WORD =
   'wrong|thats wrong|incorrect|not right|thats not right|not correct|leave it';
 const WAIT_WORD =
   'wait|hold on|hold up|hang on|hang tight|just a sec|just a second|gimme a sec|gimme a second|gimme a minute|one sec|sec|a sec|one second|a second|give me a sec|give me a second|give me a minute|one minute|a minute|one moment|' +
-  'not yet|let me think|lemme think|let me think about it|let me check|thinking|hmm|hm|hmmm|brb|ill get back to you|ill let you know|later';
+  'not yet|let me think|lemme think|let me think about it|let me check|thinking|hmm|hm|hmmm|brb|ill get back to you|ill let you know|later|' +
+  'ill think about it|i ll think about it|i will think about it|ill think on it|let me sleep on it|ill sleep on it|thanks ill think about it|thanks i ll think about it|ok ill think about it|okay ill think about it|need to think|i need to think about it|let me get back to you';
 const DEFER_WORD =
   'you pick|you choose|you decide|your call|your choice|up to you|its up to you|dealers choice|you tell me|whatever|whatever you think|whatever you want|' +
   'whatever you recommend|whatever you suggest|whatever is best|whatever works|whichever|whichever is best|whichever you think|whichever you recommend|' +

@@ -8,19 +8,170 @@
  * Inbound: no metadata; read the caller's number from the SIP participant attributes
  * (sip.phoneNumber), POST /api/voice/inbound, then the PIN flow (prompts/voice-inbound.md).
  */
-import { cli, defineAgent, ServerOptions, type JobContext } from '@livekit/agents';
+import { cli, defineAgent, ServerOptions, voice, type JobContext } from '@livekit/agents';
+import * as openai from '@livekit/agents-plugin-openai';
+import { RoomServiceClient } from 'livekit-server-sdk';
+import { ParticipantKind, RoomEvent, type RemoteParticipant } from '@livekit/rtc-node';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import type { Speaker } from '@pacepay/shared';
+import { createServerClient, type VoiceServerClient } from './server';
+import { inboundTools, outboundTools, type VoiceToolHooks } from './tools';
 
 export const AGENT_NAME = 'pacepay-voice';
+const MODEL_FALLBACKS = ['gpt-realtime-2.1', 'gpt-realtime-2', 'gpt-realtime'];
+const here = dirname(fileURLToPath(import.meta.url));
+const log = (...a: unknown[]) => console.log(new Date().toISOString(), '[voice]', ...a);
+
+function prompt(name: 'voice' | 'voice-inbound', vars: Record<string, string>): string {
+  let text = readFileSync(join(here, 'prompts', `${name}.md`), 'utf8').replace(/<!--[\s\S]*?-->\s*/g, '');
+  for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`{{${k}}}`, v);
+  return text.trim();
+}
+
+const STYLE =
+  '\nSpeak at a natural pace, in one or two short sentences at a time. Use the exact words of any returned "say" text. ' +
+  'When you are about to call a tool, you may first say one short filler such as "One second, let me check that."';
+
+function modelOrder(): string[] {
+  const preferred = process.env.OPENAI_REALTIME_MODEL;
+  return [...new Set([preferred, ...MODEL_FALLBACKS].filter((m): m is string => !!m))];
+}
+
+function roomClient(): RoomServiceClient {
+  const e = process.env;
+  return new RoomServiceClient(e.LIVEKIT_URL!.replace(/^wss:/, 'https:'), e.LIVEKIT_API_KEY!, e.LIVEKIT_API_SECRET!);
+}
+
+/** Start the realtime session, trying each model in turn if one is not available. */
+async function startSession(ctx: JobContext, agent: voice.Agent): Promise<voice.AgentSession> {
+  let lastErr: unknown;
+  for (const model of modelOrder()) {
+    const session = new voice.AgentSession({ llm: new openai.realtime.RealtimeModel({ model, voice: 'marin' }) });
+    try {
+      await session.start({ agent, room: ctx.room });
+      log('realtime session started with', model);
+      return session;
+    } catch (err) {
+      lastErr = err;
+      log(`model ${model} failed to start: ${(err as Error).message}`);
+      await session.close().catch(() => undefined);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('no realtime model could start');
+}
 
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect();
     const meta = ctx.job.metadata ? (JSON.parse(ctx.job.metadata) as { callId?: string }) : {};
-    console.log(`[voice] joined ${ctx.room.name} (${meta.callId ? `outbound ${meta.callId}` : 'inbound'}); session not implemented yet`);
+    const server = createServerClient();
+    const room = ctx.room.name ?? '';
+    log(`joined ${room} (${meta.callId ? `outbound ${meta.callId}` : 'inbound'})`);
+    try {
+      if (meta.callId) await runOutbound(ctx, server, meta.callId, room);
+      else await runInbound(ctx, server, room);
+    } catch (err) {
+      log('call failed:', (err as Error).message);
+      if (meta.callId) await server.event(meta.callId, { type: 'failed' }).catch(() => undefined);
+      await roomClient().deleteRoom(room).catch(() => undefined);
+    }
   },
 });
+
+interface Wired {
+  session: voice.AgentSession;
+  hooks: VoiceToolHooks;
+  finish(reason: string): Promise<void>;
+}
+
+/** Transcript posting, hang-up and the once-only "ended" event, shared by both directions. */
+function wire(ctx: JobContext, server: VoiceServerClient, callId: string, room: string, otherSpeaker: Speaker) {
+  let session: voice.AgentSession | undefined;
+  let lastSpeech: voice.SpeechHandle | undefined;
+  let ended = false;
+  const post = (speaker: Speaker, text: string) => {
+    if (!text.trim()) return;
+    void server.event(callId, { type: 'transcript', speaker, text: text.trim() }).catch((e) => log('transcript post failed', e.message));
+  };
+  const finish = async (reason: string) => {
+    if (ended) return;
+    ended = true;
+    log('call ended:', reason);
+    try {
+      await lastSpeech?.waitForPlayout();
+    } catch {
+      /* nothing playing */
+    }
+    await server.event(callId, { type: 'ended' }).catch((e) => log('ended post failed', e.message));
+  };
+  const hooks: VoiceToolHooks = {
+    // A realtime model has no TTS, so session.say() would throw; have the model speak the line instead.
+    // The line is posted to the transcript by the ConversationItemAdded listener, not here.
+    say: async (text) => {
+      session?.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${text}"` });
+    },
+    hangUp: async () => {
+      await roomClient().deleteRoom(room).catch((e) => log('deleteRoom failed', e.message));
+    },
+    end: finish,
+  };
+  const attach = (s: voice.AgentSession) => {
+    session = s;
+    s.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
+      lastSpeech = ev.speechHandle;
+    });
+    s.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+      if (ev.isFinal) post(otherSpeaker, ev.transcript);
+    });
+    s.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+      const item = ev.item as { type?: string; role?: string; textContent?: string };
+      if (item.type === 'message' && item.role === 'assistant' && item.textContent) post('pacepay', item.textContent);
+    });
+    s.on(voice.AgentSessionEventTypes.Error, (ev) => log('session error:', String((ev.error as Error)?.message ?? ev.error)));
+  };
+  // The other side hanging up (or the room closing) ends the call.
+  ctx.room.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
+    if (p.kind === ParticipantKind.SIP) void finish('caller hung up');
+  });
+  ctx.room.on(RoomEvent.Disconnected, () => void finish('room closed'));
+  return { attach, hooks, finish, post };
+}
+
+async function runOutbound(ctx: JobContext, server: VoiceServerClient, callId: string, room: string): Promise<void> {
+  const brief = await server.brief(callId);
+  const instructions =
+    prompt('voice', {
+      counterparty_name: brief.counterpartyName ?? 'the lender',
+      person_name: brief.personName,
+      greeting: brief.greeting,
+    }) + STYLE;
+  const w = wire(ctx, server, callId, room, 'counterparty');
+  const agent = new voice.Agent({ instructions, tools: Object.values(outboundTools(server, callId, w.hooks)) });
+  const session = await startSession(ctx, agent);
+  w.attach(session);
+
+  // The SIP participant joins the room only once the lender picks up.
+  const counterparty = await ctx.waitForParticipant('counterparty');
+  log('answered by', counterparty.identity);
+  await server.event(callId, { type: 'answered' }).catch((e) => log('answered post failed', e.message));
+  session.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${brief.greeting}"` });
+}
+
+async function runInbound(ctx: JobContext, server: VoiceServerClient, room: string): Promise<void> {
+  const caller = await ctx.waitForParticipant();
+  const phone = caller.attributes?.['sip.phoneNumber'] ?? '';
+  log('inbound caller number present:', phone ? 'yes' : 'no');
+  const inbound = await server.inbound({ room, callerPhone: phone });
+  const instructions =
+    prompt('voice-inbound', { person_name: 'Yoshua', greeting: inbound.greeting }) + STYLE;
+  const w = wire(ctx, server, inbound.callId, room, 'customer');
+  const agent = new voice.Agent({ instructions, tools: Object.values(inboundTools(server, inbound.callId, w.hooks)) });
+  const session = await startSession(ctx, agent);
+  w.attach(session);
+  session.generateReply({ instructions: `Say exactly this and nothing else, then stop and listen: "${inbound.greeting}"` });
+}
 
 const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName: AGENT_NAME }));

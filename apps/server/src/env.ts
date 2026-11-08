@@ -47,7 +47,8 @@ export type EnvName =
   | 'PACEPAY_MESSAGING' // 'photon' | 'console' (default 'console' unless PHOTON_API_KEY is set)
   | 'PACEPAY_DATA_DIR' // default <repo>/data
   | 'PACEPAY_IGNORE_QUIET_HOURS' // '1' turns off the quiet-hours hold (night rehearsals)
-  | 'PORT';
+  | 'PORT'
+  | 'HOST';
 
 export function env(name: EnvName): string | undefined {
   const v = process.env[name];

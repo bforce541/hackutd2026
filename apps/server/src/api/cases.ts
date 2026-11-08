@@ -65,7 +65,10 @@ export function caseRoutes(ctx: ServerContext): Hono {
       ctx.bus.emit({ type: 'forecast.updated', model: 'engine', level: 'warn', title: `Snapshot without forecast: ${(err as Error).message}` });
     }
     const body: SnapshotResponse = {
-      household: after,
+      // The BASE household: the dashboard re-applies `acceptedChanges` itself (forecasts, what-if,
+      // offer preview). Sending the applied household here counted the bill, fee and moved payment twice.
+      // byCategory and netWorth below stay "after" (what Accounts shows).
+      household: ctx.store.household(),
       netWorth: currentNetWorth(ctx),
       byCategory: byCategory(after.accounts),
       forecast,

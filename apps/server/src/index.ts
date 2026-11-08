@@ -106,8 +106,10 @@ async function main(): Promise<void> {
   const ctx = buildContext();
   const app = createApp(ctx);
   const port = serverPort();
-  serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`[server] PacePay server on http://localhost:${info.port} (agent: ${ctx.agentMode}, models: ${ctx.models.provider()})`);
+  // Loopback only by default, so approvals cannot be answered from the network. Set HOST to widen it.
+  const hostname = env('HOST') ?? '127.0.0.1';
+  serve({ fetch: app.fetch, port, hostname }, (info) => {
+    console.log(`[server] PacePay server on http://${hostname}:${info.port} (agent: ${ctx.agentMode}, models: ${ctx.models.provider()})`);
   });
   try {
     // The photon stream owns everything after this point (photon.ts and messaging/router.ts).

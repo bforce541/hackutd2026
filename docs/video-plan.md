@@ -109,7 +109,7 @@ Do at least three takes of the call. In order:
 8. **Room tone:** 10 seconds of silence for the editor.
 
 **Lender script (Ram, verbatim):**
-1. Answer: "Lone Star Auto Finance, how can I help?"
+1. Answer: "Northside Auto Service, how can I help?"
 2. When PacePay asks to move the Nov 10 payment to Friday, Nov 13: "I can do Wednesday."
 3. When it pushes back: "Friday works, but there's a thirty-five dollar fee."
 4. When it pushes back on the fee: "Okay, twenty dollars." When it reads that back: "Yes."

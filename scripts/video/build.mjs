@@ -2,7 +2,7 @@
 //
 //   node scripts/video/build.mjs            render what changed, then assemble out/pacepay-demo.mp4
 //   node scripts/video/build.mjs --force    re-render every clip
-//   node scripts/video/build.mjs --only call   render just one part (desk|texts|call|rest|close)
+//   node scripts/video/build.mjs --only call   render just one part (desk|texts|call|rest|inbound|close)
 //
 // Recordings come from design/video/recordings/ (see docs/video-recording-sheet.md). Anything
 // missing gets a labelled placeholder (a slate, or silence), so the whole cut can be watched
@@ -232,7 +232,11 @@ try {
       };
       const greenAt = 2.0;
       const map = [piece('green', [greenAt, rel('done')[1]]), piece('home', rel('whatitis')), piece('health', rel('health')),
-        piece('whatif', rel('whatif')), piece('activity', rel('activity')), piece('arena', rel('arena'))].flat();
+        piece('whatif', rel('whatif')),
+        // the callin window holds the what-if's last frame; the inbound call screen is laid over it at assembly
+        // (and the card flip after it, its own layer below)
+        ...(scene('callin') && ds.whatif ? [[[rel('callin')[0], rel(scene('card') ? 'card' : 'callin')[1], ds.whatif.end, ds.whatif.end]]] : []),
+        piece('activity', rel('activity')), piece('arena', rel('arena'))].flat();
       // the track tags land on the words that name them in Yoshua's line
       let dashSrc = 'dash-scenes.html';
       const wjf = path.join(CLIPS, 'whatitis.words.json');
@@ -251,14 +255,29 @@ try {
         layers.push({ src: 'accounts.html', bg: 'none', start: a, end: a + 4.0, map: [[a, a + 4.0, 0, 4.0]] });
       }
     }
+    // after the inbound call: the live dashboard's Try a purchase flips from Checking to Card (card-flip.html).
+    // It starts under the call screen's fade-out and fades out over the first 0.4s of Activity.
+    if (scene('card') && existsSync(path.join(VIDEO, 'card-flip.html'))) {
+      const c0 = scene('card').start - doneS.start, c1 = scene('card').end - doneS.start, a = c0 - 0.5, b = c1 + 0.4;
+      layers.push({ src: 'card-flip.html', start: a, end: b, map: [[a, b, 0, b - a]],
+        keys: [{ t: a, opacity: 1 }, { t: c1, opacity: 1 }, { t: b, opacity: 0 }] });
+    }
     if (msgSegs.done) {
       const d = msgSegs.done, len = 2.6;
       layers.push({ src: 'imessage.html', start: 0, end: len, map: [[0, len, d.start, Math.min(d.end, d.start + len)]],
         keys: [{ t: 0, opacity: 1, scale: 1 }, { t: 1.9, opacity: 1, scale: 1 }, { t: len, opacity: 0, scale: 1.18 }] });
     }
-    parts.rest = await cached('rest.mp4', { layers, restLen }, pageFiles('imessage.html', 'dash-scenes.html', 'accounts.html', 'compose.html').concat(
+    parts.rest = await cached('rest.mp4', { layers, restLen }, pageFiles('imessage.html', 'dash-scenes.html', 'accounts.html', 'card-flip.html', 'compose.html').concat(
       existsSync(path.join(VIDEO, 'media/dash')) ? (await readdir(path.join(VIDEO, 'media/dash'))).map((n) => path.join(VIDEO, 'media/dash', n)) : []), (out) =>
       renderCompose(BASE, { bg: '#f4f2ec', layers }, out, restLen));
+  }
+
+  // 4b. inbound: Yoshua calls PacePay (call-card.html?call=inbound), laid over the held what-if in the callin window
+  const callin = scene('callin');
+  const inA = callin ? callin.start + (callin.call_at ?? 0) : null, inLen = callin ? callin.end - inA : 0;
+  if (callin && want('inbound')) {
+    parts.inbound = await cached('inbound.mp4', { inLen }, pageFiles('call-card.html', 'inbound.js', 'inbound-cuts.json'), (out) =>
+      renderPageClip(BASE, 'call-card.html?call=inbound', out, { from: 0, speed: 1, dur: inLen }));
   }
 
   // 5. close
@@ -364,6 +383,20 @@ try {
       `highpass=f=85,afftdn=nf=-60:nr=14:nt=w,lowpass=f=9000,adelay=${call.start * 1000}:all=1,volume=${TL.audio_mix.call}[call]`);
     voiceLabels.push('[call]');
   }
+  const inRec = callin ? await findRecording('inbound') : null;
+  if (inRec) {
+    const k = addInput(inRec);
+    const cf = path.join(VIDEO, 'inbound-cuts.json');
+    let cuts = existsSync(cf) ? JSON.parse(await readFile(cf, 'utf8')) : null;
+    cuts = Array.isArray(cuts) ? cuts : cuts?.cuts;
+    if (!cuts?.length) cuts = [{ in: 0, out: inLen }];
+    const F = 0.025;
+    // mute: true plays silence for that stretch (the keypad PIN tones)
+    cuts.forEach((c, j) => aFilt.push(`[${k}:a]atrim=${c.in}:${c.out},asetpts=PTS-STARTPTS,afade=t=in:d=${F},afade=t=out:st=${Math.max(0, c.out - c.in - F).toFixed(3)}:d=${F}${c.mute ? ',volume=0' : ''}[i${j}]`));
+    aFilt.push(`${cuts.map((_, j) => `[i${j}]`).join('')}concat=n=${cuts.length}:v=0:a=1,atrim=0:${inLen},` +
+      `highpass=f=85,afftdn=nf=-60:nr=14:nt=w,lowpass=f=9000,adelay=${Math.round(inA * 1000)}:all=1,volume=${TL.audio_mix.call}[inb]`);
+    voiceLabels.push('[inb]');
+  }
   for (const s of TL.scenes.filter((s) => s.voice)) {
     const rec = voiceFiles[s.id];
     if (!rec) continue;
@@ -395,7 +428,10 @@ try {
       pts.sort((p, q) => p[0] - q[0]);
       // keep the louder of overlapping ramps from being re-raised inside a speech interval
       const inSpeech = (t) => speech.some(([a, b]) => t >= a && t <= b);
-      const gainAt = (t) => {
+      // no music under the inbound call either: out over 0.5s before it, back over 0.6s after
+      const mute = (t) => (inA === null || t < inA - 0.5 || t > inA + inLen + 0.6 ? 1 : t < inA ? (inA - t) / 0.5 : t <= inA + inLen ? 0 : (t - inA - inLen) / 0.6);
+      const gainAt = (t) => mute(t) * gain0(t);
+      const gain0 = (t) => {
         if (inSpeech(t)) return lv.under_voice;
         let i = 0; while (i + 1 < pts.length && pts[i + 1][0] <= t) i++;
         const [t0, g0] = pts[i], [t1, g1] = pts[Math.min(i + 1, pts.length - 1)];
@@ -409,7 +445,14 @@ try {
       const envFile = path.join(CLIPS, 'music-envelope.wav');
       await writeFile(envFile, env);
       const k = addInput(music), ke = addInput(envFile);
-      aFilt.push(`[${k}:a]atrim=0:${TL.total},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[mraw]`);
+      // the track is 2:00; when the cut runs longer, it is spliced inside the inbound call (where the music is
+      // muted anyway) so it still ends on its own finale at the logo
+      const mDur = await duration(music), over = TL.total - mDur;
+      if (over > 0 && inA !== null && inA + 1 - over >= 0) {
+        const cut = inA + 1;
+        aFilt.push(`[${k}:a]asplit=2[ma][mb]`, `[ma]atrim=0:${cut},asetpts=PTS-STARTPTS[m1]`, `[mb]atrim=${(cut - over).toFixed(3)}:${mDur},asetpts=PTS-STARTPTS[m2]`,
+          `[m1][m2]concat=n=2:v=0:a=1,atrim=0:${TL.total},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[mraw]`);
+      } else aFilt.push(`[${k}:a]atrim=0:${TL.total},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[mraw]`);
       aFilt.push(`[${ke}:a]aformat=sample_fmts=fltp:channel_layouts=stereo[menv]`);
       aFilt.push(`[mraw][menv]amultiply[mus]`);
       aFilt.push(`[voices][mus]amix=inputs=2:normalize=0:duration=first[mix]`);
@@ -420,10 +463,17 @@ try {
 
   // ---------- assemble ----------
   const seq = [parts.open, parts.call, parts.rest, parts.close];
-  const vIn = seq.flatMap((f) => ['-i', f]);
+  const over = parts.inbound ? [parts.inbound] : [];
+  const vIn = [...seq, ...over].flatMap((f) => ['-i', f]);
   const capIn = capPngs.flatMap((c) => ['-loop', '1', '-t', String(TL.total), '-i', c.png]);
-  const nV = seq.length, nCap = capPngs.length;
-  const vf = [`${seq.map((_, i) => `[${i}:v]`).join('')}concat=n=${nV}:v=1:a=0,fps=${FPS},format=yuv420p[base0]`];
+  const nV = seq.length + over.length, nCap = capPngs.length;
+  const vf = [`${seq.map((_, i) => `[${i}:v]`).join('')}concat=n=${seq.length}:v=1:a=0,fps=${FPS},format=yuv420p[${over.length ? 'pre' : 'base0'}]`];
+  if (over.length) {
+    // the inbound call screen crossfades in over the held what-if, and out into the Activity tab
+    const X = 0.5;
+    vf.push(`[${seq.length}:v]fps=${FPS},format=yuva420p,fade=t=in:st=0:d=${X}:alpha=1,fade=t=out:st=${(inLen - X).toFixed(2)}:d=${X}:alpha=1,setpts=PTS+${inA}/TB[inb]`);
+    vf.push(`[pre][inb]overlay=0:0:eof_action=pass:enable='between(t,${inA},${inA + inLen})',format=yuv420p[base0]`);
+  }
   capPngs.forEach((c, j) => {
     vf.push(`[${nV + j}:v]format=rgba,fade=t=in:st=${c.start}:d=0.18:alpha=1,fade=t=out:st=${(c.end - 0.18).toFixed(2)}:d=0.18:alpha=1[cap${j}]`);
     vf.push(`[base${j}][cap${j}]overlay=0:0:enable='between(t,${c.start},${c.end})'[base${j + 1}]`);
@@ -437,8 +487,8 @@ try {
     '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p', ...(audioOut ? ['-c:a', 'aac', '-b:a', '192k'] : []),
     '-t', String(TL.total), '-movflags', '+faststart', out]);
   const d = await duration(out);
-  log(`wrote ${path.relative(ROOT, out)} (${d.toFixed(2)}s${d > 120 ? ' — OVER 2:00' : ''})`);
-  const missing = ['desk', 'call', 'yoshua-vo', 'ram-health', 'ram-whatif', 'ram-activity', 'ram-arena'];
+  log(`wrote ${path.relative(ROOT, out)} (${d.toFixed(2)}s${d > 180 ? ' — OVER 3:00' : ''})`);
+  const missing = ['desk', 'call', 'yoshua-vo', 'ram-health', 'ram-whatif', 'ram-call', 'inbound', 'ram-activity', 'ram-arena'];
   const have = await Promise.all(missing.map(findRecording));
   const still_missing = missing.filter((_, i) => !have[i]);
   if (still_missing.length) log(`placeholders used for: ${still_missing.join(', ')}`);

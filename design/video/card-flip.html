@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card flip</title>
+<style>
+  /* After the inbound call: the live dashboard's Try a purchase, $900 on Checking, then the Card toggle.
+     Two real captures of the live dashboard (scripts: capture from :3000 after the deal), 1600x900 CSS px:
+     card-before.jpg (Checking: $100 -> -$800, overdraws) and card-after.jpg (Card: $100 -> $100, card use 56% -> 74%).
+     The panel updates when Card is pressed, then the chart redraws left to right.
+     Same conventions as the other pages: 1920x1080 stage, render(t), window.hold. About 6.5s. */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #f4f2ec; overflow: hidden; }
+  .stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center; overflow: hidden; background: #f4f2ec; }
+  .world { position: absolute; left: 0; top: 0; width: 1600px; height: 900px; transform-origin: 0 0; }
+  .world img { position: absolute; left: 0; top: 0; width: 1600px; height: 900px; display: block; }
+  .press { position: absolute; border-radius: 999px; border: 2.5px solid #14130f; opacity: 0; pointer-events: none; }
+  .mark { position: absolute; border-radius: 8px; border: 2px solid #1f9d5c; box-shadow: 0 0 0 6px rgba(31,157,92,.12); opacity: 0; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="world" id="world">
+    <img id="before" src="media/dash/card-before.jpg" alt="">
+    <img id="panel" src="media/dash/card-after.jpg" alt="">
+    <img id="chart" src="media/dash/card-after.jpg" alt="">
+    <div class="press" id="press"></div>
+    <div class="mark" id="mark"></div>
+  </div>
+</div>
+<script>
+const LEN = 6.5;
+window.SEGMENTS = { card: { start: 0, end: LEN } };
+// regions of the still (CSS px of the 1600x900 capture)
+const R = {
+  chart: { x: 53, y: 78, w: 1074, h: 590 },     // the Checking card, pill included
+  panel: { x: 1135, y: 60, w: 465, h: 840 },    // the What-if panel, down to the bottom edge (the Card result is shorter)
+  card:  { x: 1455, y: 572, w: 56, h: 34 },     // the Card toggle
+  use:   { x: 1168, y: 705, w: 166, h: 23 },    // "Card use: 56% -> 74%"
+};
+const PRESS = 1.75, PANEL = 1.85, WIPE = [2.45, 3.35];
+// camera keys: [t, cx, cy, zoom] (centre in still px)
+const CAM = [
+  [0.0, 800, 450, 1.0], [0.95, 800, 450, 1.0], [1.6, 1330, 610, 1.75], [2.2, 1330, 610, 1.75],
+  [2.95, 800, 450, 1.0], [3.7, 800, 450, 1.0], [4.5, 1290, 670, 1.95], [LEN, 1300, 672, 2.02],
+];
+
+const $ = (id) => document.getElementById(id);
+const stage = $('stage'), world = $('world');
+const fit = () => { const s = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = `translate(-50%, -50%) scale(${s})`; };
+addEventListener('resize', fit); fit();
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const smooth = (p) => { p = clamp(p, 0, 1); return p * p * (3 - 2 * p); };
+const ease = (p) => { p = clamp(p, 0, 1); return 1 - Math.pow(1 - p, 3); };
+const box = (el, r, pad = 0) => Object.assign(el.style, { left: `${r.x - pad}px`, top: `${r.y - pad}px`, width: `${r.w + 2 * pad}px`, height: `${r.h + 2 * pad}px` });
+box($('press'), R.card, 2); box($('mark'), R.use, 4);
+const clip = (r, right = 0) => `inset(${r.y}px ${1600 - r.x - r.w + right}px ${900 - r.y - r.h}px ${r.x}px)`;
+
+function camAt(t) {
+  let i = 0; while (i + 1 < CAM.length && CAM[i + 1][0] <= t) i++;
+  const a = CAM[i], b = CAM[Math.min(i + 1, CAM.length - 1)];
+  const p = b[0] > a[0] ? smooth((t - a[0]) / (b[0] - a[0])) : 0;
+  const z = a[3] + (b[3] - a[3]) * p;
+  let cx = a[1] + (b[1] - a[1]) * p, cy = a[2] + (b[2] - a[2]) * p;
+  cx = clamp(cx, 800 / z, 1600 - 800 / z); cy = clamp(cy, 450 / z, 900 - 450 / z);
+  return { cx, cy, z };
+}
+
+function render(t) {
+  const { cx, cy, z } = camAt(t), s = 1.2 * z;
+  world.style.transform = `translate(${(960 - cx * s).toFixed(2)}px, ${(540 - cy * s).toFixed(2)}px) scale(${s.toFixed(4)})`;
+  // Card pressed: a ring pulses on the toggle, then the panel updates
+  const pp = (t - PRESS) / 0.5;
+  $('press').style.opacity = pp < 0 || pp > 1 ? 0 : (1 - pp) * 0.9;
+  $('press').style.transform = `scale(${1 + 0.35 * clamp(pp, 0, 1)})`;
+  $('panel').style.clipPath = clip(R.panel);
+  $('panel').style.opacity = ease((t - PANEL) / 0.22);
+  // the chart redraws left to right
+  const w = smooth((t - WIPE[0]) / (WIPE[1] - WIPE[0]));
+  $('chart').style.clipPath = clip(R.chart, (1 - w) * R.chart.w);
+  $('chart').style.opacity = w > 0 ? 1 : 0;
+  // the card-use line gets a quiet outline as the camera arrives
+  $('mark').style.opacity = ease((t - 4.4) / 0.4) * 0.95;
+}
+
+const frozen = new URLSearchParams(location.search).get('t');
+Promise.all([...document.images].map((im) => im.decode().catch(() => {}))).then(() => {
+  if (frozen !== null) render(parseFloat(frozen));
+  else {
+    const t0 = performance.now();
+    const tick = () => { render(window.hold ?? ((performance.now() - t0) / 1000) % LEN); requestAnimationFrame(tick); };
+    tick();
+  }
+});
+</script>
+</body>
+</html>

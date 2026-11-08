@@ -1,6 +1,6 @@
 # Demo video: what Ram and Yoshua record
 
-Everything else (the texts, the call screen, the dashboard, the graphics, the music, the edit) is generated and timed in `design/video/timeline.json`. Nothing gets screen-recorded. You record **three things**, and each one has a window it has to fit.
+Everything else (the texts, the call screen, the dashboard, the graphics, the music, the edit) is generated and timed in `design/video/timeline.json`. Nothing gets screen-recorded. You record **four things**, and each one has a window it has to fit.
 
 Drop the files into `design/video/recordings/` with these exact names (any common format works: .mov, .mp4, .m4a, .wav). That folder is not committed.
 
@@ -38,8 +38,25 @@ Quiet room, phone close to your mouth, one take per file (record a few, keep the
 | `ram-whatif.m4a` | Ram | 7s max | "Thinking about buying something? Type it in. Nine hundred dollars would overdraw checking." |
 | `ram-activity.m4a` | Ram | 7s max | "Every step PacePay takes shows up here, labeled with the NVIDIA Nemotron model that did it." |
 | `ram-arena.m4a` | Ram | 7s max | "We tested it against fifty simulated lenders. It never broke a limit or leaked a balance." |
+| `ram-call.m4a` | Ram | 2.5s max | "Or call your PacePay assistant." |
 
-## Where each recording lands (1:58)
+## 4. The inbound call (`inbound.m4a`)
+
+Yoshua calls PacePay and asks two money questions. Same setup as the lender call: Yoshua's phone on speaker, a second phone next to it recording (Voice Memos), quiet room.
+
+- **Don't reset the server first.** It has to stay in the state after the Northside deal (checking $1,300), because that's what the dashboard shots show.
+- Yoshua dials the PacePay voice number **from his own phone** (it only accepts his caller ID).
+- PacePay asks for the PIN. The PIN is muted in the edit and shown as `****`, so it's never heard or shown. Wait for "Thanks, you are verified."
+- Then ask these two, **word for word**, and let each answer finish:
+  1. "Can I afford a nine hundred dollar laptop?"
+     It should answer: minus $800 on Monday, November 9th. That matches the what-if on screen.
+  2. "What if I put the nine hundred dollars on my credit card?"
+     It should answer: card use goes from 56% to 74%, 24.99% APR.
+- Then he decides: **"Okay, card it is. Thanks, bye."** PacePay says "Okay, talk soon. Bye!" and hangs up.
+- Don't say "put **it** on my card", and don't drop the "dollars": tested, both get a worse answer. If an answer comes out wrong, hang up and call again.
+- Right after, tell Ram's Claude: it re-captures the Activity tab so the real "Yoshua called in" entry shows.
+
+## Where each recording lands (2:38)
 
 | Time | Scene | Your recording |
 |---|---|---|
@@ -50,8 +67,10 @@ Quiet room, phone close to your mouth, one take per file (record a few, keep the
 | 1:06 to 1:20 | Dashboard, track tags | `yoshua-vo.m4a` |
 | 1:20 to 1:28 | Health scores | `ram-health.m4a` |
 | 1:28 to 1:36 | Try a purchase | `ram-whatif.m4a` |
-| 1:36 to 1:44 | Activity, Nemotron labels | `ram-activity.m4a` |
-| 1:44 to 1:52 | Arena | `ram-arena.m4a` |
-| 1:52 to 1:58 | Logo close | none |
+| 1:36 to 2:10 | "Or call your PacePay assistant", then the inbound call screen | `ram-call.m4a`, then `inbound.m4a` cut to about 31s |
+| 2:10 to 2:16 | Live dashboard: $900 flips from Checking to Card, card use 56% → 74% | none |
+| 2:16 to 2:24 | Activity, Nemotron labels | `ram-activity.m4a` |
+| 2:24 to 2:32 | Arena | `ram-arena.m4a` |
+| 2:32 to 2:38 | Logo close | none |
 
 Once the files are in the folder, Ram's Claude renders the whole video.

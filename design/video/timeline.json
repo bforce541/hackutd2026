@@ -1,9 +1,9 @@
 {
-  "_about": "The demo video's single source of timing. Every scene renders to exactly its window; recordings drop into their slots. Seconds from the start of the video. Total 1:58, hard cap 2:00.",
+  "_about": "The demo video's single source of timing. Every scene renders to exactly its window; recordings drop into their slots. Seconds from the start of the video. Total 2:53, hard cap 3:00.",
   "fps": 30,
   "width": 1920,
   "height": 1080,
-  "total": 118,
+  "total": 173.44,
   "scenes": [
     {
       "id": "desk",
@@ -117,9 +117,33 @@
       }
     },
     {
-      "id": "activity",
+      "id": "callin",
       "start": 96,
-      "end": 104,
+      "end": 145.44,
+      "source": "render",
+      "page": "call-card.html?call=inbound",
+      "call_at": 2.8,
+      "what": "Ram's line over the what-if (held), then the inbound call screen crossfades in: Yoshua's real call to PacePay. Greeting, PIN typed on the keypad (muted, shown as ****), verified, the two money questions, then he decides: \"Okay, card it is. Thank you.\" PacePay: \"Okay, talk soon. Bye!\". The numbers PacePay says pop in top right. No music.",
+      "audio": "recordings/ram-call.m4a",
+      "call_audio": "recordings/inbound.m4a, cut by inbound-cuts.json (PIN exchange removed), placed at start + call_at",
+      "voice": {
+        "who": "Ram",
+        "max_seconds": 2.5,
+        "line": "Or call your PacePay assistant."
+      }
+    },
+    {
+      "id": "card",
+      "start": 145.44,
+      "end": 151.44,
+      "source": "render",
+      "page": "card-flip.html",
+      "what": "Back to the live dashboard (captured after the deal): Try a purchase $900 on Checking (overdraws, red), the Card toggle is pressed, the chart redraws green and the panel updates to $100 -> $100, card use 56% -> 74%. No voice; music at transition level."
+    },
+    {
+      "id": "activity",
+      "start": 151.44,
+      "end": 159.44,
       "source": "render",
       "page": "dash-scenes.html",
       "segment": "activity",
@@ -133,8 +157,8 @@
     },
     {
       "id": "arena",
-      "start": 104,
-      "end": 112,
+      "start": 159.44,
+      "end": 167.44,
       "source": "render",
       "page": "dash-scenes.html",
       "segment": "arena",
@@ -148,8 +172,8 @@
     },
     {
       "id": "close",
-      "start": 112,
-      "end": 118,
+      "start": 167.44,
+      "end": 173.44,
       "source": "render",
       "page": "close.html",
       "what": "Clean logo card: the mark, pacepay wordmark, tagline, pacepay.work."
@@ -169,6 +193,7 @@
       "whatitis",
       "health",
       "whatif",
+      "callin",
       "activity",
       "arena"
     ],

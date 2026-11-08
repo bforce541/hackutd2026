@@ -1,0 +1,55 @@
+{
+  "_about": "The cut list for the inbound beat: stretches of recordings/inbound.m4a (77s, Yoshua's real call to PacePay, call_ud2aboe) in order. { in, out } in seconds of the RAW recording; mute: true plays silence (the keypad PIN tones). Dropped: PacePay's 'Hmm'/'Okay' fillers, and the off-script tail ('Mm-hmm. Still checking. One sec. You chose card. Adds about $14 per month in interest.' — that is the $650 repair's interest, not the $900 — and Yoshua's 'All right, perfect. Thank you. Bye-bye.'), so 'Okay, card it is. Thank you.' goes straight to 'Okay, talk soon. Bye!'. Times from silencedetect (-50 dB) + per-slice whisper.",
+  "source": "recordings/inbound.m4a",
+  "take": "2026-11-08 17:32 call_ud2aboe",
+  "length": 46.64,
+  "fade": 0.025,
+  "cuts": [
+    {
+      "in": 3.78,
+      "out": 10.25,
+      "note": "PacePay: Hi, this is PacePay, Yoshua's money assistant. For your security, please say or type your four-digit PIN."
+    },
+    {
+      "in": 10.25,
+      "out": 12.55,
+      "mute": true,
+      "note": "Yoshua types the PIN on the keypad: MUTED (shown as ****)"
+    },
+    {
+      "in": 13.24,
+      "out": 16.85,
+      "note": "PacePay: Thanks, you are verified. What would you like to know?"
+    },
+    {
+      "in": 17.76,
+      "out": 20.25,
+      "note": "Yoshua: Can I afford a $900 laptop?"
+    },
+    {
+      "in": 23.72,
+      "out": 33.2,
+      "note": "PacePay: If $900 comes out of checking today... (its 'Hmm' before it dropped)"
+    },
+    {
+      "in": 34.28,
+      "out": 37.15,
+      "note": "Yoshua: What if I put the $900 on my credit card?"
+    },
+    {
+      "in": 40.28,
+      "out": 54.95,
+      "note": "PacePay: Putting $900 on the card... (its 'Okay' before it dropped)"
+    },
+    {
+      "in": 55.65,
+      "out": 57.85,
+      "note": "Yoshua: Okay, card it is. Thank you."
+    },
+    {
+      "in": 73.3,
+      "out": 75.85,
+      "note": "PacePay: Okay, talk soon. Bye! (the hang-up beep after it dropped)"
+    }
+  ]
+}

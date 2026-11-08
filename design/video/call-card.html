@@ -59,12 +59,12 @@
     will-change: transform, opacity;
   }
   .turn.pacepay { left: 96px; }
-  .turn.lender { left: calc(1920px - 96px - 1060px); grid-template-columns: 1fr 184px; }
-  .turn.lender .avatar { order: 2; margin: 0 0 0 0; }
-  .turn.lender .body { padding: 0 8px 0 52px; }
+  .turn.right { left: calc(1920px - 96px - 1060px); grid-template-columns: 1fr 184px; }
+  .turn.right .avatar { order: 2; margin: 0 0 0 0; }
+  .turn.right .body { padding: 0 8px 0 52px; }
 
   .turn .shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .turn.lender .shape { transform: scaleX(-1); }
+  .turn.right .shape { transform: scaleX(-1); }
   .turn .shape .fill { fill: var(--card); }
   .turn .shape .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
   .turn .shape .accent { fill: none; stroke: var(--accent); stroke-width: 2; opacity: .55; }
@@ -98,17 +98,34 @@
     margin-top: 8px; height: 2.6em; color: var(--ink);
     font: 400 25px/1.3 'DM Mono', monospace; letter-spacing: -0.01em; overflow: hidden;
   }
+  .pin { display: none; align-items: center; gap: 8px; margin-left: 4px; padding-left: 14px; border-left: 1.5px solid var(--line); color: #2fbf71; letter-spacing: .12em; }
+  .chip.pinok .pin { display: inline-flex; }
+  /* the numbers PacePay says, pinned top right as they're spoken */
+  .facts { position: absolute; top: 48px; right: 72px; z-index: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 14px; }
+  .fact {
+    display: grid; gap: 10px; min-width: 330px; padding: 16px 22px 18px; border-radius: 12px;
+    background: var(--card); border: 1.5px solid var(--line); opacity: 0; will-change: transform, opacity;
+  }
+  .fact .k { font: 400 18px/1 'DM Mono', monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .fact .v { font: 600 40px/1 'Instrument Sans', sans-serif; letter-spacing: -0.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .fact .v em { font-style: normal; color: var(--tone, var(--ink)); }
+  .fact .v small { font: 400 22px/1 'DM Mono', monospace; letter-spacing: .02em; color: var(--muted); margin-left: 10px; }
   .caption .cursor { display: inline-block; width: .55em; height: 1em; margin-left: 4px; vertical-align: -0.12em; background: var(--accent); opacity: .8; }
 </style>
 </head>
 <body>
 <div class="stage" id="stage">
-  <div class="chip"><span class="dot"></span><span>Live call</span><span class="clock" id="clock">00:00</span></div>
+  <div class="chip" id="chip"><span class="dot"></span><span id="chiplabel">Live call</span><span class="clock" id="clock">00:00</span><span class="pin">&#10003; PIN verified</span></div>
   <div class="thread" id="thread"></div>
+  <div class="facts" id="facts"></div>
 </div>
 
 <script src="call-placeholder.js"></script>
-<script src="call.js" onerror="void 0"></script>
+<script>
+  // ?call=inbound shows Yoshua's call in to PacePay (inbound.js) instead of the lender call (call.js)
+  window.CALL_NAME = new URLSearchParams(location.search).get('call') === 'inbound' ? 'inbound' : 'call';
+  document.write(`<script src="${window.CALL_NAME}.js" onerror="void 0"><\/script>`);
+</script>
 <script>
 // The lender as shown on screen. NOTE: the product's fixture calls the lender
 // "Lone Star Auto Finance" (packages/engine/fixtures/household.ts); swap here if needed.
@@ -118,6 +135,7 @@ const LENDER = { name: 'Northside Auto Service', initials: 'NA' };
 // transcript lines timed to the cut audio), else the placeholder. Times are seconds of the
 // cut call (0 to CALL.length); cuts map cut time back to real call time for the clock.
 const CALL = (window.CALL && window.CALL.lines && window.CALL.lines.length) ? window.CALL : window.CALL_PLACEHOLDER;
+const INBOUND = window.CALL_NAME === 'inbound';
 const LINES = CALL.lines;
 const LOOP = CALL.length || 40;
 const CUTS = CALL.cuts || [{ in: 0, out: LOOP }];
@@ -137,7 +155,7 @@ function rawTime(t) {
 // The approval moment: the thread slides left so the iMessage approve inset fits on the right.
 // From CALL.inset if set, else from PacePay's "let me check with Yoshua" line to its "approved" line.
 const INSET = (() => {
-  if (CALL.inset) return CALL.inset;
+  if (CALL.inset !== undefined) return CALL.inset;
   const a = LINES.find((l) => l.who === 'pacepay' && /check with|run (that|it) by|one moment|let me (check|confirm)|hold on/i.test(l.text));
   const b = LINES.find((l) => l.who === 'pacepay' && /approved|confirmed|go ahead/i.test(l.text) && (!a || l.start > a.start));
   return a ? { start: a.start, end: b ? b.start + 1.0 : a.end + 4.5 } : null;
@@ -152,11 +170,20 @@ const SPEAKERS = {
     stops: ['#FF5A36', '#FF8A3D', '#FFB547', '#9ED36A', '#2FBF71'],   // dip to recovered
   },
   lender: {
-    label: 'Lender', name: LENDER.name, wordmark: false, accent: '#c9c6be',
+    label: 'Lender', name: LENDER.name, wordmark: false, accent: '#c9c6be', side: 'right',
     face: `<span class="initials">${LENDER.initials}</span>`,
     stops: ['#c9c6be', '#c9c6be'],
   },
+  yoshua: {
+    label: 'Caller', name: 'Yoshua', wordmark: false, accent: '#c9c6be', side: 'right',
+    face: `<span class="initials">Y</span>`,
+    stops: ['#c9c6be', '#c9c6be'],
+  },
 };
+if (CALL.chip) $chip(CALL.chip);
+function $chip(label) { document.getElementById('chiplabel').textContent = label; }
+if (CALL.pinVerified) document.getElementById('chip').classList.add('pinok');
+// or from the moment PacePay says so (CALL.pinVerifiedAt, cut time)
 
 // Layout: three full slots on screen; older turns scroll up under the top fade.
 const CARD_H = 240, GAP = 28, STEP = CARD_H + GAP;
@@ -183,7 +210,7 @@ const SHAPE = 'M12 1 H1029 L1059 31 V209 L1029 239 H12 Q1 239 1 228 V12 Q1 1 12 
 const turns = LINES.map((line, idx) => {
   const s = SPEAKERS[line.who];
   const el = document.createElement('div');
-  el.className = `turn ${line.who}`;
+  el.className = `turn ${line.who}${s.side === 'right' ? ' right' : ''}`;
   el.style.setProperty('--accent', s.accent);
   el.innerHTML = `
     <svg class="shape" viewBox="0 0 1060 240" preserveAspectRatio="none" aria-hidden="true">
@@ -208,6 +235,23 @@ const turns = LINES.map((line, idx) => {
     </div>`;
   thread.appendChild(el);
   return { el, line, rects: [...el.querySelectorAll('.wave rect')], caption: el.querySelector('.caption'), state: '' };
+});
+
+// Callouts: { line, match, label, value, tone } pops in when the matched words are spoken (from line.words).
+const FACTS = (CALL.callouts || []).map((c) => {
+  const line = LINES[c.line];
+  const i = line ? line.text.indexOf(c.match) : -1;
+  let at = line ? line.start : 0;
+  if (line && i >= 0) {
+    const w = line.words && line.words.find((w) => w.j > i);
+    at = w ? w.s : line.start + (i / line.text.length) * (line.end - line.start) * 0.8;
+  }
+  const el = document.createElement('div');
+  el.className = 'fact';
+  if (c.tone) el.style.setProperty('--tone', c.tone);
+  el.innerHTML = `<div class="k">${esc(c.label)}</div><div class="v">${c.value}</div>`;
+  $('facts').appendChild(el);
+  return { el, at };
 });
 
 // deterministic pseudo-noise so a frozen time always draws the same frame
@@ -243,6 +287,7 @@ function render(t) {
     shift = INSET_SHIFT * (tt < INSET.start ? 0 : inP) * (tt < INSET.end ? 1 : 1 - outP);
   }
 
+  if (typeof CALL.pinVerifiedAt === 'number') $('chip').classList.toggle('pinok', tt >= CALL.pinVerifiedAt);
   const n = LINES.filter((l) => tt >= l.start).length;          // turns that have started
   const newest = turns[n - 1];
   const e = newest ? ease((tt - newest.line.start) / SLIDE) : 1;
@@ -254,7 +299,7 @@ function render(t) {
     el.style.visibility = 'visible';
     const arrive = ease((tt - line.start) / SLIDE);
     const y = FIRST_Y + i * STEP - scroll + (1 - arrive) * 28;  // new turns rise in a little
-    const x = line.who === 'lender' ? -shift : 0;
+    const x = SPEAKERS[line.who].side === 'right' ? -shift : 0;
     el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     // older turns dim a step each time a new one arrives (the top fade does the rest)
     const DIM = [1, 0.8, 0.62, 0.5];
@@ -288,10 +333,17 @@ function render(t) {
     if (key !== turn.state) {
       turn.state = key;
       turn.caption.innerHTML = esc(line.text.slice(0, nChars)) + (p < 1 ? '<span class="cursor"></span>' : '');
+      turn.caption.scrollTop = turn.caption.scrollHeight;   // a long answer rolls up, two lines at a time
     }
 
     if (speaking || turn.waveLive !== false) { drawWave(turn, tt, speaking); turn.waveLive = speaking; }
   });
+
+  for (const f of FACTS) {
+    const a = ease((tt - f.at) / 0.4);
+    f.el.style.opacity = a.toFixed(3);
+    f.el.style.transform = `translateY(${((1 - a) * -14).toFixed(1)}px)`;
+  }
 }
 
 const frozen = params.get('t');

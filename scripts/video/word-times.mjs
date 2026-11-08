@@ -2,6 +2,7 @@
 // each word as it's spoken and the waveform moves with the real audio.
 //
 //   node scripts/video/word-times.mjs     (after align-call.mjs, or after hand-editing call.json)
+//   WORDS=inbound node scripts/video/word-times.mjs   (the same for Yoshua's inbound call: inbound.json, out/inbound-cut.wav)
 //
 // For each line, whisper.cpp transcribes just that stretch of out/call-cut.wav with word timestamps
 // (short slices give much tighter times than one long pass). The line's own text is then laid over
@@ -17,11 +18,12 @@ import path from 'node:path';
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const VIDEO = path.join(ROOT, 'design/video');
-const CUT = path.join(VIDEO, 'out/call-cut.wav');
+const NAME = process.env.WORDS || 'call';
+const CUT = path.join(VIDEO, `out/${NAME}-cut.wav`);
 const MODEL = process.env.WHISPER_MODEL || path.join(homedir(), 'Documents/ChatGPT/AP-animations/edit/dialogue/ggml-small.en.bin');
 const FPS = 30;
 
-const call = JSON.parse(await readFile(path.join(VIDEO, 'call.json'), 'utf8'));
+const call = JSON.parse(await readFile(path.join(VIDEO, `${NAME}.json`), 'utf8'));
 const tmp = await mkdtemp(path.join(tmpdir(), 'words-'));
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -69,6 +71,6 @@ for (let f = 0; f * per < pcm.length; f++) {
 const sorted = [...env].sort((x, y) => x - y), p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
 call.env = env.map((v) => +Math.min(1, v / p95).toFixed(3));
 
-await writeFile(path.join(VIDEO, 'call.json'), JSON.stringify(call, null, 2) + '\n');
-await writeFile(path.join(VIDEO, 'call.js'), `window.CALL = ${JSON.stringify(call)};\n`);
-console.log(`wrote call.json and call.js (${call.lines.filter((l) => l.words).length}/${call.lines.length} lines word-timed, ${env.length} envelope frames)`);
+await writeFile(path.join(VIDEO, `${NAME}.json`), JSON.stringify(call, null, 2) + '\n');
+await writeFile(path.join(VIDEO, `${NAME}.js`), `window.CALL = ${JSON.stringify(call)};\n`);
+console.log(`wrote ${NAME}.json and ${NAME}.js (${call.lines.filter((l) => l.words).length}/${call.lines.length} lines word-timed, ${env.length} envelope frames)`);

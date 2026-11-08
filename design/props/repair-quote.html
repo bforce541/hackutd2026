@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repair quote — Northside Auto Service</title>
+<!--
+  Demo prop (SPEC.md §13, "The printed repair quote"). Print two copies on US Letter, portrait,
+  "Default" margins, background graphics off. Plain black on white in large type so the bill reader
+  can read it under expo lighting. Numbers must match v2.md: $380 + $240 + $30 = $650, due today.
+-->
+<style>
+  @page { size: letter portrait; margin: 0.6in; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: #000; }
+  body {
+    font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+  }
+  .page { max-width: 7.3in; margin: 0 auto; padding: 0.2in 0; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid #000; padding-bottom: 14px; }
+  .shop { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
+  .shop-line { font-size: 18px; margin: 4px 0 0; }
+  .doc { text-align: right; }
+  .doc h2 { font-size: 34px; margin: 0; letter-spacing: 1px; }
+  .doc p { font-size: 18px; margin: 4px 0 0; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; margin: 22px 0 8px; font-size: 22px; }
+  .meta b { display: block; font-size: 15px; letter-spacing: 1px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 24px; }
+  th { text-align: left; font-size: 15px; letter-spacing: 1px; text-transform: uppercase; border-bottom: 2px solid #000; padding: 8px 0; }
+  td { padding: 14px 0; border-bottom: 1px solid #000; vertical-align: top; }
+  td.amt, th.amt { text-align: right; white-space: nowrap; }
+  td small { display: block; font-size: 18px; }
+  .total { display: flex; justify-content: space-between; align-items: center; gap: 16px; border: 4px solid #000; padding: 16px 22px; margin-top: 28px; }
+  .total span { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; line-height: 1.2; }
+  .total strong { font-size: 64px; font-weight: 700; letter-spacing: -1px; }
+  .due { font-size: 26px; font-weight: 700; margin: 14px 0 0; }
+  .note { font-size: 18px; margin: 22px 0 0; }
+  footer { margin-top: 40px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1 class="shop">Northside Auto Service</h1>
+      <p class="shop-line">Brakes · Tires · Diagnostics</p>
+      <p class="shop-line">Richardson, TX · (972) 555-0148</p>
+    </div>
+    <div class="doc">
+      <h2>REPAIR QUOTE</h2>
+      <p>Quote #NAS-24117</p>
+      <p>Sat, Nov 7, 2026</p>
+    </div>
+  </header>
+
+  <div class="meta">
+    <div><b>Customer</b>Yoshua</div>
+    <div><b>Vehicle</b>2019 Toyota Corolla</div>
+    <div><b>Concern</b>Grinding when braking</div>
+    <div><b>Technician</b>Bay 3</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Description</th><th class="amt">Amount</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Front brake pads and rotors<small>Parts</small></td><td class="amt">$380.00</td></tr>
+      <tr><td>Labor<small>2.0 hours at $120.00</small></td><td class="amt">$240.00</td></tr>
+      <tr><td>Shop supplies</td><td class="amt">$30.00</td></tr>
+    </tbody>
+  </table>
+
+  <div class="total"><span>TOTAL DUE<br>AT PICKUP</span><strong>$650.00</strong></div>
+  <p class="due">Due today: Sat, Nov 7, 2026</p>
+  <p class="note">Car ready by 5:00 PM. Payment due when the car is picked up.</p>
+
+  <footer>Fictional shop, printed as a prop for the PacePay demo at HackUTD 2026.</footer>
+</div>
+</body>
+</html>

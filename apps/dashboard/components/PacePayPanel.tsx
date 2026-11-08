@@ -15,6 +15,8 @@ import { Done } from './panel/Done';
 import { WhatIf } from './panel/WhatIf';
 import { CdAlert } from './panel/CdAlert';
 import { Idle } from './panel/Idle';
+import { Held } from './panel/Held';
+import { BillConfirm } from './panel/BillConfirm';
 
 function Step(props: DashboardProps) {
   const view = props.state.panel;
@@ -33,6 +35,10 @@ function Step(props: DashboardProps) {
       return <WhatIf {...props} />;
     case 'cd_alert':
       return <CdAlert {...props} view={view} />;
+    case 'held':
+      return <Held {...props} view={view} />;
+    case 'bill_confirm':
+      return <BillConfirm {...props} view={view} />;
     case 'idle':
       return <Idle {...props} />;
   }
@@ -52,11 +58,13 @@ const OTHER_LABELS: Partial<Record<PanelStep, string>> = {
   idle: 'All set',
   what_if: 'What if',
   cd_alert: 'Coming up',
+  bill_confirm: 'Check the bill',
 };
 
 export function PacePayPanel(props: DashboardProps) {
   const step = props.state.panel.step;
-  const index = STEPS.findIndex((s) => s.step === step);
+  // A held deal got as far as Approve, so its tiles stay lit through step 4 and Done stays dark.
+  const index = step === 'held' ? 3 : STEPS.findIndex((s) => s.step === step);
   const inCase = index >= 0;
   const live = step === 'call';
 
@@ -82,11 +90,11 @@ export function PacePayPanel(props: DashboardProps) {
           PacePay
         </span>
         <span className="eyebrow text-muted">
-          {inCase ? `${STEPS[index]!.label} · ${index + 1}/5` : (OTHER_LABELS[step] ?? '')}
+          {step === 'held' ? 'On hold · 4/5' : inCase ? `${STEPS[index]!.label} · ${index + 1}/5` : (OTHER_LABELS[step] ?? '')}
         </span>
       </div>
 
-      <div className="mt-3 mb-[1.25em] flex gap-1" role="img" aria-label={inCase ? `Step ${index + 1} of 5: ${STEPS[index]!.label}` : 'No case open'}>
+      <div className="mt-3 mb-[1.25em] flex gap-1" role="img" aria-label={step === 'held' ? 'On hold after step 4 of 5' : inCase ? `Step ${index + 1} of 5: ${STEPS[index]!.label}` : 'No case open'}>
         {SPECTRUM.map((c, i) => {
           const lit = inCase && i <= index;
           return (

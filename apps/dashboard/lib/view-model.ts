@@ -160,6 +160,33 @@ export type PanelView =
       other: OptionRow; // "Renew the CD" / "Earns about $205 a year"
       approvalId?: string;
     }
+  | {
+      /**
+       * The deal was not finished: Yoshua did not answer in time (60 s mid-call), or the lender
+       * changed the terms after he approved. Nothing was committed; the forecast is unchanged.
+       */
+      step: 'held';
+      variant: 'no_answer' | 'terms_changed';
+      title: string; // "The lender is holding Fri, Nov 13"
+      detail: string; // one or two plain sentences on what happened and what happens next
+      /** The offer in question: "Payment" / "Fri, Nov 13", "Fee" / "$20". */
+      offer: { label: string; value: string }[];
+      /** terms_changed only: what moved, "Fee" was "$20" now "$35". */
+      changed?: { label: string; was: string; now: string }[];
+    }
+  | {
+      /**
+       * Before any options: PacePay read a bill but is not sure (the two readers disagree, or
+       * confidence is under 0.8) and asks Yoshua to confirm. Live: the pending bill_confirm approval.
+       */
+      step: 'bill_confirm';
+      merchant: string; // "Northside Auto Service"
+      amount: Cents;
+      due: string; // "Today" / "Tue, Nov 10" / "No date on it"
+      /** Why it asks: "The two readers saw different amounts" (empty when only confidence was low). */
+      note: string;
+      approvalId?: string;
+    }
   | { step: 'what_if' }; // details in state.whatIf
 
 export type PanelStep = PanelView['step'];
@@ -291,6 +318,11 @@ export interface Actions {
   approveDeal(): void;
   /** Limits "Cancel" or Approve "Decline". Live: answers the pending approval with "no". */
   decline(): void;
+  /**
+   * Bill check: "Yes, that's right". Live: answers the pending bill_confirm approval with "yes".
+   * Optional because only live mode can be asked about a bill (demo mode never is).
+   */
+  confirmBill?(): void;
   /** Done: "What happened" opens the Activity tab. */
   openActivity(): void;
   /** CD alert: "Compare in what-if" (opens what-if with the CD row checked). */

@@ -352,6 +352,35 @@ function billCondition(raw: Raw): string {
   return `If you pay the ${formatMoney(b.amount)} ${noun} ${when}.`;
 }
 
+/** What the held deal was: the offer the lender is holding, in the lender's own terms. */
+function heldView(raw: Raw): PanelView {
+  const offer = currentOffer(raw.negotiation);
+  const day0 = raw.household.day0Date;
+  const when = offer ? formatDate(offer.newDay, day0) : 'the offer';
+  const rows = offer
+    ? [
+        { label: itemLabel(raw, offer.itemId, 'Payment'), value: formatDate(offer.newDay, day0) },
+        { label: 'Fee', value: formatMoney(offer.fee) },
+      ]
+    : [];
+  return {
+    step: 'held',
+    variant: 'no_answer',
+    title: offer ? `The lender is holding ${when}` : 'The lender is holding the offer',
+    detail: 'PacePay didn’t hear back in time, so it asked the lender to hold the offer and ended the call. Text PacePay when you’re ready to go again.',
+    offer: rows,
+  };
+}
+
+/** The bill the readers weren't sure about, with the reason PacePay is asking. */
+function billConfirmView(raw: Raw, b: Bill): PanelView {
+  const cc = b.crossCheck;
+  const disagree = cc && !cc.agrees;
+  const note = disagree ? 'The two readers saw different numbers.' : b.confidence < 0.8 ? 'The photo was hard to read.' : '';
+  const due = b.dueDay === null ? 'No date on it' : b.dueDay <= raw.day ? 'Today' : formatDate(b.dueDay, raw.household.day0Date);
+  return { step: 'bill_confirm', merchant: b.merchant, amount: b.amount, due, note, approvalId: pendingApproval(raw, 'bill_confirm')?.id };
+}
+
 function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
   const c = raw.case;
   if (!c) return { step: 'idle' };
@@ -380,6 +409,10 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
       : undefined;
     return { step: 'approve', rows, approvalId: deal.id, secondsLeft };
   }
+
+  // A bill PacePay is unsure about: asks before it builds options (only while no option is pending).
+  const billCheck = pendingApproval(raw, 'bill_confirm');
+  if (billCheck && raw.bill && !choice) return billConfirmView(raw, raw.bill);
 
   // Limits: the pending call_limits approval, and also while the call plan is being written
   // (PREPARING_CALL) or the answer is on its way, so the panel goes Heads up -> Limits -> Call.
@@ -434,9 +467,9 @@ function derivePanelBase(raw: Raw, ui: UiState, now: number): PanelView {
   }
 
   const neg = raw.negotiation;
-  // Held: no answer to the deal in time. Nothing needs Yoshua and nothing changed; derive() puts
-  // HELD_TEXT under the panel's calm line.
-  if (isHeld(raw)) return { step: 'idle' };
+  // Held: no answer to the deal in time. Nothing changed; the panel says so, and derive() also
+  // puts HELD_TEXT on the chart's status line.
+  if (isHeld(raw)) return heldView(raw);
 
   const inNegotiation: Case['state'][] = ['REVIEWING', 'CALLING', 'NEGOTIATING', 'AWAITING_APPROVAL', 'CONFIRMING', 'TEXT_NEGOTIATION'];
   if (inNegotiation.includes(c.state)) return { step: 'call' };
@@ -882,6 +915,7 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
         if (id && text.trim()) void run(() => apiPost(API.lenderSays(id), { text }), 'Could not send that to the negotiator');
       },
       approveDeal: () => void answer(pending('deal'), 'yes'),
+      confirmBill: () => void answer(pending('bill_confirm'), 'yes'),
       decline: () => void answer(pending('deal') ?? pending('call_limits'), 'no'),
       openActivity: () => patchUi({ tab: 'activity' }),
       compareCdInWhatIf: () => setUi((u) => ({ ...u, whatIfOpen: true, whatIf: { ...u.whatIf, cd: true } })),
@@ -929,7 +963,7 @@ export function useLiveDashboard(baseUrl: string | null, readOnly = false): UseD
     // Through the public tunnel the server refuses every write (403 read_only). Rather than let a
     // button fail, each write says why and does nothing; reading, tabs, what-if and Presenter still work.
     const WRITES = [
-      'pickOption', 'approveLimits', 'startCall', 'nextLine', 'endCall', 'failCall', 'lenderSays', 'approveDeal', 'decline',
+      'pickOption', 'approveLimits', 'startCall', 'nextLine', 'endCall', 'failCall', 'lenderSays', 'approveDeal', 'decline', 'confirmBill',
       'skipClock', 'reset', 'injectBillPhoto', 'sendMessage', 'setRules', 'togglePause', 'runArenaLive',
     ] as const satisfies readonly (keyof Actions)[];
     const guarded: Actions = { ...base };

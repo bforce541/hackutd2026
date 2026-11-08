@@ -931,6 +931,20 @@ function cardinal(toks: string[]): string {
 }
 
 /** A digit-free outline of a PIN try for logs ("# # # #", "N N", "N thousand N hundred N"): never the digits. */
+/** Drops sentences that are only "PIN" / "my PIN" / bare digits (noise after the PIN is verified). */
+export function dropPinNoise(utterance: string): string {
+  const parts = utterance.split(/(?<=[.!?])\s+/);
+  const kept = parts.filter((p) => {
+    const n = p.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!n) return false;
+    if (/^(?:(?:my|the|a) )?pin(?: number| code)?$/.test(n)) return false;
+    if (/^[\d ]+$/.test(n) && n.replace(/ /g, '').length <= 8) return false;
+    if (spokenDigits(p) && /^(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|to|too|for)\s*)+$/.test(n)) return false;
+    return true;
+  });
+  return kept.join(' ').trim();
+}
+
 export function pinShape(text: string): string {
   return text
     .toLowerCase()
@@ -1261,6 +1275,11 @@ export class InboundConductor extends Conductor {
       return this.checkPin(digits, utterance);
     }
     if (isJunk(utterance)) return { say: '', next: 'listen' };
+    // After the PIN, a stray "PIN." or bare digits (keypad tones or a late echo of the PIN, merged onto
+    // a real question by the recognizer) is noise: drop it so it can't turn "What's my balance?" into a
+    // refusal, and answer nothing if that was all they "said".
+    utterance = dropPinNoise(utterance);
+    if (!utterance) return { say: INBOUND_DIDNT_CATCH, next: 'listen' };
     const t = utterance.trim();
     if (NO_MORE.test(t)) return { say: INBOUND_GOODBYE, next: 'end_call' };
     if (THANKS.test(t)) return { say: INBOUND_ANYTHING_ELSE, next: 'listen' };

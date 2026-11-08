@@ -147,7 +147,7 @@ function Line({ line, lender }: { line: TranscriptLine; lender?: string }) {
   return (
     <li className={cn('border-l-2 pl-3.5', us ? 'border-green' : 'border-hairline')}>
       <p className={cn('eyebrow m-0', us ? 'text-green' : 'text-muted')}>{us ? 'PacePay' : (lender ?? 'Lender')}</p>
-      <p className="m-0 mt-1 text-label leading-[1.5]">{line.text}</p>
+      <p className="m-0 mt-1 text-label leading-[1.5]">{line.text.replace(/\*\*/g, "")}</p>
     </li>
   );
 }

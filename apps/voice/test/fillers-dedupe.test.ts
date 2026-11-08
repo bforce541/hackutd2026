@@ -213,3 +213,16 @@ describe('spokenDigits on messy transcripts', () => {
     ['1 2 3 4 5', '12345'], // five clear digits stay a (wrong) try
   ])('%s -> %s', (t, want) => expect(spokenDigits(t)).toBe(want));
 });
+
+import { dropPinNoise } from '../src/conductor.js';
+describe('dropPinNoise', () => {
+  it('drops a stray PIN tail but keeps the question', () => {
+    expect(dropPinNoise("What's my checking balance? PIN.")).toBe("What's my checking balance?");
+    expect(dropPinNoise('PIN.')).toBe('');
+    expect(dropPinNoise('1 2 3 4.')).toBe('');
+    expect(dropPinNoise('One two three four.')).toBe('');
+    expect(dropPinNoise("What's my PIN?")).toBe("What's my PIN?");
+    expect(dropPinNoise('When does my paycheck land?')).toBe('When does my paycheck land?');
+    expect(dropPinNoise('How much is my $700 bill? 4417.')).toBe('How much is my $700 bill?');
+  });
+});

@@ -4,9 +4,12 @@ import { serverUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { MiniChart } from './MiniChart';
 
-/** Live: /api/media/:id on the server. Demo: a bundled path, drawn as the mini chart. */
+/** Live: /api/media/:id on the server. Demo: the bundled images in public/demo/. */
+const DEMO_IMAGES = new Set(['/demo/brake-quote.png', '/demo/week-chart.png']);
+
 function mediaSrc(url: string): string | null {
   if (/^https?:/.test(url)) return url;
+  if (DEMO_IMAGES.has(url)) return url;
   if (url.startsWith('/api/')) {
     const base = serverUrl();
     return base ? `${base}${url}` : null;
@@ -28,13 +31,13 @@ export function MessageBubble({ message: m }: { message: Message }) {
         fromYoshua
           ? 'max-w-[75%] self-end bg-green-tint px-3.5 py-2'
           : 'max-w-[80%] self-start border border-hairline bg-panel px-3.5 py-2.5',
-        (src || isDemoChart) && !fromYoshua && 'w-[22em]',
+        (src || isDemoChart) && (fromYoshua ? 'w-[15em]' : 'w-[22em]'),
       )}
     >
       {src ? (
         <img
           src={src}
-          alt={fromYoshua ? 'Photo sent to PacePay' : 'Chart of checking, next 14 days'}
+          alt={fromYoshua ? 'Photo of the repair quote: $650 due today' : 'Chart of checking, next 14 days: lowest −$300 on Tue, Nov 10'}
           className="mb-1 block h-auto w-full rounded-md"
           loading="lazy"
         />

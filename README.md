@@ -48,7 +48,7 @@ pnpm -r test                             # engine, shared, server and dashboard 
 pnpm -r typecheck
 ```
 
-Press **Ask my lender**, then **Call now**, and step through the call. Then **Skip to Wed, Nov 18** to see the unprompted CD alert. **Presenter** compacts the page for a projector, and the moon switches to Night.
+Press **Ask my lender**, then **Call now**, and step through the call. Then **Skip to Wed, Nov 18** to see the unprompted CD alert. The moon switches to Night.
 
 The full system (real texts and calls) needs API keys that stay on the presenter's machine: Photon, LiveKit, OpenAI and the model gateways. Setup is below. Without the paid keys the server runs in NVIDIA mode, with every Nemotron role on a shared NVIDIA key.
 

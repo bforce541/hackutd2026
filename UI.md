@@ -25,9 +25,9 @@ The first version was correct but plain. This pass keeps every behavior and rebu
 - **The pace line is a field of day tiles.** Each day is a translucent tile standing on the $0 line: leaf when safe, amber near your minimum, coral hanging below $0 (and hatched, so color is never the only cue). Hover or arrow-key along it to read any day; a callout names what causes the dip ("Mortgage + Car payment").
 - **The agent card's top is five tiles,** one per step (Heads up, Limits, Call, Approve, Done). They light up coral to leaf as the case advances; the full spectrum means done.
 - **Health stats have five-tile meters** instead of numbers alone: one tile is far from the goal, five means it is met. No gauges, no grades.
-- **Two themes on one token set.** Light is the default; Night is one click (the moon in the header). Presenter mode compacts the page to fit a 1440 × 800 screen.
+- **Two themes on one token set.** Light is the default; Night is one click (the moon in the header).
 - **Motion, only where it explains:** the balance counts up on load; tiles rise in a wave; tiles glide and re-color when the plan changes (a deal landing turns the dip green, left to right); steps ease in; the lowest point pulses twice; the plan's checks draw themselves. Curves: `--ease-out` (expo-out) for things that arrive or morph, a gentle ease for color.
-- **View only.** Through the public tunnel the server answers reads only (`/api/health` says `readOnly`). The header then says "View only", Skip and Reset disappear, every control that changes something is dimmed and inert (`.pp-write`), and the panel says actions run on the presenter's laptop. Reading, tabs, What-if and Presenter keep working, so anyone on pacepay.work can watch the live demo.
+- **View only.** Through the public tunnel the server answers reads only (`/api/health` says `readOnly`). The header then says "View only", Skip and Reset disappear, every control that changes something is dimmed and inert (`.pp-write`), and the panel says actions run on the presenter's laptop. Reading, tabs and What-if keep working, so anyone on pacepay.work can watch the live demo.
 - **Messages is a phone** showing the iMessage thread, with tappable questions. **Activity** is a flight recorder: every step and log row carries the model that did it. **Accounts** is net worth plus six category cards. **Arena** is a field of 50 tiles.
 
 Source of truth for the values is `apps/dashboard/app/globals.css`; where this section and the older text below disagree, this section wins.
@@ -45,13 +45,11 @@ Source of truth for the values is `apps/dashboard/app/globals.css`; where this s
   - labels: 14px
   - chart labels: 13px
 
-  **Presenter mode** scales everything up 25% for the expo.
-
 **Theme: light, warm, few boxes** *(judgment)*
 - The page is a warm light gray (`#F2F1ED`), not white. Only the PacePay panel is white, so the one thing that needs you stands out.
 - The balance, chart and health stats sit right on the page. Space and hairlines (`#E0DED7`) separate them, not cards.
 - No pills, chips or badges. A status is a short line of text, with a small swatch that matches the chart.
-- Tabs and the range switch are plain text, underlined when selected. Presenter and Reset are plain text buttons.
+- Tabs and the range switch are plain text, underlined when selected. Reset is a plain text button.
 - One soft shadow, on the PacePay panel only.
 
 **Color: three accents on warm neutrals**
@@ -88,7 +86,7 @@ Source of truth for the values is `apps/dashboard/app/globals.css`; where this s
 
 ## Screens
 
-**Navigation:** a slim header. On the left, the logo and five text tabs, underlined when selected (**Home · Messages · Activity · Accounts · Arena**). On the right, the demo controls: today's date with a **Skip to Wed, Nov 18** button, Presenter, Reset and the avatar. Rules live on the Accounts tab.
+**Navigation:** a slim header. On the left, the logo and five text tabs, underlined when selected (**Home · Messages · Activity · Accounts · Arena**). On the right, the demo controls: today's date with a **Skip to Wed, Nov 18** button, Reset and the avatar. Rules live on the Accounts tab.
 
 **Demo controls:** the Skip button jumps the demo clock to day 11 (Wed, Nov 18), which is when the CD alert arrives. On day 11 it reads **Back to Sat, Nov 7**.
 
@@ -191,10 +189,6 @@ Two columns, straight on the page.
   - an arrow on an ochre tint = handed to Yoshua for an ID check
 - **Below the grid:** a legend and a **Run 3 live** button.
 - The mockup's numbers are samples, and the tab says so.
-
-### Presenter mode
-
-Everything 25% bigger, for the expo. It's switched on from the header.
 
 ## iMessage
 

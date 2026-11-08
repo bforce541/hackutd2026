@@ -45,7 +45,7 @@ Live mode: reuses the existing bill photo or typed-bill route to open a case for
 
 - Typecheck, all tests, dashboard build.
 - Every number matches the engine: $650 on checking is −$300 on Tue, Nov 10 (v2.md); the same $650 on the card leaves checking alone and moves credit use.
-- Looked at in Light, Night, Presenter and a phone-width window. Keyboard only: type, Tab to Checking or Card, Enter.
+- Looked at in Light, Night and a phone-width window. Keyboard only: type, Tab to Checking or Card, Enter.
 - Empty, zero, negative and huge amounts show a calm hint, never a broken chart.
 - View-only mode: the box still works (it only reads), the "fix it" button is dimmed.
 

@@ -22,7 +22,7 @@ Two kinds of footage: **P** = real phone (you on your iPhone, Ram's laptop runni
 
 ## Dashboard recordings to capture now (D)
 
-Run `pnpm --filter @pacepay/dashboard dev` and open http://localhost:3000 in **demo mode** (no server needed). Window 1440 × 800, **Presenter** on, Light theme (Night as one cutaway if you want it). Record each as its own clip so they cut cleanly:
+Run `pnpm --filter @pacepay/dashboard dev` and open http://localhost:3000 in **demo mode** (no server needed). Window 1440 × 800, Light theme (Night as one cutaway if you want it). Record each as its own clip so they cut cleanly:
 
 1. **Home, the dip and the fix:** idle pace line with the −$300 dip, step the case to Done, the forecast sweeping green.
 2. **Health stats:** click each of the four stats to show reason and improve line.

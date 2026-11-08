@@ -51,7 +51,7 @@ cd /Users/ramsarma/hackutd26/apps/dashboard && SERVER_URL=http://127.0.0.1:8787 
 ```
 
 - Open http://localhost:3000. The header chip says **Live** (green dot) when connected. If it says **Demo** (amber), the dashboard could not reach `/api/health` within 1.5 s and is running the self-contained mockup; it re-probes every 6 s and flips to Live on its own (`apps/dashboard/lib/data-source.ts`). `SERVER_URL` is baked in at start, so if you forgot it, restart this terminal.
-- Window: 1440 x 800 on the projector, **Presenter** on (header button), Light theme.
+- Window: 1440 x 800 on the projector, Light theme.
 
 ## 2. Reset and health
 
@@ -150,13 +150,13 @@ Run after A (so there is a call to ask about), or after a reset if you only show
 | Slow model on the call | The decision is mostly code (stress runs: median 14 ms, p95 35 ms per decision); only an unreadable lender line goes to Super with a 2.5 s cap and a code fallback. Real latency on a live line is mostly speech-to-text and TTS (voice stress run, per-turn numbers in `scripts/stress/out/inbound-*.json`) | Say: "PacePay reads every offer back before it checks it, that is the pause." A short filler ("Mm-hm...") plays by itself after about 1.1 s. |
 | Server crashed | | Ctrl-C and rerun the Terminal 1 command. State is persisted to `data/state.json` so the case may resume. If you want a clean start run `POST /api/demo/reset`. Restart the voice worker only if its terminal shows errors. |
 | Voice worker crashed or not registered | | Rerun the Terminal 2 command. If it will not come up in a minute, run the whole demo with the lender console (the text fallback above is the same flow, no phone). |
-| Dashboard shows "Demo" | Server unreachable or `SERVER_URL` missing | Check Terminal 3 was started with `SERVER_URL=http://127.0.0.1:8787`; restart it if not. It flips to Live by itself once `/api/health` answers. |
+| Dashboard says "Can't reach the server, showing the demo" (or shows no green Live dot) | Server unreachable or `SERVER_URL` missing | Check Terminal 3 was started with `SERVER_URL=http://127.0.0.1:8787`; restart it if not. It flips to Live by itself once `/api/health` answers. |
 | Everything is on fire | | Last resort: the **demo mode** of the dashboard. `https://www.pacepay.work` opens in demo mode (no server connection, per the README), or http://localhost:3000 without `SERVER_URL`. Press **Ask my lender**, **Call now**, then step through the call; **Skip to Wed, Nov 18** shows the CD alert. This is a scripted walk-through of the same case, not live agents: say so. The recorded backup video is the other last resort. |
 | pacepay.work does not show the live demo | The public site cannot reach localhost | Expected unless a tunnel (Tailscale Funnel) is up and `SERVER_URL` is set in the Vercel project **[unverified: whether this is currently configured]**. Demo from http://localhost:3000. Requests through a tunnel are view-only by design. |
 
-### The dashboard's Presenter mode
+### The dashboard's Night theme
 
-Header button **Presenter** (`state.ui.presenter`): compacts the page and hides the status chips (`apps/dashboard/components/Header.tsx`). Use it on the projector. The moon icon toggles Night theme. It changes nothing about the agents.
+The moon icon in the header toggles Night theme. It changes nothing about the agents.
 
 ## 6. Things not to say
 

@@ -15,28 +15,23 @@
       "audio": "the clip's own audio (his line)",
       "captions": [
         {
-          "start": 0.15,
-          "end": 1.05,
-          "text": "No way."
+          "start": 0.95,
+          "end": 2.6,
+          "text": "No way. Is this due today?"
         },
         {
-          "start": 1.1,
-          "end": 2,
-          "text": "Is this due today?"
-        },
-        {
-          "start": 2.05,
-          "end": 4.4,
+          "start": 2.7,
+          "end": 4.32,
           "text": "I only get paid next Thursday."
         },
         {
-          "start": 4.45,
-          "end": 6,
+          "start": 4.36,
+          "end": 5.85,
           "text": "There's no way I can make this."
         },
         {
-          "start": 6.05,
-          "end": 7.6,
+          "start": 5.95,
+          "end": 7.5,
           "text": "Let me text PacePay."
         }
       ]

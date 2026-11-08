@@ -2,7 +2,7 @@
 
 **See what you can afford. Get more time if you need it.** A money assistant you save as a contact. It texts you before money gets tight, and with your OK, calls whoever you owe to fix it.
 
-> Placeholders still open before submitting are marked `[ARENA]`, `[BILLS]` and `[PIN]`. Everything else is checked against the code and v2.md. See "Open placeholders" at the bottom.
+> The only placeholder left is `[ARENA]`. Everything else is checked against the code and v2.md. See "Open placeholders" at the bottom.
 
 ## Inspiration
 
@@ -90,7 +90,7 @@ Patterns covered: multi-agent (planner, orchestrator, negotiator, bill reader, l
 | Photon rewards | How PacePay does it |
 |---|---|
 | Live on a Photon channel | An iMessage line for texts and a Photon number for calls |
-| Best Voice Agent | PacePay places real calls to the lender over LiveKit through the Photon number. [PIN] Inbound calls are PIN-gated: numbers are read out only after the caller's PIN. |
+| Best Voice Agent | PacePay places real calls to the lender over LiveKit through the Photon number. Inbound calls are PIN-gated: numbers are read out only after the caller's PIN. |
 | Human-in-the-loop | Yoshua picks the option, OKs the limits before the call, and approves the deal mid-call by text |
 | Context across time and channels | The call summary lands in the thread, and PacePay keeps rules, past decisions and the late-paycheck watch in context |
 | A delightful default | Quiet unless the forecast crosses a floor, one-word replies, a chart instead of a wall of text |
@@ -112,7 +112,7 @@ Flat refusals and identity checks end without a deal by design. Every transcript
 
 ## Bill reader accuracy
 
-We generated 30 test bill photos with known amounts and due dates (phone photos at an angle, crumpled, low light, thermal receipts) and measured the reader against the answers: [BILLS]
+We generated 30 test bill photos with known amounts and due dates (phone photos at an angle, crumpled, low light, thermal receipts) and measured the reader against the answers. We drew the same 30 bills two ways, with code and with an AI image model. **Amounts were right on 60 of 60 photos, and due dates on 59 of 60.** The one miss was a "due at pickup" receipt with no printed date, which the reader took as due today. Claude's cross-check agreed on every amount, and PacePay asked Yoshua to confirm only 1 time in 60. Results are in `docs/eval/`.
 
 ## Challenges
 
@@ -152,7 +152,7 @@ Nemotron 3 Ultra, Nemotron 3 Super, Nemotron Nano 2 VL, Claude Opus 5.5, OpenAI 
 
 ## Open placeholders
 
-- `[ARENA]`: paste the numbers after Ram's rerun (his script writes `apps/dashboard/public/demo/arena-results.json`; `docs/arena-transcripts.md` has the table).
-- `[BILLS]`: the bill reader's accuracy. No results file is in the repo, so ask Ram for the count and the due-date accuracy, and say how many photos were code-drawn and how many AI-generated.
-- `[PIN]`: confirm with Ram that a real inbound PIN call has worked. If not, delete that sentence.
-- Confirm "Real texts and real phone calls" still reads true after the phone run, and add "photo to done text on real phones" if it worked end to end.
+- `[ARENA]`: waits for Ram's rerun of all 50 lenders, after the voice fix is committed. He'll send runs, deals, limit violations, disclosures and read-back rate, and update `apps/dashboard/public/demo/arena-results.json` and `docs/arena-transcripts.md`.
+- Bill reader numbers are filled in from Ram's report. Check them against `docs/eval/` once that lands with the voice-fix commit.
+- Inbound PIN call: Ram called the PacePay number from his own phone and it verified the PIN and answered. The worker was rebuilt since, so he'll call again during tonight's rehearsal. Keep the claim.
+- After the phone run, confirm "Real texts and real phone calls" still reads true, and add the full photo-to-done-text loop if it worked end to end.

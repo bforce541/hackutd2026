@@ -152,6 +152,8 @@ const place = (el, r) => { el.style.left = `${r.x}px`; el.style.top = `${r.y}px`
 
 const stage = $('stage'), world = $('world');
 const params = new URLSearchParams(location.search);
+const TAG_AT = (() => { const v = (params.get('tags') || '').split(',').map(Number).filter((n) => n > 0); return v.length === 3 ? v : null; })();
+const TAGS_FROM = params.get('tagsfrom') ? Number(params.get('tagsfrom')) : null;
 if (params.get('bg') === 'none') stage.classList.add('nobg');
 function fit() {
   const s = Math.min(innerWidth / 1920, innerHeight / 1080);
@@ -264,10 +266,11 @@ function render(t) {
   }
 
   // track tags during "home"
+  // ?tags=a,b,c (page seconds) puts each tag on the word that names it; ?tagsfrom= brings in the label
   const out = 1 - fadeIn(t, 15.2, 0.6);
-  $('eyebrow').style.opacity = Math.min(fadeIn(t, 3.6, 0.5), out);
+  $('eyebrow').style.opacity = Math.min(fadeIn(t, TAGS_FROM ?? 3.6, 0.4), out);
   tags.forEach((el, i) => {
-    const p = fadeIn(t, 4.0 + i * 1.6, 0.6);
+    const p = TAG_AT ? fadeIn(t, TAG_AT[i] - 0.08, 0.35) : fadeIn(t, 4.0 + i * 1.6, 0.6);
     el.style.opacity = Math.min(p, out);
     el.style.transform = `translateY(${(1 - p) * 14}px)`;
   });

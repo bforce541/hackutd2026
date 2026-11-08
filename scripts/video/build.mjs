@@ -233,7 +233,18 @@ try {
       const greenAt = 2.0;
       const map = [piece('green', [greenAt, rel('done')[1]]), piece('home', rel('whatitis')), piece('health', rel('health')),
         piece('whatif', rel('whatif')), piece('activity', rel('activity')), piece('arena', rel('arena'))].flat();
-      layers.push({ src: 'dash-scenes.html', start: greenAt, end: restLen, map });
+      // the track tags land on the words that name them in Yoshua's line
+      let dashSrc = 'dash-scenes.html';
+      const wjf = path.join(CLIPS, 'whatitis.words.json');
+      if (existsSync(wjf) && ds.home) {
+        const ws = JSON.parse(await readFile(wjf, 'utf8')).transcription.map((x) => ({ w: x.text.trim().toLowerCase(), s: x.offsets.from / 1000 }));
+        const find = (re) => ws.find((x) => re.test(x.w));
+        const hits = [find(/^pnc/), find(/^nvidia/), find(/^photon/)];
+        const built = find(/^built/);
+        const pageAt = (x) => +(ds.home.start + 0.3 + x.s).toFixed(2);
+        if (hits.every(Boolean)) dashSrc += `?tags=${hits.map(pageAt).join(',')}${built ? `&tagsfrom=${pageAt(built)}` : ''}`;
+      }
+      layers.push({ src: dashSrc, start: greenAt, end: restLen, map });
       // "eight accounts": the account row rises in under the health scores as the line starts
       if (existsSync(path.join(VIDEO, 'accounts.html'))) {
         const a = rel('health')[0] + (TL.accounts_at ?? 0.25);
@@ -368,13 +379,40 @@ try {
     // voices are loudness-normalized on their own; the music then sits under them at a fixed level
     aFilt.push(`[vraw]loudnorm=I=${TL.audio_mix.loudness_lufs}:TP=-2:LRA=11,aresample=48000[voices]`);
     if (music) {
-      const k = addInput(music);
-      aFilt.push(`[voices]asplit[vo1][vo2]`);
-      // swell where nobody is talking (timeline music.boost: [start, end, gain]), easing over 1.5s each side
-      const boost = (TL.music?.boost || []).map(([a, b, g]) => `${(g - 1).toFixed(2)}*clip(min((t-${a})/1.5\\,(${b}-t)/1.5)\\,0\\,1)`).join('+') || '0';
-      aFilt.push(`[${k}:a]aloop=loop=-1:size=2e9,atrim=0:${TL.total},volume='${TL.audio_mix.music}*(1+${boost})':eval=frame[mus]`);
-      aFilt.push(`[mus][vo2]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[duck]`);
-      aFilt.push(`[vo1][duck]amix=inputs=2:normalize=0:duration=first[mix]`);
+      // the music follows a level curve (timeline music.levels), not a fixed level:
+      // silent under the desk clip and the call, present on the texts, faint under every voiceover,
+      // up a little in the gaps between lines and into the dashboard, loud on the logo
+      const lv = { texts: 0.38, transition: 0.34, under_voice: 0.09, close: 0.7, ramp: 0.4, ...(TL.music?.levels || {}) };
+      const speech = [];
+      for (const s of TL.scenes.filter((s) => s.voice && voiceFiles[s.id])) {
+        const a = s.start + 0.3; speech.push([a, a + Math.min(await duration(voiceFiles[s.id]), s.end - 0.3 - s.start)]);
+      }
+      const texts = scene('texts'), callS = scene('call'), closeS = scene('close');
+      const pts = [[0, 0], [texts.start - 0.4, 0], [texts.start + 0.4, lv.texts], [callS.start - 1.0, lv.texts], [callS.start - 0.1, 0],
+        [callS.end, 0], [callS.end + 0.6, lv.transition]];
+      for (const [a, b] of speech) pts.push([a - lv.ramp, lv.transition], [a, lv.under_voice], [b, lv.under_voice], [b + lv.ramp, lv.transition]);
+      pts.push([closeS.start - 0.2, lv.transition], [closeS.start + 0.4, lv.close], [TL.total - 2.5, lv.close], [TL.total, 0]);
+      pts.sort((p, q) => p[0] - q[0]);
+      // keep the louder of overlapping ramps from being re-raised inside a speech interval
+      const inSpeech = (t) => speech.some(([a, b]) => t >= a && t <= b);
+      const gainAt = (t) => {
+        if (inSpeech(t)) return lv.under_voice;
+        let i = 0; while (i + 1 < pts.length && pts[i + 1][0] <= t) i++;
+        const [t0, g0] = pts[i], [t1, g1] = pts[Math.min(i + 1, pts.length - 1)];
+        return t1 > t0 ? g0 + ((t - t0) / (t1 - t0)) * (g1 - g0) : g0;
+      };
+      const SRe = 48000, n = Math.round(TL.total * SRe), env = Buffer.alloc(44 + n * 4);
+      env.write('RIFF', 0); env.writeUInt32LE(36 + n * 4, 4); env.write('WAVEfmt ', 8); env.writeUInt32LE(16, 16); env.writeUInt16LE(1, 20);
+      env.writeUInt16LE(2, 22); env.writeUInt32LE(SRe, 24); env.writeUInt32LE(SRe * 4, 28); env.writeUInt16LE(4, 32); env.writeUInt16LE(16, 34);
+      env.write('data', 36); env.writeUInt32LE(n * 4, 40);
+      for (let i = 0; i < n; i++) { const v = Math.round(Math.min(1, gainAt(i / SRe)) * 32767); env.writeInt16LE(v, 44 + i * 4); env.writeInt16LE(v, 46 + i * 4); }
+      const envFile = path.join(CLIPS, 'music-envelope.wav');
+      await writeFile(envFile, env);
+      const k = addInput(music), ke = addInput(envFile);
+      aFilt.push(`[${k}:a]atrim=0:${TL.total},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[mraw]`);
+      aFilt.push(`[${ke}:a]aformat=sample_fmts=fltp:channel_layouts=stereo[menv]`);
+      aFilt.push(`[mraw][menv]amultiply[mus]`);
+      aFilt.push(`[voices][mus]amix=inputs=2:normalize=0:duration=first[mix]`);
     } else aFilt.push(`[voices]anull[mix]`);
     aFilt.push(`[mix]alimiter=limit=0.89:level=false,aresample=48000[aout]`);
     audioOut = '[aout]';

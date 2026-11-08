@@ -14,17 +14,17 @@ export const CONTROL_BORDER = 'border-control-border';
 const SECONDARY_HOVER = 'hover:bg-secondary-hover';
 export const INPUT_FILL = 'bg-input-fill';
 
-const FOCUS = 'focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-green';
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
 
-/** The small colored line above a headline: "Heads up", "Your limits", "Best fix". */
+/** The small mono label above a headline: "Heads up", "Your limits", "Best fix". */
 export function Eyebrow({ className, children }: { className?: string; children: ReactNode }) {
-  return <p className={cn('m-0 text-label font-semibold', className)}>{children}</p>;
+  return <p className={cn('eyebrow m-0', className)}>{children}</p>;
 }
 
 /** 26px headline (Heads up, What-if, CD alert). */
 export function Headline({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn('m-0 mt-[0.25em] text-headline leading-[1.2] font-semibold tracking-[-0.01em]', className)}>
+    <p className={cn('m-0 mt-[0.35em] text-headline leading-[1.08] font-medium tracking-[-0.035em]', className)}>
       {children}
     </p>
   );
@@ -32,12 +32,12 @@ export function Headline({ children, className }: { children: ReactNode; classNa
 
 /** 22px headline (Limits, Approve, Done). */
 export function Title({ children }: { children: ReactNode }) {
-  return <p className="m-0 mt-[0.25em] text-title leading-[1.25] font-semibold">{children}</p>;
+  return <p className="m-0 mt-[0.35em] text-title leading-[1.15] font-medium tracking-[-0.03em]">{children}</p>;
 }
 
 /** 18px option title (Best fix, Best use). */
 export function OptionTitle({ children }: { children: ReactNode }) {
-  return <p className="m-0 mt-[0.25em] text-subtitle leading-[1.3] font-semibold">{children}</p>;
+  return <p className="m-0 mt-[0.3em] text-subtitle leading-[1.25] font-medium tracking-[-0.02em]">{children}</p>;
 }
 
 export function Muted({ children, className }: { children: ReactNode; className?: string }) {
@@ -60,7 +60,7 @@ export function PrimaryButton({ className, type = 'button', ...rest }: BtnProps)
     <button
       type={type}
       className={cn(
-        'min-h-12 cursor-pointer rounded-lg border-0 bg-green text-[1em] font-semibold text-white hover:brightness-[0.88] disabled:cursor-default disabled:opacity-60 disabled:hover:brightness-100',
+        'min-h-12 cursor-pointer rounded-full border-0 bg-ink px-[1.25em] text-[1em] font-medium text-page transition-[transform,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)] hover:opacity-90 active:scale-[0.97] disabled:cursor-default disabled:opacity-50',
         FOCUS,
         className,
       )}
@@ -74,7 +74,7 @@ export function SecondaryButton({ className, type = 'button', ...rest }: BtnProp
     <button
       type={type}
       className={cn(
-        'min-h-12 cursor-pointer rounded-lg border bg-panel text-[1em] font-semibold text-ink',
+        'min-h-12 cursor-pointer rounded-full border bg-panel px-[1.25em] text-[1em] font-medium text-ink transition-[transform,background-color] duration-[var(--dur-base)] ease-[var(--ease-out)] active:scale-[0.97]',
         CONTROL_BORDER,
         SECONDARY_HOVER,
         FOCUS,
@@ -90,7 +90,7 @@ export function TextButton({ className, type = 'button', ...rest }: BtnProps) {
   return (
     <button
       type={type}
-      className={cn('min-h-11 cursor-pointer border-0 bg-transparent text-label text-muted', FOCUS, className)}
+      className={cn('min-h-11 cursor-pointer rounded-full border-0 bg-transparent px-2 text-label text-muted transition-colors duration-[var(--dur-base)] hover:text-ink', FOCUS, className)}
       {...rest}
     />
   );
@@ -122,15 +122,17 @@ export function OptionRowButton({ title, detail, onClick }: { title: string; det
       type="button"
       onClick={onClick}
       className={cn(
-        'group flex min-h-12 w-full cursor-pointer items-center gap-[0.75em] border-0 border-t border-hairline bg-transparent py-[0.625em] text-left text-[1em] text-ink',
+        'group -mx-[0.75em] flex min-h-12 w-[calc(100%+1.5em)] cursor-pointer items-center gap-[0.75em] rounded-2xl border-0 bg-transparent px-[0.75em] py-[0.625em] text-left text-[1em] text-ink transition-colors duration-[var(--dur-base)] hover:bg-secondary-hover',
         FOCUS,
       )}
     >
       <span className="min-w-0 flex-auto">
-        <span className="block font-medium group-hover:underline">{title}</span>
+        <span className="block font-medium">{title}</span>
         <span className="block text-[0.875em] text-muted">{detail}</span>
       </span>
-      <Chevron />
+      <span className="flex-none transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)] group-hover:translate-x-0.5">
+        <Chevron />
+      </span>
     </button>
   );
 }

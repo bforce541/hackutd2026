@@ -50,6 +50,12 @@ export interface ChartGeometry {
   markers: Marker[];
   labels: LabelBox[];
   low: { x: number; y: number; negative: boolean } | null;
+  /** Value (cents) to chart y: the day tiles are drawn through the same scale as everything else. */
+  y: (v: number) => number;
+  /** Width of one day's column. */
+  colW: number;
+  /** Each day's closing balance, the value its tile shows. */
+  closes: number[];
 }
 
 export interface GeometryInput {
@@ -61,6 +67,8 @@ export interface GeometryInput {
   lowestDay: number;
   day0Date: ISODate;
   fontPx: number;
+  /** Chart height in px; defaults to CHART_H. The page shrinks it on short screens. */
+  height?: number;
 }
 
 type Short = 'Pay' | 'Mortgage' | 'Car';
@@ -82,7 +90,7 @@ function isFee(itemId: string, label: string): boolean {
 export function buildGeometry(inp: GeometryInput): ChartGeometry {
   const n = inp.range;
   const W = inp.width;
-  const H = CHART_H;
+  const H = inp.height ?? CHART_H;
   const days = inp.line.days.slice(0, n);
   const bal = days.map((d) => d.close);
   const ghostBal = inp.ghost ? inp.ghost.days.slice(0, n).map((d) => d.close) : [];
@@ -231,5 +239,8 @@ export function buildGeometry(inp: GeometryInput): ChartGeometry {
     markers,
     labels,
     low,
+    y,
+    colW: W / n,
+    closes: bal,
   };
 }

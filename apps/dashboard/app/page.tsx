@@ -26,16 +26,14 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-page text-ink">
       <Header {...props} />
-      <main className="px-4 pb-8 pt-6 sm:px-8 sm:pt-7 [html[data-presenter=true]_&]:pb-3 [html[data-presenter=true]_&]:pt-3">
+      <main className="mx-auto max-w-[1560px] px-4 pb-10 pt-1 sm:px-8 [html[data-presenter=true]_&]:pb-3">
         {state.ui.tab === 'home' && (
-          <div className="flex flex-wrap items-start gap-10">
-            <div className="min-w-0 flex-[999_1_560px]">
+          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,25rem)]">
+            <div className="flex min-w-0 flex-col gap-3">
               <PaceLine {...props} />
               <HealthStats {...props} />
             </div>
-            <div className="min-w-0 flex-[1_1_380px]">
-              <PacePayPanel {...props} />
-            </div>
+            <PacePayPanel {...props} />
           </div>
         )}
         {state.ui.tab === 'messages' && <MessagesTab {...props} />}

@@ -26,7 +26,7 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-page text-ink">
       <Header {...props} />
-      <main className="px-4 pb-8 pt-6 sm:px-8 sm:pt-7">
+      <main className="px-4 pb-8 pt-6 sm:px-8 sm:pt-7 [html[data-presenter=true]_&]:pb-3 [html[data-presenter=true]_&]:pt-3">
         {state.ui.tab === 'home' && (
           <div className="flex flex-wrap items-start gap-10">
             <div className="min-w-0 flex-[999_1_560px]">

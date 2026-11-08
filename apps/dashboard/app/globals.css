@@ -18,6 +18,11 @@
   --before-line: #8f8a80; /* "Before" / "Current plan" ghost line */
   --label-ink: #3d3b37; /* chart labels */
 
+  /* Control neutrals: button and input borders, secondary-button hover, the lender box fill */
+  --control-border: #cfccc4;
+  --secondary-hover: #f4f3ef;
+  --input-fill: #fbfaf8;
+
   /* Green (brand): forecast line, primary buttons, selected tab, paychecks, "Works", "On track" */
   --green: #1c6b4a;
   --green-tint: #e6f0ea;
@@ -49,6 +54,9 @@
   --size-body: 1rem; /* 16px */
   --size-label: 0.875rem; /* 14px */
   --size-chart: 0.8125rem; /* 13px */
+  /* Panel headings are in em so they track the panel's base size (presenter mode) */
+  --size-title: 1.375em; /* 22px: Limits, Approve, Done */
+  --size-subtitle: 1.125em; /* 18px: sub-headings */
 
   --panel-shadow: 0 1px 2px rgb(28 27 25 / 0.06), 0 8px 24px rgb(28 27 25 / 0.06);
   --page-pad: 2rem;
@@ -69,6 +77,9 @@ html[data-presenter='true'] {
   --color-zero-line: var(--zero-line);
   --color-before-line: var(--before-line);
   --color-label-ink: var(--label-ink);
+  --color-control-border: var(--control-border);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-input-fill: var(--input-fill);
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-vermilion: var(--vermilion);
@@ -96,6 +107,8 @@ html[data-presenter='true'] {
   --text-body: var(--size-body);
   --text-label: var(--size-label);
   --text-chart: var(--size-chart);
+  --text-title: var(--size-title);
+  --text-subtitle: var(--size-subtitle);
 
   --shadow-panel: var(--panel-shadow);
 }

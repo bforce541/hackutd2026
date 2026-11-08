@@ -8,13 +8,11 @@ import type { PanelView } from '@/lib/view-model';
 
 export type StepOf<S extends PanelView['step']> = Extract<PanelView, { step: S }>;
 
-/*
- * Three neutrals the mockup uses that globals.css has no token for yet (requested from dash-shell):
- * control borders #CFCCC4, the secondary-button hover #F4F3EF and the lender box fill #FBFAF8.
- */
-export const CONTROL_BORDER = 'border-[#cfccc4]';
-const SECONDARY_HOVER = 'hover:bg-[#f4f3ef]';
-export const INPUT_FILL = 'bg-[#fbfaf8]';
+// The mockup's three extra neutrals are tokens now (globals.css): control borders, the
+// secondary-button hover and the lender box fill.
+export const CONTROL_BORDER = 'border-control-border';
+const SECONDARY_HOVER = 'hover:bg-secondary-hover';
+export const INPUT_FILL = 'bg-input-fill';
 
 const FOCUS = 'focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-green';
 
@@ -34,12 +32,12 @@ export function Headline({ children, className }: { children: ReactNode; classNa
 
 /** 22px headline (Limits, Approve, Done). */
 export function Title({ children }: { children: ReactNode }) {
-  return <p className="m-0 mt-[0.25em] text-[1.375em] leading-[1.25] font-semibold">{children}</p>;
+  return <p className="m-0 mt-[0.25em] text-title leading-[1.25] font-semibold">{children}</p>;
 }
 
 /** 18px option title (Best fix, Best use). */
 export function OptionTitle({ children }: { children: ReactNode }) {
-  return <p className="m-0 mt-[0.25em] text-[1.125em] leading-[1.3] font-semibold">{children}</p>;
+  return <p className="m-0 mt-[0.25em] text-subtitle leading-[1.3] font-semibold">{children}</p>;
 }
 
 export function Muted({ children, className }: { children: ReactNode; className?: string }) {

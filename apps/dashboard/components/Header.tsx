@@ -15,11 +15,11 @@ export function Header({ state, actions }: DashboardProps) {
   const modeNote = state.mode === 'demo' ? 'Demo' : state.connection === 'reconnecting' ? 'Live, reconnecting' : 'Live';
   return (
     <header className="border-b border-hairline">
-      <div className="flex min-h-[3.75rem] flex-wrap items-stretch gap-x-6 px-4 sm:gap-x-10 sm:px-8">
+      <div className="flex min-h-[3.75rem] flex-wrap items-stretch gap-x-6 px-4 sm:gap-x-10 sm:px-8 [html[data-presenter=true]_&]:sm:gap-x-6">
         <div className="flex min-h-11 items-center">
           <Logo />
         </div>
-        <nav aria-label="Main" className="order-last flex w-full items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto sm:gap-7">
+        <nav aria-label="Main" className="order-last flex w-full items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto sm:gap-7 [html[data-presenter=true]_&]:sm:gap-5">
           {TABS.map((t) => {
             const on = state.ui.tab === t.id;
             return (
@@ -39,7 +39,7 @@ export function Header({ state, actions }: DashboardProps) {
           })}
         </nav>
         <div className="order-last flex w-full flex-wrap items-center justify-end gap-x-1 py-1 sm:order-none sm:ml-auto sm:w-auto sm:flex-nowrap [&>*]:whitespace-nowrap">
-          <span title={state.notice ?? undefined} className="px-2 text-chart text-muted">
+          <span title={state.notice ?? undefined} className="px-2 text-chart text-muted [html[data-presenter=true]_&]:hidden">
             {state.notice && state.mode === 'demo' ? state.notice : modeNote}
           </span>
           <span className="px-1 text-label font-semibold">{formatDate(state.day)}</span>

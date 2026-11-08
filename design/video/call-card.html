@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  /* Video overlay for the call beat: the call as a back-and-forth thread.
+     Stage is 1920x1080; it scales to fit the window.
+     ?t=12.3 freezes at that time (for frame capture). ?bg=none drops the stand-in backdrop.
+     window.hold = 12.3 freezes a live page (for checking frames). */
+  :root {
+    --ground: #0b0b0c;
+    --card: rgba(11, 11, 12, 0.78);
+    --line: rgba(245, 244, 240, 0.16);
+    --ink: #f5f4f0;
+    --muted: #9b988f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+
+  .stage {
+    position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+    transform-origin: center; overflow: hidden;
+    background:
+      radial-gradient(ellipse 70% 60% at 70% 30%, #23262a 0%, transparent 70%),
+      linear-gradient(180deg, #16181b 0%, #0b0b0c 100%);
+  }
+  .stage.nobg { background: transparent; }
+  .backdrop-note {
+    position: absolute; top: 60px; right: 72px;
+    font: 400 20px/1 'DM Mono', monospace; color: rgba(245,244,240,.28); letter-spacing: .08em;
+  }
+  .stage.nobg .backdrop-note { display: none; }
+
+  /* ---- fixed call chip ---- */
+  .chip {
+    position: absolute; top: 48px; left: 72px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 14px;
+    padding: 12px 18px; border-radius: 10px;
+    background: var(--card); border: 1.5px solid var(--line);
+    font: 400 22px/1 'DM Mono', monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+  }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff5a36; }
+  .chip .clock { color: var(--ink); letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+
+  /* ---- the thread ---- */
+  .thread {
+    position: absolute; inset: 0;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 110px, #000 240px);
+            mask-image: linear-gradient(180deg, transparent 0, transparent 110px, #000 240px);
+  }
+  .turn {
+    position: absolute; top: 0; width: 1060px; height: 240px;
+    display: grid; grid-template-columns: 184px 1fr; align-items: center;
+    will-change: transform, opacity;
+  }
+  .turn.pacepay { left: 96px; }
+  .turn.lender { left: calc(1920px - 96px - 1060px); grid-template-columns: 1fr 184px; }
+  .turn.lender .avatar { order: 2; margin: 0 0 0 0; }
+  .turn.lender .body { padding: 0 8px 0 52px; }
+
+  .turn .shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .turn.lender .shape { transform: scaleX(-1); }
+  .turn .shape .fill { fill: var(--card); }
+  .turn .shape .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .turn .shape .accent { fill: none; stroke: var(--accent); stroke-width: 2; opacity: .55; }
+
+  .avatar {
+    position: relative; justify-self: center; width: 148px; height: 148px;
+    display: grid; place-items: center;
+  }
+  .avatar .face {
+    width: 126px; height: 126px; border-radius: 10px; background: var(--ground);
+    display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line);
+  }
+  .avatar .face svg { width: 90px; height: 90px; }
+  .avatar .initials { font: 500 40px/1 'DM Mono', monospace; color: #c9c6be; letter-spacing: .04em; }
+  .avatar .bracket { position: absolute; width: 28px; height: 28px; border: 0 solid var(--accent); }
+  .avatar .bracket.tl { top: 0; left: 0; border-top-width: 3px; border-left-width: 3px; border-top-left-radius: 10px; }
+  .avatar .bracket.tr { top: 0; right: 0; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 10px; }
+  .avatar .bracket.bl { bottom: 0; left: 0; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 10px; }
+  .avatar .bracket.br { bottom: 0; right: 0; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 10px; }
+  .turn.done .avatar .bracket { opacity: .45; }
+
+  .body { position: relative; padding: 0 52px 0 8px; display: flex; flex-direction: column; }
+  .label {
+    font: 400 18px/1 'DM Mono', monospace; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); padding-bottom: 10px; border-bottom: 1.5px solid var(--line);
+  }
+  .name { margin-top: 12px; color: var(--ink); font: 600 38px/1 'Instrument Sans', sans-serif; letter-spacing: -0.02em; }
+  .name.wordmark { font-weight: 500; letter-spacing: -0.03em; }
+  .wave { margin-top: 10px; height: 34px; width: 100%; display: block; }
+  .caption {
+    margin-top: 8px; height: 2.6em; color: var(--ink);
+    font: 400 25px/1.3 'DM Mono', monospace; letter-spacing: -0.01em; overflow: hidden;
+  }
+  .caption .cursor { display: inline-block; width: .55em; height: 1em; margin-left: 4px; vertical-align: -0.12em; background: var(--accent); opacity: .8; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="backdrop-note">STAND-IN BACKDROP · FOOTAGE GOES HERE</div>
+  <div class="chip"><span class="dot"></span><span>Live call</span><span class="clock" id="clock">00:00</span></div>
+  <div class="thread" id="thread"></div>
+</div>
+
+<script>
+// The lender as shown on screen. NOTE: the product's fixture calls the lender
+// "Lone Star Auto Finance" (packages/engine/fixtures/household.ts); swap here if needed.
+const LENDER = { name: 'Northside Auto Service', initials: 'NA' };
+
+// Placeholder lines in the order the lender script runs. Swap in the server transcript
+// of the take we use (speaker, text, start/end seconds lined up to the recorded audio).
+const LINES = [
+  { who: 'pacepay', start: 0.0,  end: 4.4,  text: "Hi, I'm PacePay, an AI assistant calling for Yoshua." },
+  { who: 'lender',  start: 5.0,  end: 7.4,  text: `${LENDER.name}, how can I help?` },
+  { who: 'pacepay', start: 8.0,  end: 12.4, text: "Could we move the Nov 10 payment to Friday, Nov 13?" },
+  { who: 'lender',  start: 13.0, end: 14.6, text: "I can do Wednesday." },
+  { who: 'pacepay', start: 15.2, end: 18.6, text: "Wednesday won't work. Is Friday possible?" },
+  { who: 'lender',  start: 19.2, end: 22.4, text: "Friday works, but there's a thirty-five dollar fee." },
+  { who: 'pacepay', start: 23.0, end: 26.4, text: "Could you waive that fee, or bring it down?" },
+  { who: 'lender',  start: 27.0, end: 28.6, text: "Okay, twenty dollars." },
+  { who: 'pacepay', start: 29.2, end: 32.4, text: "Friday the 13th with a twenty-dollar fee?" },
+  { who: 'lender',  start: 33.0, end: 33.8, text: "Yes." },
+  { who: 'pacepay', start: 34.4, end: 37.0, text: "Let me check with Yoshua. One moment." },
+  { who: 'lender',  start: 37.6, end: 38.8, text: "Take your time." },
+  { who: 'pacepay', start: 40.0, end: 46.0, text: "Yoshua approved. Friday, November 13th, twenty-dollar fee. Do you have a reference number?" },
+  { who: 'lender',  start: 46.6, end: 50.2, text: "Your reference number is A, 1, B, 2, C, 3." },
+  { who: 'pacepay', start: 50.8, end: 53.4, text: "A1B2C3. Thanks, goodbye." },
+];
+const LOOP = 57;
+
+const SPEAKERS = {
+  pacepay: {
+    label: 'PacePay · AI assistant', name: 'pacepay', wordmark: true, accent: '#2fbf71',
+    face: `<svg viewBox="0 0 64 57" aria-label="PacePay"><rect x="2" y="16" width="20" height="20" rx="4.5" fill="#FF5A36"/><rect x="11" y="25" width="20" height="20" rx="4.5" fill="#FF8A3D" fill-opacity=".9"/><rect x="20" y="31" width="20" height="20" rx="4.5" fill="#FFB547" fill-opacity=".9"/><rect x="30" y="20" width="20" height="20" rx="4.5" fill="#9ED36A" fill-opacity=".9"/><rect x="38" y="6" width="24" height="24" rx="5.5" fill="#2FBF71" fill-opacity=".95"/></svg>`,
+    stops: ['#FF5A36', '#FF8A3D', '#FFB547', '#9ED36A', '#2FBF71'],   // dip to recovered
+  },
+  lender: {
+    label: 'Lender', name: LENDER.name, wordmark: false, accent: '#c9c6be',
+    face: `<span class="initials">${LENDER.initials}</span>`,
+    stops: ['#c9c6be', '#c9c6be'],
+  },
+};
+
+// Layout: three full slots on screen; older turns scroll up under the top fade.
+const CARD_H = 240, GAP = 28, STEP = CARD_H + GAP;
+const FIRST_Y = 214;                 // top of the first turn; slots at 214, 482, 750
+const SLOTS = 3;
+const SLIDE = 0.45;                  // seconds for a new turn to arrive
+
+const $ = (id) => document.getElementById(id);
+const stage = $('stage'), thread = $('thread');
+const params = new URLSearchParams(location.search);
+if (params.get('bg') === 'none') stage.classList.add('nobg');
+
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const BARS = 80, W = 800, H = 34;
+const SHAPE = 'M12 1 H1029 L1059 31 V209 L1029 239 H12 Q1 239 1 228 V12 Q1 1 12 1 Z';
+
+// one DOM card per line, built once
+const turns = LINES.map((line, idx) => {
+  const s = SPEAKERS[line.who];
+  const el = document.createElement('div');
+  el.className = `turn ${line.who}`;
+  el.style.setProperty('--accent', s.accent);
+  el.innerHTML = `
+    <svg class="shape" viewBox="0 0 1060 240" preserveAspectRatio="none" aria-hidden="true">
+      <path class="fill" d="${SHAPE}"/><path class="edge" d="${SHAPE}"/>
+      <path class="accent" d="M1029 1 L1059 31 M1059 209 L1029 239"/>
+    </svg>
+    <div class="avatar">
+      <span class="bracket tl"></span><span class="bracket tr"></span>
+      <span class="bracket bl"></span><span class="bracket br"></span>
+      <div class="face">${s.face}</div>
+    </div>
+    <div class="body">
+      <div class="label">${esc(s.label)}</div>
+      <div class="name${s.wordmark ? ' wordmark' : ''}">${esc(s.name)}</div>
+      <svg class="wave" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <defs><linearGradient id="g${idx}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="0">
+          ${s.stops.map((c, i) => `<stop offset="${i / (s.stops.length - 1)}" stop-color="${c}"/>`).join('')}
+        </linearGradient></defs>
+        ${Array.from({ length: BARS }, (_, i) => `<rect x="${(i + 0.5) * (W / BARS) - 1.6}" width="3.2" rx="1.6" fill="url(#g${idx})"/>`).join('')}
+      </svg>
+      <div class="caption"></div>
+    </div>`;
+  thread.appendChild(el);
+  return { el, line, rects: [...el.querySelectorAll('.wave rect')], caption: el.querySelector('.caption'), state: '' };
+});
+
+// deterministic pseudo-noise so a frozen time always draws the same frame
+function noise(i, t) {
+  return Math.sin(i * 12.9898 + t * 7.3) * 0.5 + Math.sin(i * 3.1 + t * 11.7) * 0.3 + Math.sin(i * 0.7 - t * 4.1) * 0.2;
+}
+const ease = (x) => { x = Math.min(1, Math.max(0, x)); return 1 - Math.pow(1 - x, 3); };
+const scrollFor = (n) => Math.max(0, n - SLOTS) * STEP;
+
+function drawWave(turn, tt, speaking) {
+  const env = speaking ? 0.55 + 0.45 * Math.abs(Math.sin(tt * 2.6)) : 0;
+  turn.rects.forEach((r, i) => {
+    const x = i / (BARS - 1);
+    const taper = Math.pow(Math.sin(Math.PI * x), 0.9);
+    const h = Math.max(3.2, env * taper * (0.25 + 0.75 * Math.abs(noise(i, tt))) * H);
+    r.setAttribute('height', h.toFixed(1));
+    r.setAttribute('y', ((H - h) / 2).toFixed(1));
+    r.setAttribute('opacity', h <= 3.3 ? (speaking ? 0.45 : 0.3) : 1);
+  });
+}
+
+function render(t) {
+  const tt = t % LOOP;
+  const sec = Math.floor(tt);
+  $('clock').textContent = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+
+  const n = LINES.filter((l) => tt >= l.start).length;          // turns that have started
+  const newest = turns[n - 1];
+  const e = newest ? ease((tt - newest.line.start) / SLIDE) : 1;
+  const scroll = scrollFor(n - 1) + (scrollFor(n) - scrollFor(n - 1)) * e;
+
+  turns.forEach((turn, i) => {
+    const { el, line } = turn;
+    if (i >= n) { el.style.opacity = 0; el.style.visibility = 'hidden'; return; }
+    el.style.visibility = 'visible';
+    const arrive = ease((tt - line.start) / SLIDE);
+    const y = FIRST_Y + i * STEP - scroll + (1 - arrive) * 28;  // new turns rise in a little
+    el.style.transform = `translateY(${y.toFixed(1)}px)`;
+    // older turns dim a step each time a new one arrives (the top fade does the rest)
+    const DIM = [1, 0.8, 0.62, 0.5];
+    const age = n - 1 - i, dim = (k) => DIM[Math.min(Math.max(k, 0), DIM.length - 1)];
+    const ageDim = age === 0 ? 1 : dim(age - 1) + (dim(age) - dim(age - 1)) * e;
+    el.style.opacity = (arrive * ageDim).toFixed(3);
+
+    const isNewest = i === n - 1;
+    const speaking = isNewest && tt <= line.end;
+    el.classList.toggle('done', !isNewest);
+
+    // caption types on over 80% of the line, then holds
+    const p = Math.min(1, Math.max(0, (tt - line.start) / ((line.end - line.start) * 0.8)));
+    const key = p < 1 ? `t${Math.round(line.text.length * p)}` : 'full';
+    if (key !== turn.state) {
+      turn.state = key;
+      const shown = line.text.slice(0, Math.round(line.text.length * p));
+      turn.caption.innerHTML = esc(shown) + (p < 1 ? '<span class="cursor"></span>' : '');
+    }
+
+    if (speaking || turn.waveLive !== false) { drawWave(turn, tt, speaking); turn.waveLive = speaking; }
+  });
+}
+
+const frozen = params.get('t');
+if (frozen !== null) {
+  document.fonts.ready.then(() => render(parseFloat(frozen)));
+} else {
+  const t0 = performance.now();
+  const tick = () => { render(window.hold ?? (performance.now() - t0) / 1000); requestAnimationFrame(tick); };
+  document.fonts.ready.then(tick);
+}
+</script>
+</body>
+</html>

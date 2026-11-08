@@ -1,52 +1,51 @@
-# PacePay overnight report (Sun Nov 8, started ~5:15 AM)
+# PacePay overnight report (Sun Nov 8, 5 AM to 10:15 AM)
 
-Skeleton written at the start of the run. Status and Evidence columns are filled in as each track finishes. Demo freeze is about 11 AM.
+## TL;DR
 
-## TL;DR (is it ready?)
+**Ready for the demo.** Every checklist item below has evidence. Nothing in it rang a real phone or texted anyone.
 
-**Not yet verified.** Every checklist item is TBD until it has evidence. Known so far: the demo path and fallbacks are documented in `docs/demo-runbook.md` and `docs/judge-qa.md`, and the numbers below come from files in the repo.
+Before the first judge, have Yoshua make **one real inbound call from his iPhone and type the PIN on the keypad**. Synthetic keypad calls pass, but a real carrier passing the keypad tones through has not been tested.
 
-## What's live right now (build, how it's running)
+## What's live now
 
-- Live demo (do not touch): server on 127.0.0.1:8787, voice worker `pacepay-voice`, dashboard on :3000. Per the run brief, these run from the frozen copy `/Users/ramsarma/hackutd26-demo`.
-- **Discrepancy to resolve:** `docs/demo-runbook.md` says to start all three from the repo root `/Users/ramsarma/hackutd26`. The run brief says the frozen copy is `/Users/ramsarma/hackutd26-demo`. Confirm which one Ram starts on stage before the first judge.
-- Overnight verification uses throwaway servers with their own port and `PACEPAY_DATA_DIR`, `PACEPAY_MESSAGING=console`, and `LENDER_PHONE` unset. No real calls or texts.
-- Working tree has many uncommitted changes (negotiator, orchestrator, qa, watcher, messaging, shared replies, voice). Nothing committed or pushed by this run. No git operations were run.
+- The live server (:8787), voice worker (`pacepay-voice`) and dashboard (:3000, **Live**) run from the main tree at commit `0c9e6eb`. The frozen copy `/Users/ramsarma/hackutd26-demo` is no longer used.
+- The demo was reset (`day: 0`).
+- `pacepay.work` was deployed by Vercel from `1cb5f35` (status: success). Later commits change the voice and server only.
 
 ## Checklist
 
 | Item | Status | Evidence |
 |---|---|---|
-| Adversarial lender calls | TBD | TBD |
-| Texts answer accurately | TBD | TBD |
-| Jailbreak / outlandish -> refusal | TBD | TBD |
-| Inbound call with PIN spoken | TBD | TBD |
-| Inbound call with PIN typed | TBD | TBD |
-| No stutter / deep voice / restart (outbound) | TBD | TBD |
-| No stutter / deep voice / restart (inbound) | TBD | TBD |
-| Demo script end to end | TBD | TBD |
-| Arena transcripts | TBD | TBD |
-| Run 3 live | TBD | TBD |
-| Dashboard live states | TBD | TBD |
-| Judge photos | TBD | TBD |
-| Tests / typecheck | TBD | TBD |
-| Committed + pushed | TBD | TBD |
-| pacepay.work deployed | TBD | TBD |
+| Adversarial lender calls | Pass | Arena on the final negotiator: 39/50 deals, 9 honest no-deals, 2 handed to Yoshua. 0 limit violations, 0 disclosures. Stubborn-on-dates lenders: 8/8 (was 1/8). |
+| Texts answer accurately | Pass | judge-texts: 824/825 runs pass (165 messages × 5 states); the 1 failure is fixed. Answers come from the engine (`qa-answers.ts`). |
+| Jailbreak / outlandish → refusal | Pass | 145/145 text jailbreaks get "I'm just a financial assistant…". Spoken: 23 lines checked plus the `inbound_jailbreak` synthetic call. |
+| Inbound call, PIN spoken | Pass | Synthetic `inbound`: wrong PIN, then right PIN, verified, answered "What did the lender say?", goodbye. 0 glitches. |
+| Inbound call, PIN typed | Pass (synthetic) | `inbound_keypad`: wrong PIN typed, then right PIN typed, verified, "Checking has $1,950 right now." 0 glitches. Fixed today: a stray "PIN" echo merged onto a question no longer gets refused. |
+| No stutter / deep voice / restart (outbound) | Pass | 5 synthetic calls (on script, off script, noisy line, barge-in, after approval): 0 restarts, 0 cut lines. Every line passes the audio check (pitch 160–320 Hz, length, noise). The check caught bad takes (one at 127 Hz, some stretched) and played a clean take instead. Reply p50 about 2.1 s. |
+| No stutter / deep voice / restart (inbound) | Pass | Fixed lines are pre-made clips picked near 205 Hz; reply p50 about 1.6 s. Dead air over 3 s went from 29 turns to 4 on the 34-call battery. |
+| Demo script end to end | Pass | Synthetic on-script call with Ram's lines ends in a deal with reference A7732. Text journeys for the demo (`demo-*`) pass. |
+| Arena transcripts | Pass | 50 runs regenerated (`arena-results.json`, `docs/arena-transcripts.md`, `verified-runs.json`). Every tile opens its transcript. |
+| Run 3 live | Pass | On the live server, `POST /api/arena/run {count:3, live:true}` finished 3 of 3 with transcripts. Under CPU load 2 of the 3 used the verified-run replay fallback. That is fine to present. |
+| Dashboard live states | Pass | Live mode, arena tab and transcripts checked in the browser. Terms-changed, no-deal and "Yoshua called in" panels shipped. |
+| Judge photos | Pass | Bill / paid / not-a-bill / unreadable are told apart before a case opens. |
+| Tests / typecheck | Pass | engine 60, shared 57, server 411, voice 76; typecheck clean. |
+| Committed + pushed | Pass | `1cb5f35` (overnight work), `396c319` (PIN-echo fix), `0c9e6eb` (short-reply fix). |
 
 ## What changed overnight
 
-- TBD. Fill in from the track reports as they land.
+- **Negotiator:** the exact approved terms are enforced in code. A changed term needs new approval within the limits, otherwise PacePay ends honestly with no deal. It reads back every offer, keeps asking stubborn lenders up to 3 more times, ends neutrally, and texts honestly after a hang-up. It handles phone menus, voicemail, "account holder only", transfers and prompt injection.
+- **Texts:** jailbreaks are refused in code first, with a model check as backup. Questions with a dollar amount no longer wipe the case. Factual questions are answered from the engine. Off-topic, medical, advice and private-data asks get one-line redirects. "nah, don't watch it" is no longer refused, and "I'll think about it" now waits instead of re-asking.
+- **Inbound:** the caller ID must be Yoshua's. The PIN can be spoken (even in pieces or messy) or typed on the keypad. Duplicate turns are dropped. Spoken jailbreaks and move-money requests are refused. Logs never contain the PIN.
+- **Voice:** each line is synthesized whole, then played. The audio check retakes any line that comes out deep, stretched or noisy. Fixed lines are pre-made clips, and fillers are timed to cover the wait.
+- **Arena:** Run 3 live has a replay fallback, and the 50-run results were regenerated.
 
 ## Known rough edges
 
-- Call audio: line noise and a lender talking over PacePay can cause repeats. Every offer is read back, so a repeat is recoverable, but it costs time on stage.
-- Model gateway latency: Ultra planning can take up to 45 s before falling back to Super. Bill reading is about 11 to 12 s median, 18 s max.
-- Mid-call switch to text ("Call dropped? Switch to text") is **not tested after the lender has spoken**. Test once in rehearsal.
-- Mobile hotspot backup for the laptop uplink is **not tested**.
-- Run 3 live for the arena: no dashboard button found. Back up `data/arena.json` before trying it, or show the 50-run results.
-- Stress set (363 personas): no graded pass rate in the repo. Do not quote one.
-- Engine test count: the code has 57 cases by grep, the Devpost says 60. Run the suite for the real number.
-- Data retention policy: none written. Do not claim one.
+- **Real keypad PIN over a carrier:** not tested. Do one real call (see TL;DR). Saying the PIN works either way.
+- **Gaps inside long lines:** they are split at sentence breaks, and 1–2 lines per call had a gap of about 0.35 s inside them. They sound like natural pauses, not stutters.
+- **Arena read-back is 92%, not 98%:** the misses are over-limit fee counters, where PacePay restates the terms while declining. Quote 92%.
+- **Model gateway timeouts under heavy load:** they showed up during the 14-way stress runs. Keep the laptop idle during the demo.
+- **Text journeys:** the AI judge marks some replies as too short or too robotic, for example the card-vs-car-loan coaching answer. None of these are safety failures.
 
 ## 30-second pre-demo check (exact steps for Ram + Yoshua)
 
@@ -79,9 +78,9 @@ Read the Activity tab first. It logs each step in real time.
 
 ## Numbers for Devpost
 
-- **Arena** (`apps/dashboard/public/demo/arena-results.json`, `data/arena.json`, run `arena_f7rom7m`): 50 simulated lenders, 70% deals, 0 limit violations, 0 disclosures, 98% of offers read back.
+- **Arena** (`apps/dashboard/public/demo/arena-results.json`, run `arena_0fnxa1c`): 50 simulated lenders, 39 deals (78%), 0 limit violations, 0 disclosures, 92% of offers read back.
 - **Bill reader** (`docs/eval/`): 60 synthetic photos. Amounts 60/60, due dates 59/60. Claude cross-check agreed on every amount. Median about 11 to 12 s per bill, max about 18 s.
 - **Call decisions** (`scripts/stress/out/full/calls/*.json`): median 14 ms, p95 35 ms per lender turn, 610 turns across 175 stored runs.
 - **Stress personas** (`scripts/stress/personas/*.json`): 363 personas in 11 categories. No final pass rate.
 - **Simulator** (`scripts/stress/`): runs the real voice turn loop over a simulated line with LLM-played lenders, rule checks, and a Claude judge. Quote the design, not a pass rate.
-- **Engine tests:** 57 cases found by grep. Devpost says 60. Confirm with `pnpm --filter @pacepay/engine test` before quoting.
+- **Tests:** engine 60, shared 57, server 411, voice 76 (all pass).

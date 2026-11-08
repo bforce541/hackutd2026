@@ -5,6 +5,7 @@
  * Demo or Live note. Owned by: dash-shell.
  */
 import { CD_ALERT_DAY, formatDate } from '@pacepay/shared';
+import { Logo } from '@/components/Logo';
 import { cn } from '@/lib/cn';
 import { TABS, type DashboardProps } from '@/lib/view-model';
 
@@ -15,11 +16,8 @@ export function Header({ state, actions }: DashboardProps) {
   return (
     <header className="border-b border-hairline">
       <div className="flex min-h-[3.75rem] flex-wrap items-stretch gap-x-6 px-4 sm:gap-x-10 sm:px-8">
-        <div className="flex min-h-11 items-center gap-2">
-          <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true">
-            <path d="M3 9 H9 V19 H15 V7 H25" fill="none" stroke="var(--green)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="text-[1.0625rem] font-semibold tracking-[-0.01em]">PacePay</span>
+        <div className="flex min-h-11 items-center">
+          <Logo />
         </div>
         <nav aria-label="Main" className="order-last flex w-full items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] sm:order-none sm:w-auto sm:gap-7">
           {TABS.map((t) => {

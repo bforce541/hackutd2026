@@ -88,6 +88,7 @@ html[data-presenter='true'] {
   --color-ring: var(--ring);
 
   --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-brand: var(--font-instrument), var(--font-plex), ui-sans-serif, system-ui, sans-serif;
 
   --text-hero: var(--size-hero);
   --text-headline: var(--size-headline);

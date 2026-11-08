@@ -477,7 +477,7 @@ export function PaceLine({ state, actions }: DashboardProps) {
               <span key={c} className="h-3 w-2 rounded-[2px]" style={{ background: c }} />
             ))}
           </span>
-          Overdrawn to safe
+          Tight to safe
         </li>
         {chart.ghost && (
           <li className="flex items-center gap-1.5">

@@ -33,7 +33,7 @@ export function AccountList({ state }: Props) {
           >
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="eyebrow m-0 text-muted">{CATEGORY_LABELS[c]}</h3>
-              <span className="eyebrow num text-muted">{formatMoney(total)}</span>
+              {accounts.length > 1 && <span className="eyebrow num text-muted">{formatMoney(total)}</span>}
             </div>
             <ul className="m-0 mt-3 list-none p-0">
               {accounts.map((a) => (

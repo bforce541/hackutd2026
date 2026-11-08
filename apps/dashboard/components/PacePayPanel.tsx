@@ -54,13 +54,6 @@ const STEPS: { step: PanelStep; label: string }[] = [
 ];
 const SPECTRUM = ['var(--coral)', 'var(--orange)', 'var(--amber)', 'var(--lime)', 'var(--leaf)'];
 
-const OTHER_LABELS: Partial<Record<PanelStep, string>> = {
-  idle: 'All set',
-  what_if: 'What if',
-  cd_alert: 'Coming up',
-  bill_confirm: 'Check the bill',
-};
-
 export function PacePayPanel(props: DashboardProps) {
   const step = props.state.panel.step;
   // A held deal got as far as Approve, so its tiles stay lit through step 4 and Done stays dark.
@@ -89,9 +82,7 @@ export function PacePayPanel(props: DashboardProps) {
           </span>
           PacePay
         </span>
-        <span className="eyebrow text-muted">
-          {step === 'held' ? 'On hold · 4/5' : inCase ? `${STEPS[index]!.label} · ${index + 1}/5` : (OTHER_LABELS[step] ?? '')}
-        </span>
+        <span className="eyebrow text-muted">{step === 'held' ? '4/5' : inCase ? `${index + 1}/5` : ''}</span>
       </div>
 
       <div className="mt-3 mb-[1.25em] flex gap-1" role="img" aria-label={step === 'held' ? 'On hold after step 4 of 5' : inCase ? `Step ${index + 1} of 5: ${STEPS[index]!.label}` : 'No case open'}>

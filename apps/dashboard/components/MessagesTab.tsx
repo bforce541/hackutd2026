@@ -115,10 +115,6 @@ export function MessagesTab({ state, actions }: DashboardProps) {
         <h2 id="msg-h" className="display m-0 mt-3 max-w-[14ch] text-[2.75rem]">
           Everything PacePay says, it said on your phone.
         </h2>
-        <p className="mt-4 max-w-[34rem] text-body text-muted">
-          It texts first only when it matters, shows its math, and never moves money without your yes. Ask it anything below: it answers from your real
-          accounts.
-        </p>
 
         <p className="eyebrow mt-8 text-muted">Try asking</p>
         <ul className="pp-write m-0 mt-3 flex list-none flex-wrap gap-2 p-0">

@@ -30,7 +30,9 @@ export function Header({ state, actions }: DashboardProps) {
   const { theme, toggle } = useTheme();
   const inCall = state.panel.step === 'call' || state.panel.step === 'approve';
   const skipped = state.day >= CD_ALERT_DAY;
-  const modeNote = state.mode === 'demo' ? 'Demo' : state.connection === 'reconnecting' ? 'Reconnecting' : 'Live';
+  // Demo mode says nothing. Live, view-only, reconnecting and "can't reach the server" still do.
+  const modeNote = state.mode === 'demo' ? null : state.connection === 'reconnecting' ? 'Reconnecting' : 'Live';
+  const statusNote = state.notice ?? (state.readOnly ? 'View only' : modeNote);
 
   return (
     <header className="rise" style={{ '--d': '0ms' } as React.CSSProperties}>
@@ -54,13 +56,15 @@ export function Header({ state, actions }: DashboardProps) {
         />
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-1 [&>*]:whitespace-nowrap">
-          <span
-            title={state.notice ?? undefined}
-            className="eyebrow mr-1 flex items-center gap-1.5 px-2 text-muted [html[data-presenter=true]_&]:hidden"
-          >
-            <span aria-hidden="true" className={cn('size-1.5 rounded-full', state.mode === 'live' ? 'bg-leaf' : 'bg-amber')} />
-            {state.notice ?? (state.readOnly ? 'View only' : modeNote)}
-          </span>
+          {statusNote && (
+            <span
+              title={state.notice ?? undefined}
+              className="eyebrow mr-1 flex items-center gap-1.5 px-2 text-muted [html[data-presenter=true]_&]:hidden"
+            >
+              <span aria-hidden="true" className={cn('size-1.5 rounded-full', state.mode === 'live' ? 'bg-leaf' : 'bg-amber')} />
+              {statusNote}
+            </span>
+          )}
 
           <span className="eyebrow rounded-full border border-hairline px-3 py-[0.55rem] text-ink [html[data-presenter=true]_&]:hidden">
             {formatDate(state.day)}

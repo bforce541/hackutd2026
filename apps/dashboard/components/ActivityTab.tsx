@@ -10,7 +10,7 @@ import { PlanChecklist } from './activity/PlanChecklist';
 
 export function ActivityTab({ state }: DashboardProps) {
   return (
-    <div className="flex flex-wrap items-start gap-10">
+    <div className="mx-auto flex max-w-[78rem] flex-wrap items-start gap-5">
       <PlanChecklist current={state.current} />
       <LogList events={state.activity} />
     </div>

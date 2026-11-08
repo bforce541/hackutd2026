@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { ActivityEvent, ModelRole } from '@pacepay/shared';
 import { ACTOR_LABELS, formatClockTime } from '@pacepay/shared';
 import { cn } from '@/lib/cn';
@@ -17,30 +18,30 @@ function detailText(detail: unknown): string {
   }
 }
 
-function Row({ e }: { e: ActivityEvent }) {
+function Row({ e, index }: { e: ActivityEvent; index: number }) {
   const w = who(e);
-  const ai = w.model?.startsWith('nemotron');
+  const ai = w.model?.startsWith('nemotron') || w.model === 'claude-opus' || w.model === 'gpt-realtime';
   const hasDetail = e.detail !== undefined && e.detail !== null;
   return (
-    <li className="border-t border-hairline py-2.5">
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="num w-[4.5em] flex-none text-label text-muted">{formatClockTime(e.at)}</span>
+    <li className="rise border-t border-hairline py-3" style={{ '--d': `${Math.min(index, 12) * 28}ms`, animationDuration: '480ms' } as CSSProperties}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+        <span className="eyebrow num w-[5.5em] flex-none text-muted">{formatClockTime(e.at)}</span>
         <span
           className={cn(
-            'w-40 flex-none text-label font-semibold',
-            ai ? 'text-green' : w.model === 'engine' || w.model === 'code' ? 'text-muted' : 'text-ink',
+            'eyebrow flex-none rounded-full border px-2 py-0.5',
+            ai ? 'border-ink/30 text-ink' : 'border-hairline text-muted',
           )}
         >
           {w.label}
         </span>
-        <span className={cn('min-w-0 flex-[1_1_260px]', e.level === 'error' && 'text-vermilion', e.level === 'warn' && 'text-ochre')}>
+        <span className={cn('min-w-0 flex-[1_1_16rem] leading-snug', e.level === 'error' && 'text-vermilion', e.level === 'warn' && 'text-ochre')}>
           {e.title}
         </span>
       </div>
       {hasDetail ? (
-        <details className="mt-1 pl-[calc(4.5em+1rem)]">
-          <summary className="cursor-pointer text-chart text-muted">Details</summary>
-          <pre className="num mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words text-chart text-muted">
+        <details className="group mt-1.5 pl-[6.1em]">
+          <summary className="eyebrow inline-block cursor-pointer text-muted transition-colors hover:text-ink">Details</summary>
+          <pre className="num mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-page p-3 text-chart text-muted">
             {detailText(e.detail)}
           </pre>
         </details>
@@ -52,14 +53,22 @@ function Row({ e }: { e: ActivityEvent }) {
 export function LogList({ events }: { events: ActivityEvent[] }) {
   const rows = [...events].sort((a, b) => b.seq - a.seq);
   return (
-    <section aria-labelledby="log-h" className="min-w-0 flex-[2_1_480px]">
-      <h2 id="log-h" className="m-0 text-[1.25rem] font-semibold">
-        Log
-      </h2>
-      <p className="mb-3 mt-1 text-label text-muted">Newest first. Every model call, tool call and reply.</p>
-      <ol className="m-0 list-none border-b border-hairline p-0">
-        {rows.map((e) => (
-          <Row key={e.id} e={e} />
+    <section
+      aria-labelledby="log-h"
+      className="rise min-w-0 flex-[2_1_30rem] rounded-[1.75rem] border border-hairline bg-panel p-6 shadow-panel"
+      style={{ '--d': '140ms' } as CSSProperties}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="log-h" className="eyebrow m-0 flex items-center gap-2 text-muted">
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-leaf" />
+          Log
+        </h2>
+        <span className="eyebrow text-muted">{rows.length} events</span>
+      </div>
+      <p className="mb-3 mt-2 text-body leading-snug">Newest first. Every model call, tool call and reply, labeled with who did it.</p>
+      <ol className="m-0 max-h-[calc(100vh-18rem)] min-h-40 list-none overflow-y-auto p-0 pr-1">
+        {rows.map((e, i) => (
+          <Row key={e.id} e={e} index={i} />
         ))}
       </ol>
     </section>

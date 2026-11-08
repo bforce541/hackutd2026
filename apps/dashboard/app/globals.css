@@ -290,6 +290,15 @@ html.theme-switching *::after {
   }
 }
 
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 @keyframes ring {
   0% {
     transform: scale(1);

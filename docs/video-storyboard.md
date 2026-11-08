@@ -1,4 +1,7 @@
-# Demo video storyboard (2:30 to 2:50)
+# Demo video storyboard (earlier draft)
+
+> Superseded by [video-plan.md](video-plan.md). Kept for the dashboard clip list.
+
 
 Source of the outline: `v2.md` › Video. Judges skim, so the first 20 seconds have to show the problem and the last 15 have to name the three tracks. The Devpost link currently points at a placeholder; replace it with the real upload (YouTube, public or unlisted, **not** private).
 

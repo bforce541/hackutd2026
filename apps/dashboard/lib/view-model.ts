@@ -145,6 +145,12 @@ export type PanelView =
       rows: CompareRow[];
       approvalId?: string; // live: the pending deal approval
       secondsLeft?: number; // of the 60 s mid-call window
+      /**
+       * Set when this is a fresh approval because the lender changed the terms after Yoshua said yes.
+       * `rows` then read "what you approved -> what they now offer", and `note` is the server's words
+       * ("The lender changed the fee after you approved $20.").
+       */
+      termsChanged?: { note: string };
     }
   | {
       step: 'done';

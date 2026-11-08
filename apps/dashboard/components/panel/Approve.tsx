@@ -1,18 +1,23 @@
 /** Approve, the second approval: before -> after rows and two equal buttons. Owned by: dash-panel. */
 import { formatTimer } from '@pacepay/shared';
 import type { DashboardProps } from '@/lib/view-model';
-import { ButtonRow, DefRows, Eyebrow, PrimaryButton, SecondaryButton, Title, type StepOf } from './primitives';
+import { ButtonRow, DefRows, Eyebrow, Muted, PrimaryButton, SecondaryButton, Title, type StepOf } from './primitives';
 
 export function Approve({ view, actions }: DashboardProps & { view: StepOf<'approve'> }) {
   return (
     <div className="flex flex-col">
       <div className="flex items-baseline gap-[0.5em]">
-        <Eyebrow className="text-muted">Lender&apos;s offer</Eyebrow>
+        {view.termsChanged ? (
+          <Eyebrow className="text-ochre">Terms changed</Eyebrow>
+        ) : (
+          <Eyebrow className="text-muted">Lender&apos;s offer</Eyebrow>
+        )}
         {view.secondsLeft !== undefined && (
           <span className="ml-auto text-label text-muted">{formatTimer(view.secondsLeft)} left</span>
         )}
       </div>
-      <Title>Approve this deal?</Title>
+      <Title>{view.termsChanged ? 'Approve the new terms?' : 'Approve this deal?'}</Title>
+      {view.termsChanged && <Muted className="mt-[0.375em]">{view.termsChanged.note}</Muted>}
       <DefRows
         valueClassName=""
         rows={view.rows.map((r) => ({

@@ -27,7 +27,7 @@ Suggestions that tend to work:
 |---|---|---|---|
 | 1 | 0:00 to 0:12 | **Hook.** Yoshua at a desk with the printed repair quote and his iPhone. Text on screen: "$650 due today. Payday is Thursday." Cut to the red dip, −$300 on Tuesday. | everyone |
 | 2 | 0:12 to 0:35 | **The photo.** Yoshua photographs the quote and texts it to PacePay with no question. iPhone screen recording: reply, chart image, the three options. He taps "1". | Photon, NVIDIA |
-| 3 | 0:35 to 1:20 | **The call (hero).** Limits OK, then PacePay dials. Lender answers (teammate). Captions show the live transcript. Wednesday is offered and refused, then Friday for $20. Yoshua's phone buzzes, he types YES on camera, PacePay confirms out loud. | Photon voice, NVIDIA |
+| 3 | 0:35 to 1:20 | **The call (hero).** Limits OK, then PacePay dials. Lender answers. Captions show the live transcript. Wednesday is offered and refused, then Friday for $20. Yoshua's phone buzzes, he types YES on camera, PacePay confirms out loud. | Photon voice, NVIDIA |
 | 4 | 1:20 to 1:32 | **Done.** "Done. Friday, $20, ref A1B2C3." The phone screen transitions into the dashboard, and the red dip sweeps green. | everyone |
 | 5 | 1:32 to 2:02 | **The whole picture (PNC).** Four health scores. What-if: type $900 in Try a purchase, the line redraws. Skip to Nov 18: the CD alert. | PNC |
 | 6 | 2:02 to 2:22 | **Nemotron at work (NVIDIA).** Activity tab with a model label on every step. Arena grid. Architecture graphic. | NVIDIA |

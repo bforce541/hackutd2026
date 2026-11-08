@@ -35,7 +35,14 @@ export function Header({ state, actions }: DashboardProps) {
   return (
     <header className="rise" style={{ '--d': '0ms' } as React.CSSProperties}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3.5 sm:px-8">
-        <Logo />
+        <button
+          type="button"
+          aria-label="PacePay, go to Home"
+          onClick={() => actions.setTab('home')}
+          className="cursor-pointer rounded-lg border-0 bg-transparent p-0"
+        >
+          <Logo />
+        </button>
 
         <Segmented<Tab>
           kind="tabs"
